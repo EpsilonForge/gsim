@@ -40,6 +40,10 @@ Usage:
 
 from __future__ import annotations
 
+from functools import partial
+
+from gsim.gcloud import print_job_summary
+from gsim.gcloud import run_simulation as _run_simulation
 from gsim.palace.mesh import (
     GroundPlane,
     MeshConfig,
@@ -75,6 +79,7 @@ from gsim.palace.stack import (
     print_stack,
     print_stack_table,
 )
+from gsim.viz import plot_mesh
 
 __all__ = [
     "MATERIALS_DB",
@@ -103,7 +108,13 @@ __all__ = [
     "material_is_conductor",
     "material_is_dielectric",
     "parse_layer_stack",
+    "plot_mesh",
     "plot_stack",
+    "print_job_summary",
     "print_stack",
     "print_stack_table",
+    "run_simulation",
 ]
+
+# Palace-specific run_simulation with job_type preset
+run_simulation = partial(_run_simulation, job_type="palace")

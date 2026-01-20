@@ -11,9 +11,12 @@ classifiers = [
 ]
 dependencies = [
   "gdsfactory>=8.32.2",
+  "gdsfactoryplus",
   "gmsh",
+  "meshio>=5.0.0",
   "plotly",
-  "pydantic>=2.10.6"
+  "pydantic>=2.10.6",
+  "pyvista>=0.43.0"
 ]
 description = ""
 name = "gsim"
