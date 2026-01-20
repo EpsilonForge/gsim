@@ -20,26 +20,15 @@ import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from gdsfactoryplus import sim  # type: ignore[import-untyped]
+
 if TYPE_CHECKING:
-    from typing import Callable, Literal
-
-# Lazy import gdsfactoryplus to avoid hard dependency at module load time
-_sim = None
-
-
-def _get_sim():
-    """Lazy import of gdsfactoryplus.sim module."""
-    global _sim
-    if _sim is None:
-        from gdsfactoryplus import sim  # type: ignore[import-untyped]
-
-        _sim = sim
-    return _sim
+    from collections.abc import Callable
+    from typing import Literal
 
 
 def _get_job_definition(job_type: str):
     """Get JobDefinition enum value by name."""
-    sim = _get_sim()
     job_type_upper = job_type.upper()
     if not hasattr(sim.JobDefinition, job_type_upper):
         valid = [e.name for e in sim.JobDefinition]
@@ -57,7 +46,6 @@ def upload_simulation_dir(input_dir: str | Path, job_type: str):
     Returns:
         PreJob object from gdsfactoryplus
     """
-    sim = _get_sim()
     input_dir = Path(input_dir)
     zip_path = Path("_gsim_upload.zip")
 
@@ -109,7 +97,6 @@ def run_simulation(
         Waiting for completion... done (2m 34s)
         Downloading results... done
     """
-    sim = _get_sim()
     output_dir = Path(output_dir)
 
     if not output_dir.exists():
@@ -117,25 +104,25 @@ def run_simulation(
 
     # Upload
     if verbose:
-        print("Uploading simulation... ", end="", flush=True)
+        print("Uploading simulation... ", end="", flush=True)  # noqa: T201
 
     pre_job = upload_simulation_dir(output_dir, job_type)
 
     if verbose:
-        print("done")
+        print("done")  # noqa: T201
 
     # Start
     job = sim.start_simulation(pre_job)
 
     if verbose:
-        print(f"Job started: {job.job_name}")
+        print(f"Job started: {job.job_name}")  # noqa: T201
 
     if on_started:
         on_started(job)
 
     # Wait
     if verbose:
-        print("Waiting for completion... ", end="", flush=True)
+        print("Waiting for completion... ", end="", flush=True)  # noqa: T201
 
     finished_job = sim.wait_for_simulation(job)
 
@@ -146,7 +133,7 @@ def run_simulation(
             duration = f"{minutes}m {seconds}s"
         else:
             duration = "N/A"
-        print(f"done ({duration})")
+        print(f"done ({duration})")  # noqa: T201
 
     # Check status
     if finished_job.exit_code != 0:
@@ -157,12 +144,12 @@ def run_simulation(
 
     # Download
     if verbose:
-        print("Downloading results... ", end="", flush=True)
+        print("Downloading results... ", end="", flush=True)  # noqa: T201
 
     results = sim.download_results(finished_job)
 
     if verbose:
-        print("done")
+        print("done")  # noqa: T201
         _print_result_summary(results)
 
     return results
@@ -170,9 +157,9 @@ def run_simulation(
 
 def _print_result_summary(results: dict[str, Path]) -> None:
     """Print a summary of downloaded result files."""
-    print(f"\nResults ({len(results)} files):")
+    print(f"\nResults ({len(results)} files):")  # noqa: T201
     for name in sorted(results.keys()):
-        print(f"  - {name}")
+        print(f"  - {name}")  # noqa: T201
 
 
 def print_job_summary(job) -> None:
@@ -192,13 +179,12 @@ def print_job_summary(job) -> None:
     size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb / 1024:.2f} MB"
     files = list(job.download_urls.keys()) if job.download_urls else []
 
-    print(f"{'Job:':<12} {job.job_name}")
-    print(f"{'Status:':<12} {job.status.value} (exit {job.exit_code})")
-    print(f"{'Duration:':<12} {duration}")
-    print(
-        f"{'Resources:':<12} {job.requested_cpu} CPU / {job.requested_memory_mb // 1024} GB"
-    )
-    print(f"{'Output:':<12} {size_str}")
-    print(f"{'Files:':<12} {len(files)} files")
+    print(f"{'Job:':<12} {job.job_name}")  # noqa: T201
+    print(f"{'Status:':<12} {job.status.value} (exit {job.exit_code})")  # noqa: T201
+    print(f"{'Duration:':<12} {duration}")  # noqa: T201
+    mem_gb = job.requested_memory_mb // 1024
+    print(f"{'Resources:':<12} {job.requested_cpu} CPU / {mem_gb} GB")  # noqa: T201
+    print(f"{'Output:':<12} {size_str}")  # noqa: T201
+    print(f"{'Files:':<12} {len(files)} files")  # noqa: T201
     for f in files:
-        print(f"             - {f}")
+        print(f"             - {f}")  # noqa: T201
