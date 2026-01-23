@@ -1,11 +1,25 @@
 dist:
   uv run python -m build --wheel
 
-dev:
+dev: bver
   uv venv --python 3.13 --clear
   uv sync --all-extras
   uv pip install -e .
   uvx pre-commit install
+
+# Version bumping
+[linux,macos]
+bver:
+    curl -LsSf https://github.com/flaport/bver/releases/latest/download/install.sh | sh
+
+# Version bumping
+[windows]
+bver:
+    powershell -ExecutionPolicy ByPass -c "irm https://github.com/flaport/bver/releases/latest/download/install.ps1 | iex"
+
+# bump version
+bump version="patch":
+    bver bump "{{ version }}"
 
 uv:
   curl -LsSf https://astral.sh/uv/install.sh | sh
