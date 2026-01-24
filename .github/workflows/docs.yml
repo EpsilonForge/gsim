@@ -68,8 +68,8 @@ jobs:
       - name: Download all notebook artifacts
         uses: actions/download-artifact@v4
         with:
+          name: nbs
           path: nbs
-          pattern: nbs
       - name: Build docs
         run: |
           just nbdocs
