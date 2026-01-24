@@ -18,6 +18,7 @@ nav:
   - home: index.md
   - examples:
       - example: nbs/example.md
+      - palace_demo_cpw: nbs/palace_demo_cpw.md
   - api reference:
       - gsim.palace: api.md
 
