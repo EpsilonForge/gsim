@@ -18,8 +18,9 @@ import gmsh
 from . import gmsh_utils
 
 if TYPE_CHECKING:
+    from gsim.palace.models import DrivenConfig
     from gsim.palace.ports.config import PalacePort
-    from gsim.palace.stack import LayerStack
+    from gsim.common.stack import LayerStack
 
 from gsim.palace.ports.config import PortGeometry
 
@@ -42,6 +43,12 @@ class MeshResult:
     mesh_path: Path
     config_path: Path | None = None
     port_info: list = field(default_factory=list)
+    mesh_stats: dict = field(default_factory=dict)
+    # Data needed for deferred config generation
+    groups: dict = field(default_factory=dict)
+    output_dir: Path | None = None
+    model_name: str = "palace"
+    fmax: float = 100e9
 
 
 def extract_geometry(component, stack: LayerStack) -> GeometryData:
@@ -680,8 +687,39 @@ def _generate_palace_config(
     output_path: Path,
     model_name: str,
     fmax: float,
+    driven_config: DrivenConfig | None = None,
 ) -> Path:
-    """Generate Palace config.json file."""
+    """Generate Palace config.json file.
+
+    Args:
+        groups: Physical group information from mesh generation
+        ports: List of PalacePort objects
+        port_info: Port metadata list
+        stack: Layer stack for material properties
+        output_path: Output directory path
+        model_name: Base name for output files
+        fmax: Maximum frequency (Hz) - used as fallback if driven_config not provided
+        driven_config: Optional DrivenConfig for frequency sweep settings
+    """
+    # Use driven_config if provided, otherwise fall back to legacy parameters
+    if driven_config is not None:
+        solver_driven = driven_config.to_palace_config()
+    else:
+        # Legacy behavior - compute from fmax
+        freq_step = fmax / 40e9
+        solver_driven = {
+            "Samples": [
+                {
+                    "Type": "Linear",
+                    "MinFreq": 1.0,  # 1 GHz
+                    "MaxFreq": fmax / 1e9,
+                    "FreqStep": freq_step,
+                    "SaveStep": 0,
+                }
+            ],
+            "AdaptiveTol": 0.02,
+        }
+
     config: dict[str, object] = {
         "Problem": {
             "Type": "Driven",
@@ -706,18 +744,7 @@ def _generate_palace_config(
             },
             "Order": 2,
             "Device": "CPU",
-            "Driven": {
-                "Samples": [
-                    {
-                        "Type": "Linear",
-                        "MinFreq": 1e9 / 1e9,
-                        "MaxFreq": fmax / 1e9,
-                        "FreqStep": fmax / 40e9,
-                        "SaveStep": 0,
-                    }
-                ],
-                "AdaptiveTol": 2e-2,
-            },
+            "Driven": solver_driven,
         },
     }
 
@@ -831,6 +858,103 @@ def _generate_palace_config(
     return config_path
 
 
+def _collect_mesh_stats() -> dict:
+    """Collect mesh statistics from gmsh after mesh generation."""
+    stats = {}
+
+    # Get bounding box
+    try:
+        xmin, ymin, zmin, xmax, ymax, zmax = gmsh.model.getBoundingBox(-1, -1)
+        stats["bbox"] = {
+            "xmin": xmin,
+            "ymin": ymin,
+            "zmin": zmin,
+            "xmax": xmax,
+            "ymax": ymax,
+            "zmax": zmax,
+        }
+    except Exception:
+        pass
+
+    # Get node count
+    try:
+        node_tags, _, _ = gmsh.model.mesh.getNodes()
+        stats["nodes"] = len(node_tags)
+    except Exception:
+        pass
+
+    # Get element counts and collect tet tags for quality
+    tet_tags = []
+    try:
+        element_types, element_tags, _ = gmsh.model.mesh.getElements()
+        total_elements = sum(len(tags) for tags in element_tags)
+        stats["elements"] = total_elements
+
+        # Count tetrahedra (type 4) and save tags
+        for etype, tags in zip(element_types, element_tags):
+            if etype == 4:  # 4-node tetrahedron
+                stats["tetrahedra"] = len(tags)
+                tet_tags = list(tags)
+    except Exception:
+        pass
+
+    # Get mesh quality for tetrahedra
+    if tet_tags:
+        # Gamma: inscribed/circumscribed radius ratio (shape quality)
+        try:
+            qualities = gmsh.model.mesh.getElementQualities(tet_tags, "gamma")
+            if len(qualities) > 0:
+                stats["quality"] = {
+                    "min": round(min(qualities), 3),
+                    "max": round(max(qualities), 3),
+                    "mean": round(sum(qualities) / len(qualities), 3),
+                }
+        except Exception:
+            pass
+
+        # SICN: Signed Inverse Condition Number (negative = invalid element)
+        try:
+            sicn = gmsh.model.mesh.getElementQualities(tet_tags, "minSICN")
+            if len(sicn) > 0:
+                sicn_min = min(sicn)
+                invalid_count = sum(1 for s in sicn if s < 0)
+                stats["sicn"] = {
+                    "min": round(sicn_min, 3),
+                    "mean": round(sum(sicn) / len(sicn), 3),
+                    "invalid": invalid_count,
+                }
+        except Exception:
+            pass
+
+        # Edge lengths
+        try:
+            min_edges = gmsh.model.mesh.getElementQualities(tet_tags, "minEdge")
+            max_edges = gmsh.model.mesh.getElementQualities(tet_tags, "maxEdge")
+            if len(min_edges) > 0 and len(max_edges) > 0:
+                stats["edge_length"] = {
+                    "min": round(min(min_edges), 3),
+                    "max": round(max(max_edges), 3),
+                }
+        except Exception:
+            pass
+
+    # Get physical groups with tags
+    try:
+        groups = {"volumes": [], "surfaces": []}
+        for dim, tag in gmsh.model.getPhysicalGroups():
+            name = gmsh.model.getPhysicalName(dim, tag)
+            entry = {"name": name, "tag": tag}
+            if dim == 3:
+                groups["volumes"].append(entry)
+            elif dim == 2:
+                groups["surfaces"].append(entry)
+        stats["groups"] = groups
+    except Exception:
+        pass
+
+    return stats
+
+
 def generate_mesh(
     component,
     stack: LayerStack,
@@ -843,6 +967,8 @@ def generate_mesh(
     air_margin: float = 50.0,
     fmax: float = 100e9,
     show_gui: bool = False,
+    driven_config: DrivenConfig | None = None,
+    write_config: bool = True,
 ) -> MeshResult:
     """Generate mesh for Palace EM simulation.
 
@@ -858,6 +984,8 @@ def generate_mesh(
         air_margin: Air box margin (um)
         fmax: Max frequency for config (Hz)
         show_gui: Show gmsh GUI during meshing
+        driven_config: Optional DrivenConfig for frequency sweep settings
+        write_config: Whether to write config.json (default True)
 
     Returns:
         MeshResult with paths and metadata
@@ -928,6 +1056,9 @@ def generate_mesh(
         logger.info("Generating mesh...")
         gmsh.model.mesh.generate(3)
 
+        # Collect mesh statistics
+        mesh_stats = _collect_mesh_stats()
+
         # Save mesh
         gmsh.option.setNumber("Mesh.Binary", 0)
         gmsh.option.setNumber("Mesh.SaveAll", 0)
@@ -936,21 +1067,71 @@ def generate_mesh(
 
         logger.info("Mesh saved: %s", msh_path)
 
-        # Generate config
-        logger.info("Generating Palace config...")
-        config_path = _generate_palace_config(
-            groups, ports, port_info, stack, output_dir, model_name, fmax
-        )
+        # Generate config if requested
+        config_path = None
+        if write_config:
+            logger.info("Generating Palace config...")
+            config_path = _generate_palace_config(
+                groups, ports, port_info, stack, output_dir, model_name, fmax, driven_config
+            )
 
     finally:
         gmsh.clear()
         gmsh.finalize()
 
-    # Build result
+    # Build result (store groups for deferred config generation)
     result = MeshResult(
         mesh_path=msh_path,
         config_path=config_path,
         port_info=port_info,
+        mesh_stats=mesh_stats,
+        groups=groups,
+        output_dir=output_dir,
+        model_name=model_name,
+        fmax=fmax,
     )
 
     return result
+
+
+def write_config(
+    mesh_result: MeshResult,
+    stack: LayerStack,
+    ports: list[PalacePort],
+    driven_config: DrivenConfig | None = None,
+) -> Path:
+    """Write Palace config.json from a MeshResult.
+
+    Use this to generate config separately after mesh().
+
+    Args:
+        mesh_result: Result from generate_mesh(write_config=False)
+        stack: LayerStack for material properties
+        ports: List of PalacePort objects
+        driven_config: Optional DrivenConfig for frequency sweep settings
+
+    Returns:
+        Path to the generated config.json
+
+    Example:
+        >>> result = sim.mesh(output_dir, write_config=False)
+        >>> config_path = write_config(result, stack, ports, driven_config)
+    """
+    if not mesh_result.groups:
+        raise ValueError("MeshResult has no groups data. Was it generated with write_config=False?")
+
+    config_path = _generate_palace_config(
+        groups=mesh_result.groups,
+        ports=ports,
+        port_info=mesh_result.port_info,
+        stack=stack,
+        output_path=mesh_result.output_dir,
+        model_name=mesh_result.model_name,
+        fmax=mesh_result.fmax,
+        driven_config=driven_config,
+    )
+
+    # Update the mesh_result with the config path
+    mesh_result.config_path = config_path
+
+    return config_path

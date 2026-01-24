@@ -10,7 +10,7 @@ classifiers = [
   "Operating System :: OS Independent"
 ]
 dependencies = [
-  "gdsfactory>=8.32.2",
+  "gdsfactory>=9.32.0",
   "gdsfactoryplus>=1.3.7",
   "gmsh",
   "meshio>=5.0.0",
@@ -54,6 +54,9 @@ dev = [
   "vega-datasets>=0.9.0",
   "nbstripout>=0.8.1",
   "ty>=0.0.13"
+]
+docs = [
+  "ihp-gdsfactory @ git+https://github.com/gdsfactory/IHP.git",
 ]
 
 [[tool.bver.file]]
