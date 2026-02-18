@@ -59,7 +59,7 @@ def build_materials(config):
     materials = {}
     for name, props in config["materials"].items():
         n = props["refractive_index"]
-        k = props.get("extinction_coeff", 0.0)
+        k = props["extinction_coeff"]
         if k > 0:
             materials[name] = mp.Medium(index=n, D_conductivity=2 * cmath.pi * k / n)
         else:
@@ -202,7 +202,7 @@ def build_background_slabs(config, materials):
     geometry list so that patterned prisms (added later) take precedence.
     """
     slabs = []
-    for diel in sorted(config.get("dielectrics", []), key=lambda d: d["zmin"]):
+    for diel in sorted(config["dielectrics"], key=lambda d: d["zmin"]):
         mat = materials.get(diel["material"])
         if mat is None:
             continue
@@ -224,9 +224,9 @@ def build_symmetries(config):
     """Build MEEP symmetry objects from config."""
     direction_map = {"X": mp.X, "Y": mp.Y, "Z": mp.Z}
     symmetries = []
-    for sym in config.get("symmetries", []):
+    for sym in config["symmetries"]:
         symmetries.append(
-            mp.Mirror(direction_map[sym["direction"]], phase=sym.get("phase", 1))
+            mp.Mirror(direction_map[sym["direction"]], phase=sym["phase"])
         )
     return symmetries
 
@@ -238,6 +238,37 @@ _COMPONENT_MAP = {
 }
 
 
+def _make_time_cap(cap):
+    """Wrap a numeric time cap as a callable for until_after_sources lists.
+
+    When until_after_sources receives a list, every element must be callable.
+    This wraps a float (time units) into a function that returns True once
+    ``cap`` time units have elapsed since the first call (i.e. after sources
+    turn off).
+    """
+    _t0 = [None]
+    def _check(sim_obj):
+        if _t0[0] is None:
+            _t0[0] = sim_obj.meep_time()
+        return (sim_obj.meep_time() - _t0[0]) >= cap
+    return _check
+
+
+def _make_wall_time_cap(wall_seconds):
+    """Wrap a wall-clock time limit as a callable for until_after_sources lists.
+
+    Returns True once ``wall_seconds`` of real (wall) time have elapsed
+    since the first call.  This provides a safety net orthogonal to any
+    sim-time stopping condition.
+    """
+    _deadline = [None]
+    def _check(sim_obj):
+        if _deadline[0] is None:
+            _deadline[0] = time.time() + wall_seconds
+        return time.time() >= _deadline[0]
+    return _check
+
+
 def resolve_decay_monitor_point(config):
     """Return center mp.Vector3 for decay monitoring.
 
@@ -245,9 +276,9 @@ def resolve_decay_monitor_point(config):
     otherwise picks the first non-source port.  Falls back to
     the first port if all are sources.
     """
-    stopping = config.get("stopping", {})
+    stopping = config["stopping"]
     target_name = stopping.get("decay_monitor_port")
-    ports = config.get("ports", [])
+    ports = config["ports"]
 
     if target_name:
         for p in ports:
@@ -256,7 +287,7 @@ def resolve_decay_monitor_point(config):
 
     # Fallback: first non-source port, or first port
     for p in ports:
-        if not p.get("is_source", False):
+        if not p["is_source"]:
             return mp.Vector3(*p["center"])
     if ports:
         return mp.Vector3(*ports[0]["center"])
@@ -272,11 +303,11 @@ def build_geometry(config, materials):
       2. Extrude to 3D as mp.Prism with correct z-range and material
       3. Handle polygon holes via Delaunay triangulation
     """
-    gds_filename = config.get("gds_filename", "layout.gds")
+    gds_filename = config["gds_filename"]
     component = load_gds_component(gds_filename)
 
-    accuracy = config.get("accuracy", {})
-    simplify_tol = accuracy.get("simplify_tol", 0.0)
+    accuracy = config["accuracy"]
+    simplify_tol = accuracy["simplify_tol"]
 
     geometry = []
     total_vertices = 0
@@ -288,7 +319,7 @@ def build_geometry(config, materials):
         zmax = layer_entry["zmax"]
         height = zmax - zmin
         gds_layer = layer_entry["gds_layer"]
-        sidewall_angle_deg = layer_entry.get("sidewall_angle", 0.0)
+        sidewall_angle_deg = layer_entry["sidewall_angle"]
         sw_rad = math.radians(sidewall_angle_deg) if sidewall_angle_deg else 0
 
         if height <= 0:
@@ -344,22 +375,35 @@ def get_port_z_span(config):
 
 
 def build_sources(config):
-    """Build MEEP source from config port data."""
+    """Build MEEP source from config port data.
+
+    The source is offset from the port center by ``source_port_offset``
+    along the propagation direction (into the device).  This separates
+    the soft source from the port monitor so eigenmode coefficients
+    measure the true incident amplitude rather than half of it.
+    """
     fdtd = config["fdtd"]
     fcen = fdtd["fcen"]
     df = fdtd["df"]
     fwidth = config["source"]["fwidth"]
     z_span = get_port_z_span(config)
-    port_margin = config.get("domain", {}).get("port_margin", 0.5)
+    port_margin = config["domain"]["port_margin"]
+    source_port_offset = config["domain"].get("source_port_offset", 0.1)
 
     sources = []
     for port in config["ports"]:
         if not port["is_source"]:
             continue
 
-        center = mp.Vector3(*port["center"])
+        # Offset source center into the device along propagation direction
+        center_list = list(port["center"])
         normal_axis = port["normal_axis"]
         direction = port["direction"]
+        if direction == "+":
+            center_list[normal_axis] += source_port_offset
+        else:
+            center_list[normal_axis] -= source_port_offset
+        center = mp.Vector3(*center_list)
 
         size = [0, 0, 0]
         transverse_axis = 1 - normal_axis
@@ -390,18 +434,45 @@ def build_sources(config):
 
 
 def build_monitors(config, sim):
-    """Build mode monitors at all ports and return flux regions."""
+    """Build mode monitors at all ports and return flux regions.
+
+    The source-port monitor is offset further into the device (past
+    the source) by ``source_port_offset + distance_source_to_monitors``
+    so the forward-going mode from the source passes through it at
+    full amplitude.  This matches the gplugins approach.
+    """
     fdtd = config["fdtd"]
     fcen = fdtd["fcen"]
     df = fdtd["df"]
     nfreq = fdtd["num_freqs"]
     z_span = get_port_z_span(config)
-    port_margin = config.get("domain", {}).get("port_margin", 0.5)
+    port_margin = config["domain"]["port_margin"]
+    source_port_offset = config["domain"].get("source_port_offset", 0.1)
+    distance_source_to_monitors = config["domain"].get(
+        "distance_source_to_monitors", 0.2
+    )
 
     monitors = {}
     for port in config["ports"]:
-        center = mp.Vector3(*port["center"])
+        center_list = list(port["center"])
         normal_axis = port["normal_axis"]
+        direction = port["direction"]
+
+        # All monitors shift inward from port center (matches gplugins):
+        #   source-port monitor: source_port_offset + distance_source_to_monitors
+        #   non-source monitors: source_port_offset
+        if port["is_source"]:
+            offset = source_port_offset + distance_source_to_monitors
+        else:
+            offset = source_port_offset
+
+        if offset > 0:
+            if direction == "+":
+                center_list[normal_axis] += offset
+            else:
+                center_list[normal_axis] -= offset
+
+        center = mp.Vector3(*center_list)
 
         size = [0, 0, 0]
         transverse_axis = 1 - normal_axis
@@ -602,9 +673,9 @@ def save_debug_log(config, s_params, debug_data, wall_seconds=0.0,
     if not mp.am_master():
         return
     fdtd = config["fdtd"]
-    domain = config.get("domain", {})
-    resolution = config.get("resolution", {}).get("pixels_per_um", 0)
-    stopping = config.get("stopping", {})
+    domain = config["domain"]
+    resolution = config["resolution"]["pixels_per_um"]
+    stopping = config["stopping"]
 
     meep_time = 0.0
     timesteps = 0
@@ -622,7 +693,7 @@ def save_debug_log(config, s_params, debug_data, wall_seconds=0.0,
             "meep_time": meep_time,
             "timesteps": timesteps,
             "wall_seconds": wall_seconds,
-            "stopping_mode": stopping.get("mode", "fixed"),
+            "stopping_mode": stopping["mode"],
         },
         "eigenmode_info": debug_data.get("eigenmode_info", {}),
         "incident_coefficients": debug_data.get("incident_coefficients", {}),
@@ -648,8 +719,8 @@ def save_geometry_diagnostics(sim, config, cell_center):
         # plot2D is collective — all ranks call it, only master saves
         pass
 
-    domain = config.get("domain", {})
-    dpml = domain.get("dpml", 1.0)
+    domain = config["domain"]
+    dpml = domain["dpml"]
     z_min = min(l["zmin"] for l in config["layer_stack"])
     z_max = max(l["zmax"] for l in config["layer_stack"])
     z_core = (z_min + z_max) / 2
@@ -929,7 +1000,7 @@ def main():
 
     # Compute simulation cell from component bounds + layer z-range
     # Use original component bbox if available (port extension changes GDS bbox)
-    component_bbox = config.get("component_bbox")
+    component_bbox = config["component_bbox"]
     if component_bbox is not None:
         bbox_left, bbox_bottom, bbox_right, bbox_top = component_bbox
     else:
@@ -940,9 +1011,9 @@ def main():
     z_min = min(l["zmin"] for l in config["layer_stack"])
     z_max = max(l["zmax"] for l in config["layer_stack"])
 
-    domain = config.get("domain", {})
-    dpml = domain.get("dpml", 1.0)
-    margin_xy = domain.get("margin_xy", 0.5)
+    domain = config["domain"]
+    dpml = domain["dpml"]
+    margin_xy = domain["margin_xy"]
 
     # XY: margin_xy is gap between geometry bbox and PML
     cell_x = (bbox_right - bbox_left) + 2 * (margin_xy + dpml)
@@ -960,12 +1031,12 @@ def main():
     logger.info("PML: %.2f um, margin_xy: %.2f", dpml, margin_xy)
     logger.info("Resolution: %s pixels/um", resolution)
 
-    accuracy = config.get("accuracy", {})
-    diagnostics = config.get("diagnostics", {})
-    preview_only = diagnostics.get("preview_only", False)
+    accuracy = config["accuracy"]
+    diagnostics = config["diagnostics"]
+    preview_only = diagnostics["preview_only"]
 
     # In preview mode, skip expensive subpixel averaging
-    eps_avg = False if preview_only else accuracy.get("eps_averaging", True)
+    eps_avg = False if preview_only else accuracy["eps_averaging"]
 
     # Symmetries are NOT used for S-parameter extraction runs.
     # MEEP's get_eigenmode_coefficients with add_mode_monitor produces
@@ -974,7 +1045,7 @@ def main():
     # consistent with gplugins which also never uses mp.Mirror for
     # S-parameter extraction.  Symmetries are only applied in preview-only
     # mode (geometry validation, no FDTD/S-params).
-    cfg_symmetries = config.get("symmetries", [])
+    cfg_symmetries = config["symmetries"]
     if cfg_symmetries and not preview_only:
         logger.info("Symmetries present in config but IGNORED for S-parameter "
                      "extraction (causes incorrect eigenmode normalization). "
@@ -989,21 +1060,21 @@ def main():
         resolution=resolution,
         boundary_layers=[mp.PML(dpml)],
         symmetries=use_symmetries,
-        split_chunks_evenly=config.get("split_chunks_evenly", False),
+        split_chunks_evenly=config["split_chunks_evenly"],
         eps_averaging=eps_avg,
     )
-    spx_maxeval = accuracy.get("subpixel_maxeval", 0)
+    spx_maxeval = accuracy["subpixel_maxeval"]
     if spx_maxeval > 0:
         sim_kwargs["subpixel_maxeval"] = spx_maxeval
-    spx_tol = accuracy.get("subpixel_tol", 1e-4)
+    spx_tol = accuracy["subpixel_tol"]
     if spx_tol != 1e-4:
         sim_kwargs["subpixel_tol"] = spx_tol
     sim = mp.Simulation(**sim_kwargs)
 
     # --- Diagnostics & preview mode ---
-    diag_geometry = diagnostics.get("save_geometry", True)
-    diag_fields = diagnostics.get("save_fields", True)
-    diag_epsilon = diagnostics.get("save_epsilon_raw", False)
+    diag_geometry = diagnostics["save_geometry"]
+    diag_fields = diagnostics["save_fields"]
+    diag_epsilon = diagnostics["save_epsilon_raw"]
 
     if diag_geometry or diag_epsilon or preview_only:
         logger.info("Initializing simulation for diagnostics...")
@@ -1023,12 +1094,12 @@ def main():
     logger.info("Building monitors...")
     monitors = build_monitors(config, sim)
 
-    stopping = config.get("stopping", {})
-    run_after = stopping.get("run_after_sources", 100)
+    stopping = config["stopping"]
+    run_after = stopping["run_after_sources"]
 
     # Build verbose step functions
     step_funcs = []
-    verbose_interval = config.get("verbose_interval", 0)
+    verbose_interval = config["verbose_interval"]
     if verbose_interval > 0:
         _wall_start = time.time()
         def _verbose_print(sim_obj):
@@ -1037,8 +1108,8 @@ def main():
         step_funcs.append(mp.at_every(verbose_interval, _verbose_print))
 
     # Animation field capture step function (raw data, no plotting yet)
-    diag_animation = diagnostics.get("save_animation", False)
-    animation_interval = diagnostics.get("animation_interval", 0.5)
+    diag_animation = diagnostics["save_animation"]
+    animation_interval = diagnostics["animation_interval"]
     _frame_counter = [0]  # mutable container for closure
     _anim_plane = None
 
@@ -1062,43 +1133,78 @@ def main():
             animation_interval,
         )
 
-    stop_mode = stopping.get("mode", "fixed")
+    stop_mode = stopping["mode"]
+    wall_time_max = stopping.get("wall_time_max", 0)
+    if wall_time_max > 0:
+        logger.info("Wall-clock safety net: %.0f seconds", wall_time_max)
 
     wall_start = time.time()
 
     if stop_mode == "dft_decay":
-        decay_by = stopping.get("decay_by", 1e-3)
-        min_time = stopping.get("dft_min_run_time", 100)
+        decay_by = stopping["decay_by"]
+        min_time = stopping["dft_min_run_time"]
         logger.info(
             "Running simulation (dft_decay mode: tol=%s, "
             "min=%.1f, max=%.1f)...",
             decay_by, min_time, run_after,
         )
-        sim.run(
-            *step_funcs,
-            until_after_sources=mp.stop_when_dft_decayed(
-                tol=decay_by,
-                minimum_run_time=min_time,
-                maximum_run_time=run_after,
-            ),
+        dft_fn = mp.stop_when_dft_decayed(
+            tol=decay_by,
+            minimum_run_time=min_time,
+            maximum_run_time=run_after,
         )
-    elif stop_mode == "decay":
-        dt = stopping.get("decay_dt", 50.0)
-        comp_name = stopping.get("decay_component", "Ey")
+        if wall_time_max > 0:
+            conds = [dft_fn, _make_wall_time_cap(wall_time_max)]
+            sim.run(*step_funcs, until_after_sources=conds)
+        else:
+            sim.run(*step_funcs, until_after_sources=dft_fn)
+    elif stop_mode == "energy_decay":
+        dt = stopping["decay_dt"]
+        decay_by = stopping["decay_by"]
+        logger.info(
+            "Running simulation (energy_decay mode: dt=%s, "
+            "decay_by=%s, cap=%.1f)...",
+            dt, decay_by, run_after,
+        )
+        energy_fn = mp.stop_when_energy_decayed(dt=dt, decay_by=decay_by)
+        conds = [energy_fn, _make_time_cap(run_after)]
+        if wall_time_max > 0:
+            conds.append(_make_wall_time_cap(wall_time_max))
+        sim.run(*step_funcs, until_after_sources=conds)
+    elif stop_mode == "field_decay":
+        dt = stopping["decay_dt"]
+        comp_name = stopping["decay_component"]
         comp = _COMPONENT_MAP.get(comp_name, mp.Ey)
-        decay_by = stopping.get("decay_by", 1e-3)
+        decay_by = stopping["decay_by"]
         monitor_pt = resolve_decay_monitor_point(config)
-        logger.info("Running simulation (decay mode: component=%s, dt=%s, "
+        logger.info("Running simulation (field_decay mode: component=%s, dt=%s, "
                      "decay_by=%s, cap=%.1f)...", comp_name, dt, decay_by, run_after)
 
         # Decay condition + numeric time cap (list = OR logic, first wins)
         decay_fn = mp.stop_when_fields_decayed(dt, comp, monitor_pt, decay_by)
-        sim.run(*step_funcs, until_after_sources=[decay_fn, run_after])
+        conds = [decay_fn, _make_time_cap(run_after)]
+        if wall_time_max > 0:
+            conds.append(_make_wall_time_cap(wall_time_max))
+        sim.run(*step_funcs, until_after_sources=conds)
     else:
         logger.info("Running simulation (until_after_sources=%.1f)...", run_after)
-        sim.run(*step_funcs, until_after_sources=run_after)
+        if wall_time_max > 0:
+            conds = [
+                _make_time_cap(run_after),
+                _make_wall_time_cap(wall_time_max),
+            ]
+            sim.run(*step_funcs, until_after_sources=conds)
+        else:
+            sim.run(*step_funcs, until_after_sources=run_after)
 
     wall_seconds = time.time() - wall_start
+    if wall_time_max > 0 and wall_seconds >= wall_time_max * 0.95:
+        logger.warning(
+            "Wall-clock limit likely triggered (%.1fs elapsed, limit %.0fs). "
+            "Results may be incomplete — consider increasing wall_time_max or "
+            "using a coarser resolution.",
+            wall_seconds, wall_time_max,
+        )
 
     if diag_fields:
         save_field_snapshot(sim, config, cell_center)
