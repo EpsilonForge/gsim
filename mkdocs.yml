@@ -22,6 +22,7 @@ nav:
       - Y-Branch: nbs/meep_ybranch.md
       - Ring Coupler: nbs/meep_ring_coupler.md
       - Directional Coupler: nbs/meep_dc.md
+      - Crossing: nbs/meep_crossing.md
   - Palace:
       - CPW: nbs/palace_demo_cpw.md
       - Microstrip: nbs/palace_demo_microstrip.md
