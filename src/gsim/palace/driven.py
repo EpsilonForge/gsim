@@ -789,11 +789,11 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             try:
                 import psutil
 
-                num_processes = max(1, psutil.cpu_count(logical=True) - 2)
+                num_processes = psutil.cpu_count(logical=True) or 1
             except ImportError:
                 import os
 
-                num_processes = max(1, (os.cpu_count() or 1) - 2)
+                num_processes = os.cpu_count() or 1
 
         # Build command
         cmd = [
