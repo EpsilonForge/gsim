@@ -66,7 +66,7 @@ def extract_port_info(
 
         ports.append(
             PortData(
-                name=gf_port.name,
+                name=gf_port.name or f"port{i}",
                 center=[
                     float(gf_port.center[0]),
                     float(gf_port.center[1]),

@@ -176,8 +176,8 @@ class TestMaterialNormalization:
 
     def test_material_object(self):
         sim = Simulation(materials={"si": Material(n=3.47, k=0.01)})
-        assert sim.materials["si"].n == 3.47
-        assert sim.materials["si"].k == 0.01
+        assert sim.materials["si"].n == 3.47  # ty: ignore[unresolved-attribute]
+        assert sim.materials["si"].k == 0.01  # ty: ignore[unresolved-attribute]
 
     def test_dict_shorthand(self):
         sim = Simulation(materials={"si": {"n": 3.47, "k": 0.01}})  # ty: ignore[invalid-argument-type]

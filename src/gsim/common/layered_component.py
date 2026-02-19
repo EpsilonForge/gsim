@@ -109,7 +109,7 @@ class LayeredComponentBase(BaseModel):
         bbox = (
             c.bbox_np() + unchanged * np.array([[-1, -1], [1, 1]]) * self.pad_xy_inner
         )
-        return tuple(map(tuple, bbox))  # type: ignore[return-value]
+        return tuple(map(tuple, bbox))
 
     # ------------------------------------------------------------------
     # Ports
@@ -272,12 +272,12 @@ class LayeredComponentBase(BaseModel):
     @property
     def center(self) -> tuple[float, float, float]:
         """3D center of the bounding box."""
-        return tuple(np.mean(self.bbox, axis=0))  # type: ignore[return-value]
+        return tuple(np.mean(self.bbox, axis=0))
 
     @property
     def size(self) -> tuple[float, float, float]:
         """3D size of the bounding box (dx, dy, dz)."""
-        return tuple(np.squeeze(np.diff(self.bbox, axis=0)))  # type: ignore[return-value]
+        return tuple(np.squeeze(np.diff(self.bbox, axis=0)))  # ty: ignore[invalid-return-type]
 
     def get_layer_bbox(
         self, layername: str
@@ -297,4 +297,4 @@ class LayeredComponentBase(BaseModel):
     def get_layer_center(self, layername: str) -> tuple[float, float, float]:
         """Return 3D center of a single layer."""
         bbox = self.get_layer_bbox(layername)
-        return tuple(np.mean(bbox, axis=0))  # type: ignore[return-value]
+        return tuple(np.mean(bbox, axis=0))
