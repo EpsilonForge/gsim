@@ -42,8 +42,8 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         >>> sim = DrivenSim()
         >>> sim.set_geometry(component)
         >>> sim.set_stack(air_above=300.0)
-        >>> sim.add_cpw_port("P2", "P1", layer="topmetal2", length=5.0)
-        >>> sim.add_cpw_port("P3", "P4", layer="topmetal2", length=5.0)
+        >>> sim.add_cpw_port("o1", layer="topmetal2", s_width=10, gap_width=6, length=5)
+        >>> sim.add_cpw_port("o2", layer="topmetal2", s_width=10, gap_width=6, length=5)
         >>> sim.set_driven(fmin=1e9, fmax=100e9, num_points=40)
         >>> sim.mesh("./sim", preset="default")
         >>> results = sim.run()
@@ -146,46 +146,49 @@ class DrivenSim(PalaceSimMixin, BaseModel):
 
     def add_cpw_port(
         self,
-        upper: str,
-        lower: str,
+        name: str,
         *,
         layer: str,
+        s_width: float,
+        gap_width: float,
         length: float,
         impedance: float = 50.0,
         excited: bool = True,
-        name: str | None = None,
     ) -> None:
         """Add a coplanar waveguide (CPW) port.
 
         CPW ports consist of two elements (upper and lower gaps) that are
         excited with opposite E-field directions to create the CPW mode.
 
+        Place a single gdsfactory port at the center of the signal conductor.
+        The two gap element surfaces are computed from s_width and gap_width.
+
         Args:
-            upper: Name of the upper gap port on the component
-            lower: Name of the lower gap port on the component
+            name: Port name (must match a component port at the signal center)
             layer: Target conductor layer (e.g., "topmetal2")
+            s_width: Width of the signal (center) conductor (um)
+            gap_width: Width of each gap between signal and ground (um)
             length: Port extent along direction (um)
             impedance: Port impedance (Ohms)
             excited: Whether this port is excited
-            name: Optional name for the CPW port (default: "cpw_{lower}")
 
         Example:
-            >>> sim.add_cpw_port("P2", "P1", layer="topmetal2", length=5.0)
+            >>> sim.add_cpw_port(
+            ...     "left", layer="topmetal2", s_width=20, gap_width=15, length=5.0
+            ... )
         """
-        # Remove existing CPW port with same elements if any
-        self.cpw_ports = [
-            p for p in self.cpw_ports if not (p.upper == upper and p.lower == lower)
-        ]
+        # Remove existing CPW port with same name if any
+        self.cpw_ports = [p for p in self.cpw_ports if p.name != name]
 
         self.cpw_ports.append(
             CPWPortConfig(
-                upper=upper,
-                lower=lower,
+                name=name,
                 layer=layer,
+                s_width=s_width,
+                gap_width=gap_width,
                 length=length,
                 impedance=impedance,
                 excited=excited,
-                name=name,
             )
         )
 
@@ -278,7 +281,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
 
             # Validate CPW ports
             errors.extend(
-                f"CPW port ({cpw.upper}, {cpw.lower}): 'layer' is required"
+                f"CPW port '{cpw.name}': 'layer' is required"
                 for cpw in self.cpw_ports
                 if not cpw.layer
             )
@@ -286,7 +289,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         # Validate excitation port if specified
         if self.driven.excitation_port is not None:
             port_names = [p.name for p in self.ports]
-            cpw_names = [cpw.effective_name for cpw in self.cpw_ports]
+            cpw_names = [cpw.name for cpw in self.cpw_ports]
             all_port_names = port_names + cpw_names
             if self.driven.excitation_port not in all_port_names:
                 errors.append(
@@ -352,38 +355,26 @@ class DrivenSim(PalaceSimMixin, BaseModel):
 
         # Configure CPW ports
         for cpw_config in self.cpw_ports:
-            # Find upper port
-            port_upper = None
+            # Find the single gdsfactory port at the signal center
+            gf_port = None
             for p in component.ports:
-                if p.name == cpw_config.upper:
-                    port_upper = p
+                if p.name == cpw_config.name:
+                    gf_port = p
                     break
-            if port_upper is None:
+            if gf_port is None:
                 raise ValueError(
-                    f"CPW upper port '{cpw_config.upper}' not found. "
-                    f"Available: {[p.name for p in component.ports]}"
-                )
-
-            # Find lower port
-            port_lower = None
-            for p in component.ports:
-                if p.name == cpw_config.lower:
-                    port_lower = p
-                    break
-            if port_lower is None:
-                raise ValueError(
-                    f"CPW lower port '{cpw_config.lower}' not found. "
+                    f"CPW port '{cpw_config.name}' not found on component. "
                     f"Available: {[p.name for p in component.ports]}"
                 )
 
             configure_cpw_port(
-                port_upper=port_upper,
-                port_lower=port_lower,
+                gf_port,
                 layer=cpw_config.layer,
+                s_width=cpw_config.s_width,
+                gap_width=cpw_config.gap_width,
                 length=cpw_config.length,
                 impedance=cpw_config.impedance,
                 excited=cpw_config.excited,
-                cpw_name=cpw_config.name,
             )
 
         self._configured_ports = True
