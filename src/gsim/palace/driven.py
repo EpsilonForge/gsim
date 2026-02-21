@@ -418,6 +418,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             fmax=effective_fmax,
             show_gui=mesh_config.show_gui,
             preview_only=mesh_config.preview_only,
+            planar_conductors=mesh_config.planar_conductors,
         )
 
         # Resolve stack
@@ -470,6 +471,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         margin: float | None = None,
         air_above: float | None = None,
         fmax: float | None = None,
+        planar_conductors: bool | None = None,
         show_gui: bool = True,
     ) -> None:
         """Preview the mesh without running simulation.
@@ -483,10 +485,11 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             margin: XY margin around design (um)
             air_above: Air above top metal (um)
             fmax: Max frequency for mesh sizing (Hz)
+            planar_conductors: Treat conductors as 2D PEC surfaces
             show_gui: Show gmsh GUI for interactive preview
 
         Example:
-            >>> sim.preview(preset="fine", show_gui=True)
+            >>> sim.preview(preset="fine", planar_conductors=True, show_gui=True)
         """
         from gsim.palace.mesh import MeshConfig as LegacyMeshConfig
         from gsim.palace.mesh import generate_mesh
@@ -506,6 +509,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             margin=margin,
             air_above=air_above,
             fmax=fmax,
+            planar_conductors=planar_conductors,
             show_gui=show_gui,
         )
 
@@ -525,6 +529,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             fmax=mesh_config.fmax,
             show_gui=show_gui,
             preview_only=True,
+            planar_conductors=mesh_config.planar_conductors,
         )
 
         # Generate mesh in temp directory
@@ -550,6 +555,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         margin: float | None = None,
         air_above: float | None = None,
         fmax: float | None = None,
+        planar_conductors: bool | None = None,
         show_gui: bool = False,
         model_name: str = "palace",
         verbose: bool = True,
@@ -568,6 +574,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             margin: XY margin around design (um), overrides preset
             air_above: Air above top metal (um), overrides preset
             fmax: Max frequency for mesh sizing (Hz), overrides preset
+            planar_conductors: Treat conductors as 2D PEC surfaces, overrides mesh_config
             show_gui: Show gmsh GUI during meshing
             model_name: Base name for output files
             verbose: Print progress messages
@@ -580,7 +587,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
 
         Example:
             >>> sim.set_output_dir("./sim")
-            >>> result = sim.mesh(preset="fine")
+            >>> result = sim.mesh(preset="fine", planar_conductors=True)
             >>> print(f"Mesh saved to: {result.mesh_path}")
         """
         from gsim.palace.ports import extract_ports
@@ -598,6 +605,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             margin=margin,
             air_above=air_above,
             fmax=fmax,
+            planar_conductors=planar_conductors,
             show_gui=show_gui,
         )
 
