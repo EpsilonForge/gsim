@@ -91,6 +91,9 @@ class DrivenSim(PalaceSimMixin, BaseModel):
     _last_mesh_result: Any = PrivateAttr(default=None)
     _last_ports: list = PrivateAttr(default_factory=list)
 
+    # Cloud job state (set by upload/run)
+    _job_id: str | None = PrivateAttr(default=None)
+
     # -------------------------------------------------------------------------
     # Port methods
     # -------------------------------------------------------------------------
@@ -415,6 +418,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             fmax=effective_fmax,
             show_gui=mesh_config.show_gui,
             preview_only=mesh_config.preview_only,
+            planar_conductors=mesh_config.planar_conductors,
         )
 
         # Resolve stack
@@ -467,6 +471,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         margin: float | None = None,
         air_above: float | None = None,
         fmax: float | None = None,
+        planar_conductors: bool | None = None,
         show_gui: bool = True,
     ) -> None:
         """Preview the mesh without running simulation.
@@ -480,10 +485,11 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             margin: XY margin around design (um)
             air_above: Air above top metal (um)
             fmax: Max frequency for mesh sizing (Hz)
+            planar_conductors: Treat conductors as 2D PEC surfaces
             show_gui: Show gmsh GUI for interactive preview
 
         Example:
-            >>> sim.preview(preset="fine", show_gui=True)
+            >>> sim.preview(preset="fine", planar_conductors=True, show_gui=True)
         """
         from gsim.palace.mesh import MeshConfig as LegacyMeshConfig
         from gsim.palace.mesh import generate_mesh
@@ -503,6 +509,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             margin=margin,
             air_above=air_above,
             fmax=fmax,
+            planar_conductors=planar_conductors,
             show_gui=show_gui,
         )
 
@@ -522,6 +529,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             fmax=mesh_config.fmax,
             show_gui=show_gui,
             preview_only=True,
+            planar_conductors=mesh_config.planar_conductors,
         )
 
         # Generate mesh in temp directory
@@ -547,6 +555,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         margin: float | None = None,
         air_above: float | None = None,
         fmax: float | None = None,
+        planar_conductors: bool | None = None,
         show_gui: bool = False,
         model_name: str = "palace",
         verbose: bool = True,
@@ -565,6 +574,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             margin: XY margin around design (um), overrides preset
             air_above: Air above top metal (um), overrides preset
             fmax: Max frequency for mesh sizing (Hz), overrides preset
+            planar_conductors: Treat conductors as 2D PEC surfaces
             show_gui: Show gmsh GUI during meshing
             model_name: Base name for output files
             verbose: Print progress messages
@@ -577,7 +587,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
 
         Example:
             >>> sim.set_output_dir("./sim")
-            >>> result = sim.mesh(preset="fine")
+            >>> result = sim.mesh(preset="fine", planar_conductors=True)
             >>> print(f"Mesh saved to: {result.mesh_path}")
         """
         from gsim.palace.ports import extract_ports
@@ -595,6 +605,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             margin=margin,
             air_above=air_above,
             fmax=fmax,
+            planar_conductors=planar_conductors,
             show_gui=show_gui,
         )
 
@@ -660,28 +671,141 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         return config_path
 
     # -------------------------------------------------------------------------
+    # Cloud: fine-grained control
+    # -------------------------------------------------------------------------
+
+    def _prepare_upload_dir(self) -> Path:
+        """Prepare a temp directory with all config/mesh files for upload.
+
+        Ensures ``_output_dir`` is set, ``config.json`` exists, and copies
+        everything to a fresh temp directory.
+
+        Returns:
+            Path to temp directory ready for upload.
+        """
+        import shutil
+
+        if self._output_dir is None:
+            raise ValueError("Output directory not set. Call set_output_dir() first.")
+
+        # Always (re)generate config.json to reflect current driven settings
+        self.write_config()
+
+        # Copy input files to a temp dir so we don't destroy the user's directory
+        tmp = Path(tempfile.mkdtemp(prefix="palace_"))
+        for item in self._output_dir.iterdir():
+            dest = tmp / item.name
+            if item.is_dir():
+                shutil.copytree(item, dest)
+            else:
+                shutil.copy2(item, dest)
+        return tmp
+
+    def upload(self, *, verbose: bool = True) -> str:
+        """Prepare config, upload to the cloud. Does NOT start execution.
+
+        Requires :meth:`set_output_dir` and :meth:`mesh` to have been
+        called first.
+
+        Args:
+            verbose: Print progress messages.
+
+        Returns:
+            ``job_id`` string for use with :meth:`start`, :meth:`get_status`,
+            or :func:`gsim.wait_for_results`.
+        """
+        from gsim import gcloud
+
+        tmp = self._prepare_upload_dir()
+        try:
+            self._job_id = gcloud.upload(tmp, "palace", verbose=verbose)
+        except Exception:
+            import shutil
+
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+        return self._job_id
+
+    def start(self, *, verbose: bool = True) -> None:
+        """Start cloud execution for this sim's uploaded job.
+
+        Raises:
+            ValueError: If :meth:`upload` has not been called.
+        """
+        from gsim import gcloud
+
+        if self._job_id is None:
+            raise ValueError("Call upload() first")
+        gcloud.start(self._job_id, verbose=verbose)
+
+    def get_status(self) -> str:
+        """Get the current status of this sim's cloud job.
+
+        Returns:
+            Status string (``"created"``, ``"queued"``, ``"running"``,
+            ``"completed"``, ``"failed"``).
+
+        Raises:
+            ValueError: If no job has been submitted yet.
+        """
+        from gsim import gcloud
+
+        if self._job_id is None:
+            raise ValueError("No job submitted yet")
+        return gcloud.get_status(self._job_id)
+
+    def wait_for_results(
+        self,
+        *,
+        verbose: bool = True,
+        parent_dir: str | Path | None = None,
+    ) -> Any:
+        """Wait for this sim's cloud job, download and parse results.
+
+        Args:
+            verbose: Print progress messages.
+            parent_dir: Where to create the sim-data directory.
+
+        Returns:
+            Parsed result (typically ``dict[str, Path]`` of output files).
+
+        Raises:
+            ValueError: If no job has been submitted yet.
+        """
+        from gsim import gcloud
+
+        if self._job_id is None:
+            raise ValueError("No job submitted yet")
+        return gcloud.wait_for_results(
+            self._job_id, verbose=verbose, parent_dir=parent_dir
+        )
+
+    # -------------------------------------------------------------------------
     # Simulation
     # -------------------------------------------------------------------------
 
     def run(
         self,
+        parent_dir: str | Path | None = None,
         *,
         verbose: bool = True,
-    ) -> dict[str, Path]:
+        wait: bool = True,
+    ) -> dict[str, Path] | str:
         """Run simulation on GDSFactory+ cloud.
 
         Requires mesh() to be called first. Automatically calls
         write_config() if config.json hasn't been written yet.
 
-        Config files are uploaded, then moved into a structured
-        ``sim-data-{job_name}/input/`` directory. Results are downloaded
-        to ``sim-data-{job_name}/output/``.
-
         Args:
-            verbose: Print progress messages
+            parent_dir: Where to create the sim directory.
+                Defaults to the current working directory.
+            verbose: Print progress messages.
+            wait: If ``True`` (default), block until results are ready.
+                If ``False``, upload + start and return the ``job_id``.
 
         Returns:
-            Dict mapping result filenames to local paths
+            ``dict[str, Path]`` of output files when ``wait=True``,
+            or ``job_id`` string when ``wait=False``.
 
         Raises:
             ValueError: If output_dir not set or mesh not generated
@@ -691,22 +815,11 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             >>> results = sim.run()
             >>> print(f"S-params saved to: {results['port-S.csv']}")
         """
-        from gsim.gcloud import run_simulation
-
-        if self._output_dir is None:
-            raise ValueError("Output directory not set. Call set_output_dir() first.")
-
-        # Auto-generate config.json if not already written
-        config_path = self._output_dir / "config.json"
-        if not config_path.exists():
-            self.write_config()
-
-        result = run_simulation(
-            config_dir=self._output_dir,
-            job_type="palace",
-            verbose=verbose,
-        )
-        return result.files
+        self.upload(verbose=False)
+        self.start(verbose=verbose)
+        if not wait:
+            return self._job_id  # type: ignore[return-value]  # set by upload()
+        return self.wait_for_results(verbose=verbose, parent_dir=parent_dir)
 
     def run_local(
         self,

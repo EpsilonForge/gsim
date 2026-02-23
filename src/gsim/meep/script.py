@@ -22,6 +22,7 @@ import cmath
 import json
 import logging
 import math
+import os
 import sys
 import time
 
@@ -826,8 +827,9 @@ def save_animation_field(sim, xy_plane, frame_counter):
     field_data = np.real(sim.get_array(vol=xy_plane, component=mp.Ey))
     t = sim.meep_time()
     if mp.am_master():
+        os.makedirs("frames", exist_ok=True)
         np.savez_compressed(
-            f"meep_field_{frame_counter:04d}.npz",
+            f"frames/meep_field_{frame_counter:04d}.npz",
             field=field_data,
             time=t,
         )
@@ -844,7 +846,6 @@ def render_animation_frames(eps_data, extent):
     Call only on master rank after sim.run().
     """
     import glob
-    import os
 
     if not HAS_MATPLOTLIB:
         logger.warning(
@@ -852,7 +853,7 @@ def render_animation_frames(eps_data, extent):
         )
         return
 
-    npz_files = sorted(glob.glob("meep_field_*.npz"))
+    npz_files = sorted(glob.glob("frames/meep_field_*.npz"))
     if not npz_files:
         logger.warning("No field data files found to render")
         return
@@ -897,7 +898,7 @@ def render_animation_frames(eps_data, extent):
         ax.set_xlabel("x (um)")
         ax.set_ylabel("y (um)")
         fig.tight_layout()
-        fig.savefig(f"meep_frame_{i:04d}.png", dpi=150)
+        fig.savefig(f"frames/meep_frame_{i:04d}.png", dpi=150)
         plt.close(fig)
 
     # Clean up .npz intermediates
@@ -916,7 +917,7 @@ def compile_animation_mp4(fps=15):
     import glob
     import subprocess
 
-    frames = sorted(glob.glob("meep_frame_*.png"))
+    frames = sorted(glob.glob("frames/meep_frame_*.png"))
     if not frames:
         logger.warning("No animation frames found to compile")
         return
@@ -927,7 +928,7 @@ def compile_animation_mp4(fps=15):
             [
                 "ffmpeg", "-y",
                 "-framerate", str(fps),
-                "-i", "meep_frame_%04d.png",
+                "-i", "frames/meep_frame_%04d.png",
                 "-c:v", "libx264",
                 "-pix_fmt", "yuv420p",
                 "meep_animation.mp4",
@@ -940,7 +941,7 @@ def compile_animation_mp4(fps=15):
         logger.warning("ffmpeg not found — frame PNGs saved but MP4 not created")
     except subprocess.CalledProcessError as e:
         logger.warning("ffmpeg failed: %s", e.stderr.decode()[:500])
-        logger.info("Frame PNGs are still available as meep_frame_*.png")
+        logger.info("Frame PNGs are still available in frames/")
 
 
 def save_epsilon_raw(sim, config, cell_center):
@@ -1008,8 +1009,15 @@ def main():
         bbox_left, bbox_right = bbox.left, bbox.right
         bbox_bottom, bbox_top = bbox.bottom, bbox.top
 
-    z_min = min(l["zmin"] for l in config["layer_stack"])
-    z_max = max(l["zmax"] for l in config["layer_stack"])
+    # Use both layers and dielectrics for z-range so that PDKs without
+    # explicit box/clad layers (e.g. cspdk) still get enough headroom.
+    z_vals = [l["zmin"] for l in config["layer_stack"]] + [
+        l["zmax"] for l in config["layer_stack"]
+    ]
+    for d in config.get("dielectrics", []):
+        z_vals.extend((d["zmin"], d["zmax"]))
+    z_min = min(z_vals)
+    z_max = max(z_vals)
 
     domain = config["domain"]
     dpml = domain["dpml"]
@@ -1018,7 +1026,7 @@ def main():
     # XY: margin_xy is gap between geometry bbox and PML
     cell_x = (bbox_right - bbox_left) + 2 * (margin_xy + dpml)
     cell_y = (bbox_top - bbox_bottom) + 2 * (margin_xy + dpml)
-    # Z: margin_z_above/below is already baked into layer_stack via set_z_crop(),
+    # Z: margin_z_above/below is already baked into the stack via z_crop,
     #    so only add dpml beyond the stack extent
     cell_z = (z_max - z_min) + 2 * dpml
     cell_center = mp.Vector3(

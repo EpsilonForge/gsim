@@ -102,7 +102,8 @@ def build_sim_overlay(
     dpml = domain_config.dpml
     margin_xy = domain_config.margin_xy
 
-    # XY: use original component bbox if available (port extension changes geometry bbox)
+    # XY: use original component bbox if available (port extension
+    # changes geometry bbox)
     if component_bbox is not None:
         xy_min_x, xy_min_y = component_bbox[0], component_bbox[1]
         xy_max_x, xy_max_y = component_bbox[2], component_bbox[3]
@@ -144,15 +145,15 @@ def build_sim_overlay(
 
     diel_overlays: list[DielectricOverlay] = []
     if dielectrics:
-        for d in dielectrics:
-            diel_overlays.append(
-                DielectricOverlay(
-                    name=d["name"],
-                    material=d["material"],
-                    zmin=d["zmin"],
-                    zmax=d["zmax"],
-                )
+        diel_overlays.extend(
+            DielectricOverlay(
+                name=d["name"],
+                material=d["material"],
+                zmin=d["zmin"],
+                zmax=d["zmax"],
             )
+            for d in dielectrics
+        )
 
     return SimOverlay(
         cell_min=cell_min,

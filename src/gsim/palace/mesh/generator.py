@@ -143,6 +143,7 @@ def generate_mesh(
     driven_config: DrivenConfig | None = None,
     write_config: bool = True,
     cross_section: dict[str, float] | None = None,
+    planar_conductors: bool = False,
 ) -> MeshResult:
     """Generate mesh for Palace EM simulation.
 
@@ -163,6 +164,7 @@ def generate_mesh(
         cross_section: Optional cutting plane specification. Pass a dict
             with exactly one of ``{"x": <value>}`` or ``{"y": <value>}``
             to slice the 3-D geometry and produce a 2-D mesh instead.
+        planar_conductors: If True, treat conductors as 2D PEC surfaces
 
     Returns:
         MeshResult with paths and metadata
@@ -194,7 +196,7 @@ def generate_mesh(
     try:
         # Add geometry
         logger.info("Adding metals...")
-        metal_tags = add_metals(kernel, geometry, stack)
+        metal_tags = add_metals(kernel, geometry, stack, planar_conductors)
 
         logger.info("Adding ports...")
         port_tags, port_info = add_ports(kernel, ports, stack)
@@ -217,6 +219,7 @@ def generate_mesh(
             geom_dimtags,
             geom_map,
             stack,
+            planar_conductors,
         )
 
         # Handle optional cross-section cutting plane

@@ -626,7 +626,8 @@ class TestSimConfigComponentBbox:
     """Test SimConfig.component_bbox field."""
 
     @pytest.fixture
-    def _sim_kwargs(self):
+    def sim_kwargs(self):
+        """Returns default keyword arguments for SimConfig."""
         from gsim.meep.models.config import AccuracyConfig, DiagnosticsConfig
 
         return dict(
@@ -675,23 +676,23 @@ class TestSimConfigComponentBbox:
             symmetries=[],
         )
 
-    def test_default_none(self, _sim_kwargs):
-        cfg = SimConfig(**_sim_kwargs)
+    def test_default_none(self, sim_kwargs):
+        cfg = SimConfig(**sim_kwargs)
         assert cfg.component_bbox is None
 
-    def test_with_bbox(self, _sim_kwargs):
-        cfg = SimConfig(**_sim_kwargs, component_bbox=[-5.0, -2.0, 5.0, 2.0])
+    def test_with_bbox(self, sim_kwargs):
+        cfg = SimConfig(**sim_kwargs, component_bbox=[-5.0, -2.0, 5.0, 2.0])
         assert cfg.component_bbox == [-5.0, -2.0, 5.0, 2.0]
 
-    def test_json_roundtrip(self, tmp_path, _sim_kwargs):
-        cfg = SimConfig(**_sim_kwargs, component_bbox=[-1.0, -0.5, 1.0, 0.5])
+    def test_json_roundtrip(self, tmp_path, sim_kwargs):
+        cfg = SimConfig(**sim_kwargs, component_bbox=[-1.0, -0.5, 1.0, 0.5])
         path = tmp_path / "config.json"
         cfg.to_json(path)
         data = json.loads(path.read_text())
         assert data["component_bbox"] == [-1.0, -0.5, 1.0, 0.5]
 
-    def test_json_roundtrip_none(self, tmp_path, _sim_kwargs):
-        cfg = SimConfig(**_sim_kwargs)
+    def test_json_roundtrip_none(self, tmp_path, sim_kwargs):
+        cfg = SimConfig(**sim_kwargs)
         path = tmp_path / "config.json"
         cfg.to_json(path)
         data = json.loads(path.read_text())
@@ -829,8 +830,8 @@ class TestStoppingConfig:
 
     def test_invalid_mode(self):
         with pytest.raises(ValidationError):
-            StoppingConfig(  # ty: ignore[invalid-argument-type]
-                mode="invalid",
+            StoppingConfig(
+                mode="invalid",  # ty: ignore[invalid-argument-type]
                 max_time=100.0,
                 decay_dt=50.0,
                 decay_component="Ey",
