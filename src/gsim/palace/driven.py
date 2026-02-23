@@ -743,7 +743,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         and Palace to be installed locally via Apptainer.
 
         Args:
-            palace_sif_path: Path to Palace Apptainer SIF file. 
+            palace_sif_path: Path to Palace Apptainer SIF file.
                 If None, uses PALACE_SIF environment variable.
             num_processes: Number of MPI processes (default: CPU count - 2)
             verbose: Print progress messages
@@ -761,7 +761,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             >>> import os
             >>> os.environ["PALACE_SIF"] = "/path/to/Palace.sif"
             >>> results = sim.simulate_local()
-            >>> 
+            >>>
             >>> # Or specify path directly
             >>> results = sim.simulate_local(palace_sif_path="/path/to/Palace.sif")
             >>> print(f"S-params: {results['port-S.csv']}")
@@ -799,7 +799,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
                 logger.info("Using PALACE_SIF from environment: %s", palace_sif_path)
 
         sif_path = Path(palace_sif_path).expanduser().resolve()
-        
+
         if not sif_path.exists():
             raise FileNotFoundError(
                 f"Palace SIF file not found: {sif_path}. "
@@ -834,20 +834,20 @@ class DrivenSim(PalaceSimMixin, BaseModel):
 
         # Run simulation
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603
                 cmd,
                 cwd=output_dir,
                 check=True,
                 capture_output=True,
                 text=True,
             )
-            
-            # Print output if verbose
+
+            # Log output if verbose
             if verbose and result.stdout:
-                print(result.stdout)
+                logger.info(result.stdout)
             if verbose and result.stderr:
-                print(result.stderr, file=__import__('sys').stderr)
-                
+                logger.warning(result.stderr)
+
         except subprocess.CalledProcessError as e:
             error_msg = f"Palace simulation failed with return code {e.returncode}"
             if e.stdout:
@@ -873,5 +873,6 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             for file in postpro_dir.iterdir()
             if file.is_file() and not file.name.startswith(".")
         }
+
 
 __all__ = ["DrivenSim"]
