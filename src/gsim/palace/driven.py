@@ -798,7 +798,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             if verbose:
                 logger.info("Using PALACE_SIF from environment: %s", palace_sif_path)
 
-        sif_path = Path(palace_sif_path)
+        sif_path = Path(palace_sif_path).expanduser().resolve()
         
         if not sif_path.exists():
             raise FileNotFoundError(
