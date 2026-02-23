@@ -152,7 +152,9 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
             excited: Whether this port is excited
 
         Example:
-            >>> sim.add_cpw_port("o1", layer="topmetal2", s_width=10, gap_width=6, length=5)
+            >>> sim.add_cpw_port(
+            ...     "o1", layer="topmetal2", s_width=10, gap_width=6, length=5
+            ... )
         """
         self.cpw_ports = [p for p in self.cpw_ports if p.name != name]
         self.cpw_ports.append(

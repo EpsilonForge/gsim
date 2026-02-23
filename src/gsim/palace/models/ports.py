@@ -78,7 +78,9 @@ class CPWPortConfig(BaseModel):
     name: str = Field(description="Port name matching component port")
     layer: str = Field(description="Target conductor layer")
     s_width: float = Field(gt=0, description="Signal conductor width (um)")
-    gap_width: float = Field(gt=0, description="Gap width between signal and ground (um)")
+    gap_width: float = Field(
+        gt=0, description="Gap width between signal and ground (um)"
+    )
     length: float = Field(gt=0, description="Port extent in um")
     impedance: float = Field(default=50.0, gt=0)
     excited: bool = True

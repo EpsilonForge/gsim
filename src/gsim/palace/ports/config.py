@@ -196,9 +196,7 @@ def configure_cpw_port(
 
     # Transverse direction (perpendicular to port orientation, in-plane)
     # Port orientation points along the waveguide; transverse is 90° CCW
-    transverse = np.array(
-        [-np.sin(orientation_rad), np.cos(orientation_rad)]
-    )
+    transverse = np.array([-np.sin(orientation_rad), np.cos(orientation_rad)])
 
     # Gap center offset from signal center
     offset = (s_width + gap_width) / 2.0
