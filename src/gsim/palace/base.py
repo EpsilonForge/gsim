@@ -92,6 +92,7 @@ class PalaceSimMixin:
 
     def set_stack(
         self,
+        stack: LayerStack | None = None,
         *,
         yaml_path: str | Path | None = None,
         air_above: float = 200.0,
@@ -101,19 +102,37 @@ class PalaceSimMixin:
     ) -> None:
         """Configure the layer stack.
 
-        If yaml_path is provided, loads stack from YAML file.
-        Otherwise, extracts from active PDK with given parameters.
+        Three modes of use:
+
+        1. **Active PDK** (default — auto-detects IHP, QPDK, etc.)::
+
+               sim.set_stack(air_above=300.0, substrate_thickness=2.0)
+
+        2. **YAML file**::
+
+               sim.set_stack(yaml_path="custom_stack.yaml")
+
+        3. **Custom stack** (advanced — pass a hand-built LayerStack)::
+
+               sim.set_stack(my_layer_stack)
 
         Args:
-            yaml_path: Path to custom YAML stack file
-            air_above: Air box height above top metal in um
-            substrate_thickness: Thickness below z=0 in um
-            include_substrate: Include lossy silicon substrate
-            **kwargs: Additional args passed to extract_layer_stack
+            stack: Custom gsim LayerStack (bypasses PDK extraction).
+            yaml_path: Path to custom YAML stack file.
+            air_above: Air box height above top metal in um.
+            substrate_thickness: Thickness below z=0 in um.
+            include_substrate: Include lossy silicon substrate.
+            **kwargs: Additional args passed to extract_layer_stack.
 
         Example:
             >>> sim.set_stack(air_above=300.0, substrate_thickness=2.0)
         """
+        if stack is not None:
+            # Directly use a pre-built LayerStack — skip lazy resolution
+            self.stack = stack
+            self._stack_kwargs = {"_prebuilt": True}
+            return
+
         self._stack_kwargs = {
             "yaml_path": yaml_path,
             "air_above": air_above,
@@ -214,11 +233,18 @@ class PalaceSimMixin:
     # -------------------------------------------------------------------------
 
     def _resolve_stack(self) -> LayerStack:
-        """Resolve the layer stack from PDK or YAML.
+        """Resolve the layer stack from PDK, YAML, or custom object.
 
         Returns:
-            Legacy LayerStack object for mesh generation
+            LayerStack object for mesh generation
         """
+        # If a custom stack was given via set_stack(layer_stack), use it
+        if self.stack is not None and self._stack_kwargs.get("_prebuilt"):
+            # Apply material overrides
+            for name, props in self.materials.items():
+                self.stack.materials[name] = props.to_dict()
+            return self.stack
+
         from gsim.common.stack import get_stack
 
         yaml_path = self._stack_kwargs.pop("yaml_path", None)
