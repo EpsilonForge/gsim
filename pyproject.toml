@@ -52,6 +52,7 @@ docs = [
   "nbstripout>=0.8.1",
   "papermill>=2.6.0",
   "plotly>=6.0.0",
+  "qpdk>=0.1.3",
   "vega-datasets>=0.9.0"
 ]
 lint = [
