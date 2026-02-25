@@ -5,17 +5,14 @@ site_author: GDSFactory
 copyright: Copyright © 2026, GDSFactory
 repo_url: https://github.com/gdsfactory/gsim
 repo_name: gdsfactory/gsim
-
 theme:
   name: shadcn
   custom_dir: docs/overrides
   pygments_style:
     light: github-light
     dark: github-dark
-
 extra_css:
   - assets/custom.css
-
 nav:
   - home: index.md
   - Meep:
@@ -26,9 +23,10 @@ nav:
   - Palace:
       - CPW: nbs/palace_demo_cpw.md
       - Microstrip: nbs/palace_demo_microstrip.md
+      - Branch Line Coupler: nbs/palace_demo_BranchLineCoupler.md
+      - "Parallel Simulations: Width Sweep": nbs/palace_width_sweep.md
   - api reference:
       - gsim.palace: api.md
-
 plugins:
   - search
   - autorefs
@@ -58,7 +56,6 @@ plugins:
             show_symbol_type_toc: true
             signature_crossrefs: true
             summary: true
-
 markdown_extensions:
   - attr_list
   - codehilite
@@ -78,6 +75,5 @@ markdown_extensions:
   - admonition
   - pymdownx.details
   - pymdownx.superfences
-
 hooks:
   - docs/hooks.py

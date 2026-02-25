@@ -17,6 +17,10 @@ def get_gds_layer_tuple(layer_level: LayerLevel) -> tuple[int, int] | None:
     """Extract GDS layer tuple (layer, datatype) from a gdsfactory LayerLevel.
 
     Returns ``None`` when the layer cannot be parsed (callers decide fallback).
+
+    When the primary ``layer`` is a ``DerivedLayer`` (e.g. ``WG - GRA`` in
+    cspdk), falls back to ``derived_layer`` which typically holds the simple
+    GDS layer used for polygon extraction.
     """
     layer: Any = layer_level.layer
 
@@ -29,7 +33,7 @@ def get_gds_layer_tuple(layer_level: LayerLevel) -> tuple[int, int] | None:
     if hasattr(layer, "layer"):
         inner = layer.layer
         if hasattr(inner, "layer") and hasattr(inner, "datatype"):
-            return (int(inner.layer), int(inner.datatype))
+            return (int(inner.layer), int(inner.datatype))  # ty: ignore[invalid-argument-type]
         if isinstance(inner, int):
             datatype = getattr(layer, "datatype", 0)
             return (int(inner), int(datatype) if datatype else 0)
@@ -40,11 +44,11 @@ def get_gds_layer_tuple(layer_level: LayerLevel) -> tuple[int, int] | None:
                 return (int(innermost), int(datatype) if datatype else 0)
 
     if hasattr(layer, "layer") and hasattr(layer, "datatype"):
-        return (int(layer.layer), int(layer.datatype))
+        return (int(layer.layer), int(layer.datatype))  # ty: ignore[invalid-argument-type]
 
     if hasattr(layer, "value"):
         if isinstance(layer.value, tuple):
-            return (int(layer.value[0]), int(layer.value[1]))
+            return (int(layer.value[0]), int(layer.value[1]))  # ty: ignore[invalid-argument-type]
         if isinstance(layer.value, int):
             return (int(layer.value), 0)
 
@@ -55,10 +59,22 @@ def get_gds_layer_tuple(layer_level: LayerLevel) -> tuple[int, int] | None:
         return None
 
     try:
-        return (int(layer), 0)
+        return (int(layer), 0)  # ty: ignore[invalid-argument-type]
     except (TypeError, ValueError):
-        logger.warning("Could not parse layer %s", layer)
-        return None
+        pass
+
+    # Fallback: DerivedLayer (e.g. cspdk core = WG - GRA) — use derived_layer
+    derived = getattr(layer_level, "derived_layer", None)
+    if derived is not None and derived is not layer:
+        # Build a temporary LayerLevel with the derived_layer as its layer
+        # so we can recurse through the same parsing logic.
+        temp = LayerLevel(layer=derived, thickness=0, zmin=0)
+        result = get_gds_layer_tuple(temp)
+        if result is not None:
+            return result
+
+    logger.warning("Could not parse layer %s", layer)
+    return None
 
 
 def classify_layer_type(

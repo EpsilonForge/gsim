@@ -174,13 +174,13 @@ class WavelengthConfig(BaseModel):
     bandwidth: float = Field(ge=0, description="Wavelength bandwidth in um")
     num_freqs: int = Field(ge=1, description="Number of frequency points")
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def fcen(self) -> float:
         """Center frequency in MEEP units (1/um, since c=1)."""
         return 1.0 / self.wavelength
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def df(self) -> float:
         """Frequency width in MEEP units."""
