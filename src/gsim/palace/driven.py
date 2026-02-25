@@ -45,7 +45,8 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         >>> sim.add_cpw_port("o1", layer="topmetal2", s_width=10, gap_width=6, length=5)
         >>> sim.add_cpw_port("o2", layer="topmetal2", s_width=10, gap_width=6, length=5)
         >>> sim.set_driven(fmin=1e9, fmax=100e9, num_points=40)
-        >>> sim.mesh("./sim", preset="default")
+        >>> sim.set_output_dir("./sim")
+        >>> sim.mesh(preset="default")
         >>> results = sim.run()
 
     Attributes:

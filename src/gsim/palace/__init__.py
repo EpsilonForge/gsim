@@ -21,7 +21,8 @@ Usage:
     sim.set_driven(fmin=1e9, fmax=100e9)
 
     # Generate mesh and run
-    sim.mesh("./sim", preset="fine")
+    sim.set_output_dir("./sim")
+    sim.mesh(preset="fine")
     results = sim.run()
 """
 
