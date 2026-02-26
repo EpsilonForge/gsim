@@ -116,6 +116,17 @@ class LayerStack(BaseModel):
 
     @classmethod
     def from_layer_list(cls, layerList: list[Layer]) -> LayerStack:
+        """Build a LayerStack from a list of Layer objects.
+
+        Args:
+            layerList: List of Layer definitions to include in the stack.
+
+        Returns:
+            A LayerStack with layers/materials/dielectrics assembled from `layerList`.
+
+        Raises:
+            ValueError: If `layerList` is None or empty.
+        """
         if not layerList:
             raise ValueError("None or empty layer list")
         # Build Layer dict
@@ -140,9 +151,10 @@ class LayerStack(BaseModel):
                 }
                 dielectric_list.append(dielectric)
         # Create layer stack and export to YAML
-        layer_stack = LayerStack(layers=layer_dict, materials=material_dict, dielectrics=dielectric_list)
-        return layer_stack        
-
+        layer_stack = LayerStack(
+            layers=layer_dict, materials=material_dict, dielectrics=dielectric_list
+        )
+        return layer_stack
 
     def validate_stack(self, tolerance: float = 0.001) -> ValidationResult:
         """Validate the layer stack for simulation readiness.
