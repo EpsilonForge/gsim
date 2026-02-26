@@ -37,10 +37,11 @@ from gsim.palace import DrivenSim
 sim = DrivenSim()
 sim.set_geometry(component)
 sim.set_stack(air_above=300.0)
-sim.add_cpw_port("P2", "P1", layer="topmetal2", length=5.0)
+sim.add_cpw_port("o1", layer="topmetal2", s_width=10, gap_width=6, length=5)
 sim.set_driven(fmin=1e9, fmax=100e9)
-sim.mesh("./sim", preset="fine")
-results = sim.simulate()
+sim.set_output_dir("./sim")
+sim.mesh(preset="fine")
+results = sim.run()
 ```
 
 ## Quick Start — Meep (Photonics)
