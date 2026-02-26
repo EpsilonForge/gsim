@@ -16,8 +16,6 @@ import klayout.db as kdb
 from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
 
-if TYPE_CHECKING:
-    pass
 
 
 # ---------------------------------------------------------------------------
