@@ -212,7 +212,7 @@ def inspect_layers(
         raise ValueError("Component has no polygons")
 
     # Build layer-index → name mapping
-    layer_names: dict[int, str] = {}
+    layer_names: dict[object, str] = {}
     try:
         layout = component.kcl.layout
         for info in layout.layer_infos():
