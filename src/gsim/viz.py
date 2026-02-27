@@ -113,9 +113,9 @@ def _plot_wireframe(
                     line_width=1,
                     label=group_map.get(gid, str(gid)),
                 )
-        plotter.add_legend()
+        plotter.add_legend()  # type: ignore[call-arg]
     else:
-        plotter.add_mesh(mesh, style="wireframe", color="black", line_width=1)
+        plotter.add_mesh(mesh, style="wireframe", color="black", line_width=1)  # type: ignore[arg-type]
 
     _finish(plotter, msh_path, output=output, interactive=interactive)
 
@@ -190,7 +190,7 @@ def _plot_solid(
 
     # Opaque surfaces with categorical colour map -------------------------
     if np.any(opaque_mask):
-        opaque_grid = grid.extract_cells(np.where(opaque_mask)[0])
+        opaque_grid = pv.UnstructuredGrid(grid.extract_cells(np.where(opaque_mask)[0]))
         plotter.add_mesh(
             opaque_grid,
             scalars="physical_group_name",
@@ -216,7 +216,7 @@ def _plot_solid(
         group_mask = plain_names == group_name
         if not np.any(group_mask):
             continue
-        group_grid = grid.extract_cells(np.where(group_mask)[0])
+        group_grid = pv.UnstructuredGrid(grid.extract_cells(np.where(group_mask)[0]))
         color = _color_for_group(group_name)
         plotter.add_mesh(
             group_grid,
@@ -255,7 +255,7 @@ def _finish(
 ) -> None:
     """Show or screenshot the plotter and clean up."""
     plotter.camera_position = "iso"
-    plotter.show_axes()
+    plotter.show_axes()  # type: ignore[call-arg]
     if interactive:
         plotter.show()
     else:
