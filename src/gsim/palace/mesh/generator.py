@@ -215,7 +215,6 @@ def generate_mesh(
             geom_dimtags,
             geom_map,
             stack,
-            planar_conductors,
         )
 
         # Setup mesh fields

@@ -195,8 +195,8 @@ def add_metals(
             if surfacetag is None:
                 continue
 
-            if planar_conductors and layer_type == "conductor":
-                # For planar conductors, keep as 2D surface (PEC boundary)
+            if layer_type == "conductor" and (planar_conductors or thickness == 0):
+                # Zero-thickness or explicitly planar → 2D PEC surface
                 metal_tags[layer_name]["surfaces_xy"].append(surfacetag)
             elif thickness > 0:
                 result = kernel.extrude([(2, surfacetag)], 0, 0, thickness)
