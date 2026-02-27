@@ -114,6 +114,48 @@ class LayerStack(BaseModel):
     dielectrics: list[dict] = Field(default_factory=list)
     simulation: dict = Field(default_factory=dict)
 
+    @classmethod
+    def from_layer_list(cls, layerList: list[Layer]) -> LayerStack:
+        """Build a LayerStack from a list of Layer objects.
+
+        Args:
+            layerList: List of Layer definitions to include in the stack.
+
+        Returns:
+            A LayerStack with layers/materials/dielectrics assembled from `layerList`.
+
+        Raises:
+            ValueError: If `layerList` is None or empty.
+        """
+        if not layerList:
+            raise ValueError("None or empty layer list")
+        # Build Layer dict
+        layer_dict = {}
+        for layer in layerList:
+            if layer.name in layer_dict:
+                raise ValueError(f"Duplicate layer name: {layer.name}")
+            layer_dict[layer.name] = layer
+        # Build materials dict
+        material_dict = {}
+        for layer in layerList:
+            material_dict[layer.material] = MATERIALS_DB[layer.material].to_dict()
+        # Build dielectric list
+        dielectric_list = []
+        for layer in layerList:
+            if layer.layer_type == "dielectric":
+                dielectric = {
+                    "name": layer.name,
+                    "zmin": layer.zmin,
+                    "zmax": layer.zmax,
+                    "material": layer.material,
+                }
+                dielectric_list.append(dielectric)
+        # Create layer stack and export to YAML
+        layer_stack = LayerStack(
+            layers=layer_dict, materials=material_dict, dielectrics=dielectric_list
+        )
+        return layer_stack
+
     def validate_stack(self, tolerance: float = 0.001) -> ValidationResult:
         """Validate the layer stack for simulation readiness.
 

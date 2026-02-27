@@ -18,6 +18,8 @@
 
 ::: gsim.common.GeometryModel
 
+::: gsim.common.Layer
+
 ::: gsim.common.LayerStack
 
 ::: gsim.common.Prism
