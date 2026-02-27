@@ -8,15 +8,15 @@ simplification.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import gdsfactory as gf
 import klayout.db as kdb
 from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
 
-
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # KLayout ↔ Shapely conversion
@@ -26,8 +26,7 @@ from shapely.geometry.base import BaseGeometry
 def klayout_to_shapely(polygon_kdb: kdb.Polygon) -> Polygon:
     """Convert a KLayout polygon (with optional holes) to a Shapely Polygon."""
     exterior_coords = [
-        (gf.kcl.to_um(pt.x), gf.kcl.to_um(pt.y))
-        for pt in polygon_kdb.each_point_hull()
+        (gf.kcl.to_um(pt.x), gf.kcl.to_um(pt.y)) for pt in polygon_kdb.each_point_hull()
     ]
     holes = []
     for hole_idx in range(polygon_kdb.holes()):
@@ -71,10 +70,11 @@ def shapely_to_klayout(shapely_poly: Polygon) -> kdb.Polygon | None:
                 ]
                 polygon.insert_hole(hole_points)
 
-        return polygon
-    except Exception as e:  # noqa: BLE001
-        print(f"Warning: Shapely → KLayout conversion failed: {e}")
+    except Exception as e:
+        logger.warning("Shapely to KLayout conversion failed: %s", e)
         return None
+    else:
+        return polygon
 
 
 # ---------------------------------------------------------------------------
@@ -122,10 +122,12 @@ def simplify_polygon(
     """
     try:
         shapely_poly = klayout_to_shapely(polygon_kdb)
-        simplified: BaseGeometry = shapely_poly.simplify(tolerance, preserve_topology=True)
+        simplified: BaseGeometry = shapely_poly.simplify(
+            tolerance, preserve_topology=True
+        )
         result = shapely_to_klayout(simplified)  # type: ignore[arg-type]
         return result if result is not None else polygon_kdb.dup()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return polygon_kdb.dup()
 
 
@@ -160,9 +162,13 @@ def decimate(
             reduced = simplify_polygon(poly, tolerance=tol)
             rn = reduced.num_points_hull()
             if verbose and rn != n:
-                print(
-                    f"  Polygon {i}: {n} → {rn} pts "
-                    f"(tol={tol:.3f} µm, {n / rn:.1f}× reduction)"
+                logger.debug(
+                    "Polygon %d: %d -> %d pts (tol=%.3f um, %.1fx reduction)",
+                    i,
+                    n,
+                    rn,
+                    tol,
+                    n / rn,
                 )
             out.append(reduced)
             total_after += rn
@@ -172,7 +178,9 @@ def decimate(
 
     if verbose:
         pct = (total_before - total_after) / max(total_before, 1) * 100
-        print(f"✓ Decimation: {total_before} → {total_after} pts ({pct:.1f}% removed)")
+        logger.debug(
+            "Decimation: %d -> %d pts (%.1f%% removed)", total_before, total_after, pct
+        )
 
     return out
 
@@ -211,7 +219,7 @@ def inspect_layers(
             idx = layout.layer(info)
             if info.name:
                 layer_names[idx] = info.name
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
     n = len(polys_by_layer)
@@ -219,9 +227,11 @@ def inspect_layers(
     if n == 1:
         axes = [axes]
 
-    for ax, (layer_num, polygons) in zip(axes, polys_by_layer.items()):
+    for ax, (layer_num, polygons) in zip(axes, polys_by_layer.items(), strict=False):
         label = layer_names.get(layer_num, f"Layer {layer_num}")
-        ax.set_title(f"{label} ({len(polygons)} polygons)", fontsize=14, fontweight="bold")
+        ax.set_title(
+            f"{label} ({len(polygons)} polygons)", fontsize=14, fontweight="bold"
+        )
         ax.set_aspect("equal")
         ax.grid(True, alpha=0.3)
         for kpoly in polygons:
@@ -230,10 +240,10 @@ def inspect_layers(
                 xs, ys = spoly.exterior.xy
                 ax.fill(xs, ys, alpha=0.4)
                 ax.plot(xs, ys, linewidth=0.5)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
     plt.tight_layout()
     plt.savefig(str(filename), dpi=dpi, bbox_inches="tight")
     plt.close(fig)
-    print(f"✓ Layer plot saved to {filename}")
+    logger.info("Layer plot saved to %s", filename)

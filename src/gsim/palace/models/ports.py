@@ -39,9 +39,13 @@ class PortConfig(BaseModel):
     to_layer: str | None = None
     length: float | None = Field(default=None, gt=0)
     impedance: float = Field(default=50.0, gt=0)
-    resistance: float | None = Field(default=None, ge=0, description="Resistance in Ohms")
+    resistance: float | None = Field(
+        default=None, ge=0, description="Resistance in Ohms"
+    )
     inductance: float | None = Field(default=None, ge=0, description="Inductance in H")
-    capacitance: float | None = Field(default=None, ge=0, description="Capacitance in F")
+    capacitance: float | None = Field(
+        default=None, ge=0, description="Capacitance in F"
+    )
     excited: bool = True
     geometry: Literal["inplane", "via"] = "inplane"
 

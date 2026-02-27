@@ -1,99 +1,85 @@
 {
-    "Problem": {
-        "Type": "Driven",
-        "Verbose": 3,
-        "Output": "output/palace"
-    },
-    "Model": {
-        "Mesh": "palace.msh",
-        "L0": 1e-06,
-        "Refinement": {
-            "UniformLevels": 0,
-            "Tol": 0.01,
-            "MaxIts": 0
-        }
-    },
-    "Solver": {
-        "Linear": {
-            "Type": "Default",
-            "KSPType": "GMRES",
-            "Tol": 1e-06,
-            "MaxIts": 400
-        },
-        "Order": 2,
-        "Device": "CPU",
-        "Driven": {
-            "Samples": [
-                {
-                    "Type": "Linear",
-                    "MinFreq": 1.0,
-                    "MaxFreq": 100.0,
-                    "FreqStep": 2.5,
-                    "SaveStep": 0
-                }
-            ],
-            "AdaptiveTol": 0.02
-        }
-    },
-    "Domains": {
-        "Materials": [
-            {
-                "Attributes": [
-                    1
-                ],
-                "Permittivity": 1.0,
-                "LossTan": 0.0
-            },
-            {
-                "Attributes": [
-                    2
-                ],
-                "Permittivity": 6.6,
-                "LossTan": 0.0
-            },
-            {
-                "Attributes": [
-                    3
-                ],
-                "Permittivity": 4.1,
-                "LossTan": 0.0
-            },
-            {
-                "Attributes": [
-                    4
-                ],
-                "Permittivity": 1.0,
-                "LossTan": 0.0
-            }
-        ],
-        "Postprocessing": {
-            "Energy": [],
-            "Probe": []
-        }
-    },
-    "Boundaries": {
-        "Conductivity": [
-            {
-                "Attributes": [
-                    5
-                ],
-                "Conductivity": 58000000.0,
-                "Thickness": 0.19999999999999998
-            },
-            {
-                "Attributes": [
-                    6
-                ],
-                "Conductivity": 58000000.0,
-                "Thickness": 0.19999999999999998
-            }
-        ],
-        "LumpedPort": [],
-        "Absorbing": {
-            "Attributes": [
-                7
-            ],
-            "Order": 2
-        }
+  "Problem": {
+    "Type": "Driven",
+    "Verbose": 3,
+    "Output": "output/palace"
+  },
+  "Model": {
+    "Mesh": "palace.msh",
+    "L0": 1e-6,
+    "Refinement": {
+      "UniformLevels": 0,
+      "Tol": 0.01,
+      "MaxIts": 0
     }
+  },
+  "Solver": {
+    "Linear": {
+      "Type": "Default",
+      "KSPType": "GMRES",
+      "Tol": 1e-6,
+      "MaxIts": 400
+    },
+    "Order": 2,
+    "Device": "CPU",
+    "Driven": {
+      "Samples": [
+        {
+          "Type": "Linear",
+          "MinFreq": 1.0,
+          "MaxFreq": 100.0,
+          "FreqStep": 2.5,
+          "SaveStep": 0
+        }
+      ],
+      "AdaptiveTol": 0.02
+    }
+  },
+  "Domains": {
+    "Materials": [
+      {
+        "Attributes": [1],
+        "Permittivity": 1.0,
+        "LossTan": 0.0
+      },
+      {
+        "Attributes": [2],
+        "Permittivity": 6.6,
+        "LossTan": 0.0
+      },
+      {
+        "Attributes": [3],
+        "Permittivity": 4.1,
+        "LossTan": 0.0
+      },
+      {
+        "Attributes": [4],
+        "Permittivity": 1.0,
+        "LossTan": 0.0
+      }
+    ],
+    "Postprocessing": {
+      "Energy": [],
+      "Probe": []
+    }
+  },
+  "Boundaries": {
+    "Conductivity": [
+      {
+        "Attributes": [5],
+        "Conductivity": 58000000.0,
+        "Thickness": 0.19999999999999998
+      },
+      {
+        "Attributes": [6],
+        "Conductivity": 58000000.0,
+        "Thickness": 0.19999999999999998
+      }
+    ],
+    "LumpedPort": [],
+    "Absorbing": {
+      "Attributes": [7],
+      "Order": 2
+    }
+  }
 }

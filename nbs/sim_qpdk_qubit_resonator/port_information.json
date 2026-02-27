@@ -1,20 +1,20 @@
 {
-    "ports": [
-        {
-            "portnumber": 1,
-            "Z0": 50.0,
-            "type": "lumped",
-            "direction": "-X",
-            "length": 5.0,
-            "width": 33.446,
-            "xmin": -2.5,
-            "xmax": 2.5,
-            "ymin": -16.723,
-            "ymax": 16.723,
-            "zmin": 500.0,
-            "zmax": 500.0
-        }
-    ],
-    "unit": 1e-06,
-    "name": "palace"
+  "ports": [
+    {
+      "portnumber": 1,
+      "Z0": 50.0,
+      "type": "lumped",
+      "direction": "-X",
+      "length": 5.0,
+      "width": 33.446,
+      "xmin": -2.5,
+      "xmax": 2.5,
+      "ymin": -16.723,
+      "ymax": 16.723,
+      "zmin": 500.0,
+      "zmax": 500.0
+    }
+  ],
+  "unit": 1e-6,
+  "name": "palace"
 }
