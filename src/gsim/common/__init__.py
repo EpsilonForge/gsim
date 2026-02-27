@@ -13,7 +13,7 @@ from __future__ import annotations
 from gsim.common.geometry import Geometry
 from gsim.common.geometry_model import GeometryModel, Prism, extract_geometry_model
 from gsim.common.polygon_utils import decimate, klayout_to_shapely, shapely_to_klayout
-from gsim.common.stack import LayerStack, ValidationResult
+from gsim.common.stack import Layer, LayerStack, ValidationResult
 from gsim.common.stack.qpdk_utils import cpw_layer_stack, create_etched_component
 
 # Alias for backward compatibility
@@ -22,6 +22,7 @@ Stack = LayerStack
 __all__ = [
     "Geometry",
     "GeometryModel",
+    "Layer",
     "LayerStack",
     "Prism",
     "Stack",

@@ -141,41 +141,41 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
 
     def add_cpw_port(
         self,
-        upper: str,
-        lower: str,
+        name: str,
         *,
         layer: str,
+        s_width: float,
+        gap_width: float,
         length: float,
         impedance: float = 50.0,
         excited: bool = True,
-        name: str | None = None,
     ) -> None:
         """Add a coplanar waveguide (CPW) port.
 
         Args:
-            upper: Name of the upper gap port on the component
-            lower: Name of the lower gap port on the component
+            name: Name of the port on the component (at signal center)
             layer: Target conductor layer
+            s_width: Signal conductor width (um)
+            gap_width: Gap width between signal and ground (um)
             length: Port extent along direction (um)
             impedance: Port impedance (Ohms)
             excited: Whether this port is excited
-            name: Optional name for the CPW port
 
         Example:
-            >>> sim.add_cpw_port("P2", "P1", layer="topmetal2", length=5.0)
+            >>> sim.add_cpw_port(
+            ...     "o1", layer="topmetal2", s_width=10, gap_width=6, length=5
+            ... )
         """
-        self.cpw_ports = [
-            p for p in self.cpw_ports if not (p.upper == upper and p.lower == lower)
-        ]
+        self.cpw_ports = [p for p in self.cpw_ports if p.name != name]
         self.cpw_ports.append(
             CPWPortConfig(
-                upper=upper,
-                lower=lower,
+                name=name,
                 layer=layer,
+                s_width=s_width,
+                gap_width=gap_width,
                 length=length,
                 impedance=impedance,
                 excited=excited,
-                name=name,
             )
         )
 
@@ -309,27 +309,26 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
                 gf_port.info["capacitance"] = port_config.capacitance
 
         for cpw_config in self.cpw_ports:
-            port_upper = None
-            port_lower = None
+            gf_port = None
             for p in component.ports:
-                if p.name == cpw_config.upper:
-                    port_upper = p
-                if p.name == cpw_config.lower:
-                    port_lower = p
+                if p.name == cpw_config.name:
+                    gf_port = p
+                    break
 
-            if port_upper is None:
-                raise ValueError(f"CPW upper port '{cpw_config.upper}' not found.")
-            if port_lower is None:
-                raise ValueError(f"CPW lower port '{cpw_config.lower}' not found.")
+            if gf_port is None:
+                raise ValueError(
+                    f"CPW port '{cpw_config.name}' not found on component. "
+                    f"Available: {[p.name for p in component.ports]}"
+                )
 
             configure_cpw_port(
-                port_upper=port_upper,
-                port_lower=port_lower,
+                gf_port,
                 layer=cpw_config.layer,
+                s_width=cpw_config.s_width,
+                gap_width=cpw_config.gap_width,
                 length=cpw_config.length,
                 impedance=cpw_config.impedance,
                 excited=cpw_config.excited,
-                cpw_name=cpw_config.name,
             )
 
         self._configured_ports = True
