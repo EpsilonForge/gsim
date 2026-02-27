@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from gsim.common.geometry import Geometry
 from gsim.common.geometry_model import GeometryModel, Prism, extract_geometry_model
-from gsim.common.stack import LayerStack, Layer, ValidationResult
+from gsim.common.stack import Layer, LayerStack, ValidationResult
 
 # Alias for backward compatibility
 Stack = LayerStack
@@ -20,8 +20,8 @@ Stack = LayerStack
 __all__ = [
     "Geometry",
     "GeometryModel",
-    "LayerStack",
     "Layer",
+    "LayerStack",
     "Prism",
     "Stack",
     "ValidationResult",
