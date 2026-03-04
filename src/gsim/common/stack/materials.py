@@ -21,6 +21,12 @@ class MaterialProperties(BaseModel):
     permittivity: float | None = Field(default=None, ge=1.0)  # relative permittivity
     loss_tangent: float | None = Field(default=None, ge=0, le=1)
 
+    # Anisotropic EM properties (diagonal tensor, override scalar values)
+    permittivity_diagonal: list[float] | None = None
+    permeability: list[float] | None = None
+    loss_tangent_diagonal: list[float] | None = None
+    material_axes: list[list[float]] | None = None
+
     # Optical properties (for photonic simulation, e.g. MEEP)
     refractive_index: float | None = Field(default=None, gt=0)
     extinction_coeff: float | None = Field(default=None, ge=0)
@@ -34,6 +40,14 @@ class MaterialProperties(BaseModel):
             d["permittivity"] = self.permittivity
         if self.loss_tangent is not None:
             d["loss_tangent"] = self.loss_tangent
+        if self.permittivity_diagonal is not None:
+            d["permittivity_diagonal"] = self.permittivity_diagonal
+        if self.permeability is not None:
+            d["permeability"] = self.permeability
+        if self.loss_tangent_diagonal is not None:
+            d["loss_tangent_diagonal"] = self.loss_tangent_diagonal
+        if self.material_axes is not None:
+            d["material_axes"] = self.material_axes
         if self.refractive_index is not None:
             d["refractive_index"] = self.refractive_index
         if self.extinction_coeff is not None:
@@ -153,9 +167,13 @@ MATERIALS_DB: dict[str, MaterialProperties] = {
     ),
     "sapphire": MaterialProperties(
         type="dielectric",
-        permittivity=9.4,
+        permittivity=9.3,
         loss_tangent=3e-5,
         refractive_index=1.77,
+        permittivity_diagonal=[9.3, 9.3, 11.5],
+        permeability=[0.99999975, 0.99999975, 0.99999979],
+        loss_tangent_diagonal=[3e-5, 3e-5, 8.6e-5],
+        material_axes=[[0.8, 0.6, 0.0], [-0.6, 0.8, 0.0], [0.0, 0.0, 1.0]],
     ),
     "quartz": MaterialProperties(type="dielectric", permittivity=4.5),
     "tfln": MaterialProperties(type="dielectric", permittivity=44.0),

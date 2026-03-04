@@ -101,12 +101,25 @@ def generate_palace_config(
             mat_entry["Permittivity"] = 1.0
             mat_entry["LossTan"] = 0.0
         else:
-            mat_entry["Permittivity"] = mat_props.get("permittivity", 1.0)
+            # Use anisotropic tensor values when available
+            if "permittivity_diagonal" in mat_props:
+                mat_entry["Permittivity"] = mat_props["permittivity_diagonal"]
+            else:
+                mat_entry["Permittivity"] = mat_props.get("permittivity", 1.0)
+
+            if "permeability" in mat_props:
+                mat_entry["Permeability"] = mat_props["permeability"]
+
             sigma = mat_props.get("conductivity", 0.0)
             if sigma > 0:
                 mat_entry["Conductivity"] = sigma
+            elif "loss_tangent_diagonal" in mat_props:
+                mat_entry["LossTan"] = mat_props["loss_tangent_diagonal"]
             else:
                 mat_entry["LossTan"] = mat_props.get("loss_tangent", 0.0)
+
+            if "material_axes" in mat_props:
+                mat_entry["MaterialAxes"] = mat_props["material_axes"]
 
         materials.append(mat_entry)
 
