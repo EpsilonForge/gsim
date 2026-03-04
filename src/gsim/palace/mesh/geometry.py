@@ -263,6 +263,9 @@ def add_dielectrics(
 
     for dielectric in sorted_dielectrics:
         material = dielectric["material"]
+        if material == "air" and air_margin > 0:
+            continue  # If air_margin > 0 we skip the aire layer
+
         d_zmin = dielectric["zmin"]
         d_zmax = dielectric["zmax"]
 
@@ -287,23 +290,24 @@ def add_dielectrics(
         # Alternate offset to avoid coincident faces
         offset = offset_delta if offset == 0 else 0
 
-    # Add surrounding airbox
-    air_xmin = xmin - air_margin
-    air_ymin = ymin - air_margin
-    air_xmax = xmax + air_margin
-    air_ymax = ymax + air_margin
-    air_zmin = z_min_all - air_margin
-    air_zmax = z_max_all + air_margin
+    # Add surrounding airbox only if air_margin > 0
+    if air_margin > 0:
+        air_xmin = xmin - air_margin
+        air_ymin = ymin - air_margin
+        air_xmax = xmax + air_margin
+        air_ymax = ymax + air_margin
+        air_zmin = z_min_all - air_margin
+        air_zmax = z_max_all + air_margin
 
-    airbox_tag = kernel.addBox(
-        air_xmin,
-        air_ymin,
-        air_zmin,
-        air_xmax - air_xmin,
-        air_ymax - air_ymin,
-        air_zmax - air_zmin,
-    )
-    dielectric_tags["airbox"] = [airbox_tag]
+        airbox_tag = kernel.addBox(
+            air_xmin,
+            air_ymin,
+            air_zmin,
+            air_xmax - air_xmin,
+            air_ymax - air_ymin,
+            air_zmax - air_zmin,
+        )
+        dielectric_tags["airbox"] = [airbox_tag]
 
     kernel.synchronize()
 
