@@ -225,7 +225,7 @@ def add_dielectrics(
     geometry: GeometryData,
     stack: LayerStack,
     margin: float,
-    air_margin: float,
+    # air_margin: float,
 ) -> dict:
     """Add dielectric boxes and airbox to gmsh.
 
@@ -288,22 +288,22 @@ def add_dielectrics(
         offset = offset_delta if offset == 0 else 0
 
     # Add surrounding airbox
-    air_xmin = xmin - air_margin
-    air_ymin = ymin - air_margin
-    air_xmax = xmax + air_margin
-    air_ymax = ymax + air_margin
-    air_zmin = z_min_all - air_margin
-    air_zmax = z_max_all + air_margin
+    # air_xmin = xmin - air_margin
+    # air_ymin = ymin - air_margin
+    # air_xmax = xmax + air_margin
+    # air_ymax = ymax + air_margin
+    # air_zmin = z_min_all - air_margin
+    # air_zmax = z_max_all + air_margin
 
-    airbox_tag = kernel.addBox(
-        air_xmin,
-        air_ymin,
-        air_zmin,
-        air_xmax - air_xmin,
-        air_ymax - air_ymin,
-        air_zmax - air_zmin,
-    )
-    dielectric_tags["airbox"] = [airbox_tag]
+    # airbox_tag = kernel.addBox(
+    #     air_xmin,
+    #     air_ymin,
+    #     air_zmin,
+    #     air_xmax - air_xmin,
+    #     air_ymax - air_ymin,
+    #     air_zmax - air_zmin,
+    # )
+    # dielectric_tags["airbox"] = [airbox_tag]
 
     kernel.synchronize()
 

@@ -149,6 +149,7 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
         s_width: float,
         gap_width: float,
         length: float,
+        offset: float = 0.0,
         impedance: float = 50.0,
         excited: bool = True,
     ) -> None:
@@ -160,6 +161,8 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
             s_width: Signal conductor width (um)
             gap_width: Gap width between signal and ground (um)
             length: Port extent along direction (um)
+            offset: Shift port inward along the waveguide (um).
+                Positive moves away from the boundary, into the conductor.
             impedance: Port impedance (Ohms)
             excited: Whether this port is excited
 
@@ -176,6 +179,7 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
                 s_width=s_width,
                 gap_width=gap_width,
                 length=length,
+                offset=offset,
                 impedance=impedance,
                 excited=excited,
             )
@@ -331,6 +335,7 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
                 length=cpw_config.length,
                 impedance=cpw_config.impedance,
                 excited=cpw_config.excited,
+                offset=cpw_config.offset,
             )
 
         self._configured_ports = True

@@ -162,6 +162,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         s_width: float,
         gap_width: float,
         length: float,
+        offset: float = 0.0,
         impedance: float = 50.0,
         excited: bool = True,
     ) -> None:
@@ -179,6 +180,8 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             s_width: Width of the signal (center) conductor (um)
             gap_width: Width of each gap between signal and ground (um)
             length: Port extent along direction (um)
+            offset: Shift the port inward along the waveguide (um).
+                Positive moves away from the boundary, into the conductor.
             impedance: Port impedance (Ohms)
             excited: Whether this port is excited
 
@@ -197,6 +200,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
                 s_width=s_width,
                 gap_width=gap_width,
                 length=length,
+                offset=offset,
                 impedance=impedance,
                 excited=excited,
             )
@@ -393,6 +397,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
                 length=cpw_config.length,
                 impedance=cpw_config.impedance,
                 excited=cpw_config.excited,
+                offset=cpw_config.offset,
             )
 
         self._configured_ports = True
