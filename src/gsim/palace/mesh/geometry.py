@@ -225,85 +225,91 @@ def add_dielectrics(
     geometry: GeometryData,
     stack: LayerStack,
     margin: float,
-    # air_margin: float,
+    air_margin: float = 0.0,
 ) -> dict:
-    """Add dielectric boxes and airbox to gmsh.
+    """Add dielectric volumes and surrounding airbox to gmsh.
+
+    All dielectric boxes are created at their exact geometric bounds.
+    Coincident faces between adjacent layers (shared z-planes) are
+    resolved by the subsequent ``fragment_all()`` call, which uses
+    OCC boolean fragment to produce a conformal mesh — no artificial
+    offsets are needed.
 
     Args:
         kernel: gmsh OCC kernel
         geometry: Extracted geometry data
         stack: LayerStack with dielectric definitions
         margin: XY margin around design (um)
-        air_margin: Air box margin (um)
+        air_margin: Extra margin for the surrounding airbox (um).
+            When > 0, an enclosing airbox is created and dielectrics
+            are cut out of it so volumes never overlap.
 
     Returns:
         Dict with material_name -> list of volume_tags
     """
-    dielectric_tags = {}
+    dielectric_tags: dict[str, list[int]] = {}
 
-    # Get overall geometry bounds
+    # Geometry bounds (with margin)
     xmin, ymin, xmax, ymax = geometry.bbox
     xmin -= margin
     ymin -= margin
     xmax += margin
     ymax += margin
 
-    # Track overall z range
+    # Track overall z range for the airbox
     z_min_all = math.inf
     z_max_all = -math.inf
 
-    # Sort dielectrics by z (top to bottom for correct layering)
-    sorted_dielectrics = sorted(
-        stack.dielectrics, key=lambda d: d["zmax"], reverse=True
-    )
-
-    # Add dielectric boxes
-    offset = 0
-    offset_delta = margin / 20
-
-    for dielectric in sorted_dielectrics:
+    for dielectric in stack.dielectrics:
         material = dielectric["material"]
+
+        # When we build an explicit airbox, skip the air dielectric layer
+        if material == "air" and air_margin > 0:
+            continue
+
         d_zmin = dielectric["zmin"]
         d_zmax = dielectric["zmax"]
 
         z_min_all = min(z_min_all, d_zmin)
         z_max_all = max(z_max_all, d_zmax)
 
-        if material not in dielectric_tags:
-            dielectric_tags[material] = []
+        dielectric_tags.setdefault(material, [])
 
-        # Create box with slight offset to avoid mesh issues
+        # Exact bounds — fragment_all() resolves shared faces
         box_tag = gmsh_utils.create_box(
             kernel,
-            xmin - offset,
-            ymin - offset,
+            xmin,
+            ymin,
             d_zmin,
-            xmax + offset,
-            ymax + offset,
+            xmax,
+            ymax,
             d_zmax,
         )
         dielectric_tags[material].append(box_tag)
 
-        # Alternate offset to avoid coincident faces
-        offset = offset_delta if offset == 0 else 0
-
-    # Add surrounding airbox
-    # air_xmin = xmin - air_margin
-    # air_ymin = ymin - air_margin
-    # air_xmax = xmax + air_margin
-    # air_ymax = ymax + air_margin
-    # air_zmin = z_min_all - air_margin
-    # air_zmax = z_max_all + air_margin
-
-    # airbox_tag = kernel.addBox(
-    #     air_xmin,
-    #     air_ymin,
-    #     air_zmin,
-    #     air_xmax - air_xmin,
-    #     air_ymax - air_ymin,
-    #     air_zmax - air_zmin,
-    # )
-    # dielectric_tags["airbox"] = [airbox_tag]
+    # Surrounding airbox: create, then cut dielectric volumes out so
+    # it contains only the air region (no overlapping volumes).
+    # Inspired by the priority-cut approach in gmsh_utils.run_boolean_pipeline.
+    if air_margin > 0:
+        airbox_tag = gmsh_utils.create_box(
+            kernel,
+            xmin - air_margin,
+            ymin - air_margin,
+            z_min_all - air_margin,
+            xmax + air_margin,
+            ymax + air_margin,
+            z_max_all + air_margin,
+        )
+        # Cut dielectrics from the airbox (keep dielectrics intact)
+        dielectric_dimtags = [(3, t) for tags in dielectric_tags.values() for t in tags]
+        air_pieces, _ = kernel.cut(
+            [(3, airbox_tag)],
+            dielectric_dimtags,
+            removeObject=True,
+            removeTool=False,
+        )
+        kernel.synchronize()
+        dielectric_tags["airbox"] = [t for _, t in air_pieces if _ == 3]
 
     kernel.synchronize()
 
