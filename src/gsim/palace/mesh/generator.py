@@ -29,8 +29,12 @@ from .groups import assign_physical_groups
 
 if TYPE_CHECKING:
     from gsim.common.stack import LayerStack
+<<<<<<< HEAD
     from gsim.palace.models import DrivenConfig
     from gsim.palace.models.pec import PECBlockConfig
+=======
+    from gsim.palace.models import DrivenConfig, EigenmodeConfig
+>>>>>>> 78e833a (feat(palace): add eigenmode simulation support and refactor mesh pipeline)
     from gsim.palace.ports.config import PalacePort
 
 logger = logging.getLogger(__name__)
@@ -148,13 +152,16 @@ def generate_mesh(
     air_margin: float = 50.0,
     fmax: float = 100e9,
     show_gui: bool = False,
+    simulation_type: str = "driven",
     driven_config: DrivenConfig | None = None,
+    eigenmode_config: EigenmodeConfig | None = None,
     write_config: bool = True,
     planar_conductors: bool = False,
     refine_from_curves: bool = False,
     pec_blocks: list[PECBlockConfig] | None = None,
     merge_via_distance: float = 2.0,
     verbosity: int = 3,
+    absorbing_boundary: bool = True,
 ) -> MeshResult:
     """Generate mesh for Palace EM simulation.
 
@@ -170,6 +177,7 @@ def generate_mesh(
         air_margin: Air box margin (um)
         fmax: Max frequency for config (Hz)
         show_gui: Show gmsh GUI during meshing
+        simulation_type: str = "driven",
         driven_config: Optional DrivenConfig for frequency sweep settings
         write_config: Whether to write config.json (default True)
         planar_conductors: If True, treat conductors as 2D PEC surfaces
@@ -290,7 +298,10 @@ def generate_mesh(
                 output_dir,
                 model_name,
                 fmax,
+                simulation_type,
                 driven_config,
+                eigenmode_config,
+                absorbing_boundary,
             )
 
     finally:

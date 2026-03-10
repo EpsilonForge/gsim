@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from gsim.palace.models import (
     CPWPortConfig,
     DrivenConfig,
+    EigenmodeConfig,
     MaterialConfig,
     MeshConfig,
     NumericalConfig,
@@ -48,6 +49,7 @@ class PalaceSimMixin:
     materials: dict[str, MaterialConfig]
     numerical: NumericalConfig
     driven: DrivenConfig
+    eigenmode: EigenmodeConfig
     ports: list[PortConfig]
     cpw_ports: list[CPWPortConfig]
     terminals: list[TerminalConfig]
@@ -55,6 +57,7 @@ class PalaceSimMixin:
     _output_dir: Path | None
     _stack_kwargs: dict[str, Any]
     _pec_blocks: list
+    absorbing_boundary: bool
 
     # -------------------------------------------------------------------------
     # Output directory
@@ -418,7 +421,7 @@ class PalaceSimMixin:
 
         # Check ports
         port_surfaces = groups.get("port_surfaces", {})
-        if not port_surfaces:
+        if not port_surfaces and self.simulation_type == "driven":
             errors.append("No port surfaces in mesh.")
         else:
             for port_name, port_info in port_surfaces.items():
@@ -450,7 +453,10 @@ class PalaceSimMixin:
                         errors.append(
                             "config.json has no Conductivity or PEC boundaries."
                         )
-                    if not boundaries.get("LumpedPort"):
+                    if (
+                        not boundaries.get("LumpedPort")
+                        and self.simulation_type == "driven"
+                    ):
                         errors.append("config.json has no LumpedPort entries.")
                 except json.JSONDecodeError as e:
                     errors.append(f"config.json is invalid JSON: {e}")
@@ -648,6 +654,8 @@ class PalaceSimMixin:
 
         # Configure regular ports
         for port_config in self.ports:
+            if self.simulation_type != "driven":
+                port_config.excited = False
             if port_config.name is None:
                 continue
 
@@ -766,7 +774,10 @@ class PalaceSimMixin:
             config=legacy_mesh_config,
             model_name=model_name,
             driven_config=driven_config,
+            eigenmode_config=self.eigenmode,
+            simulation_type=self.simulation_type,
             write_config=write_config,
+            absorbing_boundary=self.absorbing_boundary,
         )
 
         # Store mesh_result for deferred config generation
@@ -872,6 +883,10 @@ class PalaceSimMixin:
                 ports=ports,
                 output_dir=tmpdir,
                 config=legacy_mesh_config,
+                driven_config=self.driven,
+                eigenmode_config=self.eigenmode,
+                simulation_type=self.simulation_type,
+                absorbing_boundary=self.absorbing_boundary,
             )
 
     # -------------------------------------------------------------------------
@@ -997,7 +1012,10 @@ class PalaceSimMixin:
             mesh_result=self._last_mesh_result,
             stack=stack,
             ports=self._last_ports,
+            simulation_type=self.simulation_type,
+            eigenmode_config=self.eigenmode,
             driven_config=self.driven,
+            absorbing_boundary=self.absorbing_boundary,
         )
 
         # Validate mesh and config
