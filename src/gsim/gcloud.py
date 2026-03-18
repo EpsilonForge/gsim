@@ -32,13 +32,12 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from gdsfactoryplus import sim
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from typing import Literal
 
 __all__ = [
     "RunResult",
@@ -312,11 +311,35 @@ def get_status(job_id: str) -> str:
     return job.status.value
 
 
+def _fetch_and_print_logs(
+    job_id: str,
+    cursor: str | None,
+) -> str | None:
+    """Fetch a page of logs and print them. Returns the next cursor."""
+    _get_logs = getattr(sim, "_get_job_logs", None)
+    if _get_logs is None:
+        return cursor
+    _logs_unavailable = getattr(sim, "LogsNotAvailableError", Exception)
+    try:
+        page = _get_logs(job_id, cursor=cursor, limit=20)
+        for entry in page["items"]:
+            ts = entry.get("timestamp", "")
+            msg = entry.get("message", "")
+            print(f"  [{ts}] {msg}")  # noqa: T201
+        return page["page_info"].get("next_cursor") or cursor
+    except _logs_unavailable:
+        return cursor
+    except Exception as exc:
+        print(f"  [log fetch error: {exc}]")  # noqa: T201
+        return cursor
+
+
 def wait_for_results(
     *job_ids: str,
     verbose: bool = True,
     parent_dir: str | Path | None = None,
     poll_interval: float = 5.0,
+    logs: Literal["none", "full", "progress"] = "none",
 ) -> Any:
     """Wait for one or more jobs to finish, then download and parse results.
 
@@ -333,6 +356,10 @@ def wait_for_results(
         verbose: Print progress messages.
         parent_dir: Where to create sim-data directories (default: cwd).
         poll_interval: Seconds between status polls (default 5.0).
+        logs: Log output mode:
+            ``"none"`` — status line only (default).
+            ``"full"`` — stream solver logs live.
+            ``"progress"`` — show progress bar (not yet implemented).
 
     Returns:
         Parsed result (single job) or list of parsed results (multiple jobs).
@@ -343,6 +370,19 @@ def wait_for_results(
 
     if not job_ids:
         raise ValueError("At least one job_id is required")
+
+    if logs == "progress":
+        raise NotImplementedError("Progress bar mode is not yet implemented")
+
+    if logs == "full" and not hasattr(sim, "_get_job_logs"):
+        import warnings
+
+        warnings.warn(
+            "Log streaming requires gdsfactoryplus >= 1.7. "
+            "Falling back to logs='none'.",
+            stacklevel=2,
+        )
+        logs = "none"
 
     # Fetch initial job objects
     jobs: dict[str, Any] = {jid: sim.get_job(jid) for jid in job_ids}
@@ -359,22 +399,35 @@ def wait_for_results(
     # Track how many lines we printed last time (for overwriting multi-job)
     prev_lines = 0
 
+    # Log cursors for streaming (one per job)
+    log_cursors: dict[str, str | None] = dict.fromkeys(job_ids, None)
+
     # Poll until all jobs reach a terminal state
     while not all(j.status in terminal for j in jobs.values()):
-        if verbose:
+        if verbose and logs == "none":
             prev_lines = _print_status_table(
                 jobs, start_times, prev_lines, end_times=end_times
             )
+
         time.sleep(poll_interval)
+
         for jid, job in jobs.items():
             if job.status not in terminal:
                 jobs[jid] = sim.get_job(jid)
+                # Stream logs when running
+                if logs == "full" and jobs[jid].status == sim.SimStatus.RUNNING:
+                    log_cursors[jid] = _fetch_and_print_logs(jid, log_cursors[jid])
                 # Freeze timer when job reaches terminal state
                 if jobs[jid].status in terminal:
                     end_times[jid] = time.monotonic()
 
-    # Final status display (with newline to finish the line)
-    if verbose:
+    # Final log fetch to catch remaining output
+    if logs == "full":
+        for jid in job_ids:
+            _fetch_and_print_logs(jid, log_cursors[jid])
+
+    # Final status display — skip clear_output when logs were streamed
+    if verbose and logs != "full":
         _print_status_table(
             jobs, start_times, prev_lines, end_times=end_times, final=True
         )

@@ -10,7 +10,7 @@ import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
@@ -685,12 +685,15 @@ class Simulation(BaseModel):
         *,
         verbose: bool = True,
         parent_dir: str | Path | None = None,
+        logs: Literal["none", "full", "progress"] = "none",
     ) -> Any:
         """Wait for this sim's cloud job, download and parse results.
 
         Args:
             verbose: Print progress messages.
             parent_dir: Where to create the sim-data directory.
+            logs: Log output mode — ``"none"``, ``"full"``, or
+                ``"progress"`` (not yet implemented).
 
         Returns:
             Parsed result (typically ``SParameterResult``).
@@ -703,7 +706,7 @@ class Simulation(BaseModel):
         if self._job_id is None:
             raise ValueError("No job submitted yet")
         return gcloud.wait_for_results(
-            self._job_id, verbose=verbose, parent_dir=parent_dir
+            self._job_id, verbose=verbose, parent_dir=parent_dir, logs=logs
         )
 
     # -------------------------------------------------------------------------
@@ -716,6 +719,7 @@ class Simulation(BaseModel):
         *,
         verbose: bool = True,
         wait: bool = True,
+        logs: Literal["none", "full", "progress"] = "none",
     ) -> Any:
         """Run MEEP simulation on the cloud.
 
@@ -725,6 +729,8 @@ class Simulation(BaseModel):
             verbose: Print progress info.
             wait: If ``True`` (default), block until results are ready.
                 If ``False``, upload + start and return the ``job_id``.
+            logs: Log output mode — ``"none"``, ``"full"``, or
+                ``"progress"`` (not yet implemented).
 
         Returns:
             ``SParameterResult`` when ``wait=True``, or ``job_id`` string
@@ -734,7 +740,7 @@ class Simulation(BaseModel):
         self.start(verbose=verbose)
         if not wait:
             return self._job_id
-        return self.wait_for_results(verbose=verbose, parent_dir=parent_dir)
+        return self.wait_for_results(verbose=verbose, parent_dir=parent_dir, logs=logs)
 
     # -------------------------------------------------------------------------
     # Visualization
