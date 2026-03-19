@@ -79,6 +79,7 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
 
     # Stack configuration (stored as kwargs until resolved)
     _stack_kwargs: dict[str, Any] = PrivateAttr(default_factory=dict)
+    _layer_overrides: dict[str, dict[str, Any]] = PrivateAttr(default_factory=dict)
 
     # Internal state
     _output_dir: Path | None = PrivateAttr(default=None)

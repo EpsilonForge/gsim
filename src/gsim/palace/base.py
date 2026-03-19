@@ -6,10 +6,13 @@ DrivenSim, EigenmodeSim, ElectrostaticSim.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from gsim.palace.models.results import ValidationResult
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from gdsfactory.component import Component
@@ -37,6 +40,7 @@ class PalaceSimMixin:
     numerical: NumericalConfig
     _output_dir: Path | None
     _stack_kwargs: dict[str, Any]
+    _layer_overrides: dict[str, dict[str, Any]]
 
     # -------------------------------------------------------------------------
     # Output directory
@@ -192,6 +196,28 @@ class PalaceSimMixin:
             loss_tangent=loss_tangent,
         )
 
+    def set_layer(
+        self,
+        name: str,
+        *,
+        conductor_model: Literal["conductivity", "pec"] | None = None,
+    ) -> None:
+        """Override layer properties.
+
+        Args:
+            name: Layer name (e.g., "metal1", "topmetal2")
+            conductor_model: Boundary condition for this conductor layer.
+                "conductivity" (default) uses finite-conductivity impedance BC.
+                "pec" uses perfect electric conductor BC (lossless).
+
+        Example:
+            >>> sim.set_layer("metal1", conductor_model="pec")
+        """
+        overrides: dict[str, Any] = {}
+        if conductor_model is not None:
+            overrides["conductor_model"] = conductor_model
+        self._layer_overrides[name] = overrides
+
     def set_numerical(
         self,
         *,
@@ -244,6 +270,8 @@ class PalaceSimMixin:
             # Apply material overrides
             for name, props in self.materials.items():
                 self.stack.materials[name] = props.to_dict()
+            # Apply layer overrides
+            self._apply_layer_overrides(self.stack)
             return self.stack
 
         from gsim.common.stack import get_stack
@@ -258,10 +286,23 @@ class PalaceSimMixin:
         for name, props in self.materials.items():
             legacy_stack.materials[name] = props.to_dict()
 
+        # Apply layer overrides
+        self._apply_layer_overrides(legacy_stack)
+
         # Store the LayerStack
         self.stack = legacy_stack
 
         return legacy_stack
+
+    def _apply_layer_overrides(self, stack: LayerStack) -> None:
+        """Apply layer overrides from set_layer() to the stack."""
+        for layer_name, overrides in self._layer_overrides.items():
+            layer = stack.layers.get(layer_name)
+            if layer is None:
+                logger.warning("set_layer('%s'): layer not found in stack", layer_name)
+                continue
+            for key, value in overrides.items():
+                setattr(layer, key, value)
 
     def _build_mesh_config(
         self,
