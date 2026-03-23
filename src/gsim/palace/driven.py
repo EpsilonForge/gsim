@@ -238,8 +238,15 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             fmax: Maximum frequency in Hz
             num_points: Number of frequency points
             scale: "linear" or "log" frequency spacing
-            adaptive_tol: Adaptive frequency tolerance (0 disables adaptive)
-            adaptive_max_samples: Max samples for adaptive refinement
+            adaptive_tol: Relative error tolerance (unitless fraction) for
+                adaptive frequency sampling. Palace builds a reduced-order
+                model from a few full solves and interpolates the rest.
+                0 = disabled (full solve at every point), 0.02 = 2% error
+                (fast default), 1e-3 = 0.1% (accurate), 1e-4 = publication
+                quality.
+            adaptive_max_samples: Maximum number of additional frequency
+                points that adaptive refinement may insert between the
+                points defined by fmin, fmax, and num_points.
             compute_s_params: Compute S-parameters
             reference_impedance: Reference impedance for S-params (Ohms)
             excitation_port: Port to excite (None = first port)

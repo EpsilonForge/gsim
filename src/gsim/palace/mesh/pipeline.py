@@ -21,15 +21,15 @@ from gsim.palace.mesh.generator import generate_mesh as gen_mesh
 
 
 class MeshPreset(Enum):
-    """Mesh quality presets based on COMSOL guidelines.
+    """Mesh quality presets.
 
-    COMSOL uses 2nd order elements with ~5 elements per wavelength as default.
+    Uses 2nd order elements with ~5 elements per wavelength as default.
     Wavelength in dielectric: λ = c / (f * √εᵣ)
     At 100 GHz in SiO2 (εᵣ≈4): λ ≈ 1500 µm
     """
 
     COARSE = "coarse"  # ~2.5 elements/λ - fast iteration
-    DEFAULT = "default"  # ~5 elements/λ - COMSOL default
+    DEFAULT = "default"  # ~5 elements/λ - standard
     GRADED = "graded"  # default sizes + refinement near conductor edges
     FINE = "fine"  # ~10 elements/λ - high accuracy
 
@@ -57,7 +57,7 @@ class MeshConfig:
 
     Use class methods for quick presets:
         MeshConfig.coarse()   - Fast iteration (~2.5 elem/λ)
-        MeshConfig.default()  - Balanced (COMSOL default, ~5 elem/λ)
+        MeshConfig.default()  - Balanced (~5 elem/λ)
         MeshConfig.graded()   - Default sizes + refined near conductor edges
         MeshConfig.fine()     - High accuracy (~10 elem/λ)
 
@@ -111,7 +111,7 @@ class MeshConfig:
 
     @classmethod
     def default(cls, **kwargs) -> MeshConfig:
-        """Balanced mesh matching COMSOL defaults (~5 elements per wavelength)."""
+        """Balanced mesh (~5 elements per wavelength)."""
         refined, max_size, cpw = _MESH_PRESETS[MeshPreset.DEFAULT]
         return cls(
             refined_mesh_size=refined,

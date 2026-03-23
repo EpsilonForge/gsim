@@ -6,9 +6,9 @@ and palace-api data structures.
 Usage:
     from gsim.palace.mesh import generate_mesh, MeshConfig
 
-    # Quick presets (based on COMSOL guidelines)
+    # Quick presets
     config = MeshConfig.coarse()   # Fast iteration
-    config = MeshConfig.default()  # Balanced (COMSOL default)
+    config = MeshConfig.default()  # Balanced
     config = MeshConfig.fine()     # High accuracy
 
     # Or customize with overrides

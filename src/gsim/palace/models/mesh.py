@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class MeshConfig(BaseModel):
-    """Configuration for mesh generation with COMSOL-style presets.
+    """Configuration for mesh generation with quality presets.
 
     Attributes:
         refined_mesh_size: Mesh size near conductors (um)
@@ -65,7 +65,7 @@ class MeshConfig(BaseModel):
 
     @classmethod
     def default(cls, **kwargs: float | bool | list[str] | None) -> Self:
-        """Balanced mesh matching COMSOL defaults (~5 elements per wavelength).
+        """Balanced mesh (~5 elements per wavelength).
 
         This preset provides a good balance between accuracy and computation time.
         Suitable for most simulations.

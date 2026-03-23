@@ -7,7 +7,7 @@ Features:
     - Problem-specific simulation classes (DrivenSim, EigenmodeSim, ElectrostaticSim)
     - Layer stack extraction from PDK
     - Port configuration (inplane, via, CPW)
-    - Mesh generation with COMSOL-style presets
+    - Mesh generation with quality presets
     - Palace config file generation
 
 Usage:
