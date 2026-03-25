@@ -120,7 +120,7 @@ MATERIALS_DB: dict[str, MaterialProperties] = {
     # Dielectrics
     "SiO2": MaterialProperties(
         type="dielectric",
-        permittivity=4.1,  # Matches gds2palace IHP SG13G2
+        permittivity=4.1,  # IHP SG13G2
         loss_tangent=0.0,
         refractive_index=1.44,
     ),
@@ -152,11 +152,11 @@ MATERIALS_DB: dict[str, MaterialProperties] = {
         loss_tangent=0.0,
         refractive_index=1.0,
     ),
-    # Semiconductors (conductivity values from gds2palace IHP SG13G2)
+    # Semiconductors (conductivity values from IHP SG13G2 PDK)
     "silicon": MaterialProperties(
         type="semiconductor",
         permittivity=11.9,
-        conductivity=2.0,  # ~50 Ω·cm substrate (matches gds2palace)
+        conductivity=2.0,  # ~50 Ω·cm substrate (IHP SG13G2)
         refractive_index=3.47,
     ),
     "si": MaterialProperties(

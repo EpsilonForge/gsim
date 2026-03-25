@@ -1,7 +1,6 @@
 # Palace Port Types Explained
 
-This document explains how ports work in gds2palace/Palace and how to define them for different transmission line
-configurations.
+This document explains how ports work in Palace and how to define them for different transmission line configurations.
 
 ## Port Types Overview
 

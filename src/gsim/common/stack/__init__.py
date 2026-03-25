@@ -61,7 +61,7 @@ def get_stack(
             - substrate_thickness: Thickness below z=0 in um (default: 2.0)
             - air_above: Air box height above top metal in um (default: 200)
             - include_substrate: Include lossy silicon substrate (default: False).
-              When False, matches gds2palace "nosub" behavior for RF simulation.
+              When False, omits substrate for RF simulation.
 
     Returns:
         LayerStack object

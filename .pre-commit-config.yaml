@@ -51,14 +51,6 @@ repos:
         files: \.(ipynb)$
   - repo: local
     hooks:
-      - id: generate-api-docs
-        name: generate-api-docs
-        entry: "true"
-        language: system
-        files: src/gsim/.*__init__\.py$|docs/hooks\.py$
-        pass_filenames: false
-  - repo: local
-    hooks:
       - id: ty
         name: ty
         entry: uv run --no-sync ty check

@@ -94,12 +94,32 @@ def generate_palace_config(
     # Build domains section
     materials: list[dict[str, object]] = []
     for material_name, info in groups["volumes"].items():
-        mat_props = stack.materials.get(material_name, {})
+        is_via = info.get("is_via", False)
+
+        if is_via:
+            # Via volumes: look up material from the layer stack
+            layer = stack.layers.get(material_name)
+            if layer is None:
+                continue
+            mat_props = stack.materials.get(layer.material, {})
+        else:
+            mat_props = stack.materials.get(material_name, {})
+
         mat_entry: dict[str, object] = {"Attributes": [info["phys_group"]]}
 
         if material_name == "airbox":
             mat_entry["Permittivity"] = 1.0
             mat_entry["LossTan"] = 0.0
+        elif is_via:
+            # Merged via volumes get anisotropic conductivity:
+            # reduced lateral (xy) conductivity prevents unrealistic
+            # horizontal current flow through the merged block.
+            _VIA_LATERAL_FACTOR = 10
+            sigma = mat_props.get("conductivity", 0.0)
+            mat_entry["Permittivity"] = 1.0
+            if sigma > 0:
+                xy_sigma = sigma / _VIA_LATERAL_FACTOR
+                mat_entry["Conductivity"] = [xy_sigma, xy_sigma, sigma]
         else:
             # Use anisotropic tensor values when available
             if "permittivity_diagonal" in mat_props:
