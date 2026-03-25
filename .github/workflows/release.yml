@@ -50,11 +50,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          body=$(gh api repos/${{ github.repository }}/releases \
-            --jq '[.[] | select(.draft == true)] | first | .body // ""')
-          echo "body<<EOFBODY" >> "$GITHUB_OUTPUT"
-          echo "$body" >> "$GITHUB_OUTPUT"
-          echo "EOFBODY" >> "$GITHUB_OUTPUT"
+          draft_json=$(gh api repos/${{ github.repository }}/releases \
+            --jq '[.[] | select(.draft == true)] | first // empty')
+
+          if [ -n "$draft_json" ]; then
+            body=$(echo "$draft_json" | jq -r '.body // ""')
+            draft_id=$(echo "$draft_json" | jq -r '.id')
+            echo "body<<EOFBODY" >> "$GITHUB_OUTPUT"
+            echo "$body" >> "$GITHUB_OUTPUT"
+            echo "EOFBODY" >> "$GITHUB_OUTPUT"
+            gh api -X DELETE "repos/${{ github.repository }}/releases/$draft_id"
+          else
+            echo "body=" >> "$GITHUB_OUTPUT"
+          fi
       - name: Release GH
         uses: softprops/action-gh-release@v2
         with:
