@@ -149,13 +149,15 @@ class TestSParams:
         assert "freq_ghz" in df.columns
         assert "S_o1_o1_db" in df.columns
 
-    def test_plot_returns_figure(self, sim_dir: Path) -> None:
-        sp = load_sparams(sim_dir)
-        fig = sp.plot()
-        assert fig is not None
+    def test_plot_runs(self, sim_dir: Path) -> None:
+        import matplotlib as mpl
+
+        mpl.use("Agg")
         import matplotlib.pyplot as plt
 
-        plt.close(fig)
+        sp = load_sparams(sim_dir)
+        sp.plot()
+        plt.close("all")
 
 
 class TestLoadSparamsSource:

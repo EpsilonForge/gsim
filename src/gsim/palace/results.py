@@ -148,7 +148,7 @@ class SParams:
             cols[f"S_{to_p}_{from_p}_deg"] = sp.deg
         return pd.DataFrame(cols)
 
-    def plot(self, *, figsize: tuple[float, float] = (8, 6)) -> plt.Figure:
+    def plot(self, *, figsize: tuple[float, float] = (8, 6)) -> None:
         """Plot magnitude and phase of all S-parameters."""
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize)
 
@@ -168,7 +168,7 @@ class SParams:
         ax2.grid(True)
 
         fig.tight_layout()
-        return fig
+        plt.show()
 
     def __repr__(self) -> str:
         """Return string representation."""
@@ -208,6 +208,12 @@ def load_sparams(
     if csv_path is None:  # pragma: no cover — _resolve_source raises first
         msg = "port-S.csv not found"
         raise FileNotFoundError(msg)
+
+    # Check results dict for port_information.json (injected by DrivenSim)
+    if port_info_path is None and isinstance(source, dict):
+        pi_val = source.get("port_information.json")
+        if pi_val is not None:
+            port_info_path = Path(pi_val)
 
     port_map = _load_port_map(base_dir, csv_path, port_info_path)
 
@@ -350,14 +356,17 @@ def _load_port_map(
 
 def _find_port_info(output_dir: Path, csv_path: Path | None) -> Path | None:
     """Search common locations for ``port_information.json``."""
+    name = "port_information.json"
     candidates = [
-        output_dir / "port_information.json",
-        output_dir / "output" / "port_information.json",
+        output_dir / name,
+        output_dir / "output" / name,
     ]
     if csv_path is not None:
-        candidates.insert(0, csv_path.parent / "port_information.json")
-        candidates.append(csv_path.parent.parent / "port_information.json")
-        candidates.append(csv_path.parent.parent.parent / "port_information.json")
+        candidates.insert(0, csv_path.parent / name)
+        # Cloud layout: results/output/port-S.csv + results/input/port_info
+        candidates.append(csv_path.parent.parent / "input" / name)
+        candidates.append(csv_path.parent.parent / name)
+        candidates.append(csv_path.parent.parent.parent / name)
 
     for p in candidates:
         if p.exists():
