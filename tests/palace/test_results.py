@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
-from gsim.palace.results import get_port_map, load_sparams
+from gsim.palace.results import SParams, get_port_map, load_sparams
 
 
 @pytest.fixture
@@ -16,7 +17,6 @@ def sim_dir(tmp_path: Path) -> Path:
     palace_dir = tmp_path / "output" / "palace"
     palace_dir.mkdir(parents=True)
 
-    # Write port_information.json at the sim root (common location)
     port_info = {
         "ports": [
             {"portnumber": 1, "name": "o1", "Z0": 50.0, "type": "cpw"},
@@ -28,7 +28,6 @@ def sim_dir(tmp_path: Path) -> Path:
     }
     (tmp_path / "port_information.json").write_text(json.dumps(port_info))
 
-    # Write a minimal port-S.csv
     csv_content = (
         "f (GHz), |S[1][1]| (dB), arg(S[1][1]) (deg.),"
         " |S[2][1]| (dB), arg(S[2][1]) (deg.),"
@@ -43,7 +42,7 @@ def sim_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def sim_dir_no_names(tmp_path: Path) -> Path:
-    """Sim dir with port_information.json that has no name fields (legacy)."""
+    """Sim dir with port_information.json without name fields."""
     palace_dir = tmp_path / "output" / "palace"
     palace_dir.mkdir(parents=True)
 
@@ -67,58 +66,128 @@ def sim_dir_no_names(tmp_path: Path) -> Path:
     return tmp_path
 
 
-class TestLoadSparams:
-    """Tests for load_sparams."""
+class TestSParams:
+    """Tests for the SParams result object."""
 
-    def test_columns_renamed_with_port_names(self, sim_dir: Path) -> None:
-        df = load_sparams(sim_dir)
+    def test_returns_sparams_object(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        assert isinstance(sp, SParams)
+
+    def test_freq(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        assert sp.freq[0] == pytest.approx(1.0)
+        assert sp.freq[1] == pytest.approx(2.0)
+        assert len(sp.freq) == 2
+
+    def test_port_names(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        assert sp.port_names == ["o1", "o2", "o3"]
+
+    def test_bracket_access(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        s11 = sp["o1", "o1"]
+        assert s11.db[0] == pytest.approx(-20.0)
+        assert s11.deg[0] == pytest.approx(-45.0)
+
+    def test_bracket_access_cross(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        s21 = sp["o2", "o1"]
+        assert s21.db[0] == pytest.approx(-3.0)
+        assert s21.deg[0] == pytest.approx(-90.0)
+
+    def test_mag_property(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        s11 = sp["o1", "o1"]
+        expected_mag = 10 ** (-20.0 / 20)
+        assert s11.mag[0] == pytest.approx(expected_mag)
+
+    def test_complex_property(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        s11 = sp["o1", "o1"]
+        c = s11.complex[0]
+        assert abs(c) == pytest.approx(10 ** (-20.0 / 20))
+        assert np.rad2deg(np.angle(c)) == pytest.approx(-45.0)
+
+    def test_rf_shorthand_s11(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        assert sp.s11.db[0] == pytest.approx(-20.0)
+
+    def test_rf_shorthand_s21(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        assert sp.s21.db[0] == pytest.approx(-3.0)
+
+    def test_rf_shorthand_s31(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        assert sp.s31.db[0] == pytest.approx(-30.0)
+
+    def test_invalid_shorthand_raises(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        with pytest.raises(AttributeError):
+            _ = sp.s99
+
+    def test_invalid_bracket_raises(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        with pytest.raises(KeyError, match="not found"):
+            _ = sp["o1", "o99"]
+
+    def test_keys(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        keys = sp.keys()
+        assert ("o1", "o1") in keys
+        assert ("o2", "o1") in keys
+        assert ("o3", "o1") in keys
+
+    def test_repr(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        r = repr(sp)
+        assert "3 ports" in r
+        assert "o1" in r
+
+    def test_to_dataframe(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        df = sp.to_dataframe()
         assert "freq_ghz" in df.columns
         assert "S_o1_o1_db" in df.columns
-        assert "S_o2_o1_db" in df.columns
-        assert "S_o3_o1_db" in df.columns
-        assert "S_o1_o1_deg" in df.columns
 
-    def test_data_preserved(self, sim_dir: Path) -> None:
-        df = load_sparams(sim_dir)
-        assert len(df) == 2
-        assert df["freq_ghz"].iloc[0] == pytest.approx(1.0)
-        assert df["S_o1_o1_db"].iloc[0] == pytest.approx(-20.0)
-        assert df["S_o2_o1_deg"].iloc[0] == pytest.approx(-90.0)
+    def test_plot_returns_figure(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        fig = sp.plot()
+        assert fig is not None
+        import matplotlib.pyplot as plt
 
-    def test_fallback_numeric_names(self, sim_dir_no_names: Path) -> None:
-        df = load_sparams(sim_dir_no_names)
-        assert "S_p1_p1_db" in df.columns
-        assert "S_p2_p1_db" in df.columns
+        plt.close(fig)
 
-    def test_explicit_port_info_path(self, sim_dir: Path) -> None:
-        df = load_sparams(sim_dir, port_info_path=sim_dir / "port_information.json")
-        assert "S_o1_o1_db" in df.columns
+
+class TestLoadSparamsSource:
+    """Tests for source resolution (dir, subdir, dict)."""
+
+    def test_accepts_dir(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        assert len(sp.freq) == 2
+
+    def test_accepts_palace_subdir(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir / "output" / "palace")
+        assert len(sp.freq) == 2
+
+    def test_accepts_results_dict(self, sim_dir: Path) -> None:
+        results = {
+            "port-S.csv": sim_dir / "output" / "palace" / "port-S.csv",
+        }
+        sp = load_sparams(results)
+        assert sp["o1", "o1"].db[0] == pytest.approx(-20.0)
 
     def test_missing_csv_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError, match=r"port-S\.csv"):
             load_sparams(tmp_path)
 
-    def test_accepts_palace_subdir(self, sim_dir: Path) -> None:
-        """Can pass the output/palace/ dir directly."""
-        df = load_sparams(sim_dir / "output" / "palace")
-        assert "freq_ghz" in df.columns
-        assert "S_o1_o1_db" in df.columns
-
-    def test_accepts_results_dict(self, sim_dir: Path) -> None:
-        """Can pass a results dict like sim.run() returns."""
-        results = {
-            "port-S.csv": sim_dir / "output" / "palace" / "port-S.csv",
-            "port-V.csv": sim_dir / "output" / "palace" / "port-V.csv",
-        }
-        df = load_sparams(results)
-        assert "freq_ghz" in df.columns
-        assert "S_o1_o1_db" in df.columns
-        assert "S_o2_o1_db" in df.columns
-
     def test_results_dict_missing_csv_raises(self) -> None:
-        """Results dict without port-S.csv raises."""
         with pytest.raises(FileNotFoundError, match="port-S"):
             load_sparams({"other.csv": Path("/nonexistent")})
+
+    def test_fallback_numeric_names(self, sim_dir_no_names: Path) -> None:
+        sp = load_sparams(sim_dir_no_names)
+        assert sp.port_names == ["p1", "p2"]
+        assert sp["p1", "p1"].db[0] == pytest.approx(-20.0)
 
 
 class TestGetPortMap:

@@ -102,7 +102,7 @@ from gsim.palace.ports import (
 )
 
 # Results utilities
-from gsim.palace.results import get_port_map, load_sparams
+from gsim.palace.results import SParam, SParams, get_port_map, load_sparams
 
 # Visualization
 from gsim.viz import plot_mesh
@@ -134,6 +134,8 @@ __all__ = [
     "PortConfig",
     "PortGeometry",
     "PortType",
+    "SParam",
+    "SParams",
     "SimulationResult",
     "Stack",
     "StackLayer",
