@@ -812,6 +812,7 @@ def add_ports(
             port_info.append(
                 {
                     "portnumber": port_num,
+                    "name": port.name,
                     "Z0": port.impedance,
                     "type": "cpw",
                     "elements": [
@@ -858,6 +859,7 @@ def add_ports(
             port_info.append(
                 {
                     "portnumber": port_num,
+                    "name": port.name,
                     "Z0": port.impedance,
                     "type": "via",
                     "direction": "Z",
@@ -902,6 +904,7 @@ def add_ports(
             port_info.append(
                 {
                     "portnumber": port_num,
+                    "name": port.name,
                     "Z0": port.impedance,
                     "type": "lumped",
                     "direction": port.direction.upper(),
