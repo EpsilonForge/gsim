@@ -101,6 +101,9 @@ from gsim.palace.ports import (
     extract_ports,
 )
 
+# Results utilities
+from gsim.palace.results import SParam, SParams, get_port_map, load_sparams
+
 # Visualization
 from gsim.viz import plot_mesh
 
@@ -131,6 +134,8 @@ __all__ = [
     "PortConfig",
     "PortGeometry",
     "PortType",
+    "SParam",
+    "SParams",
     "SimulationResult",
     "Stack",
     "StackLayer",
@@ -146,7 +151,9 @@ __all__ = [
     "extract_ports",
     "generate_mesh",
     "get_material_properties",
+    "get_port_map",
     "get_stack",
+    "load_sparams",
     "load_stack_yaml",
     "material_is_conductor",
     "material_is_dielectric",
