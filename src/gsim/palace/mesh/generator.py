@@ -153,11 +153,11 @@ def generate_mesh(
     eigenmode_config: EigenmodeConfig | None = None,
     write_config: bool = True,
     planar_conductors: bool = False,
-    refine_from_curves: bool = False,
     pec_blocks: list[PECBlockConfig] | None = None,
+    absorbing_boundary: bool = True,
+    refine_from_curves: bool = False,
     merge_via_distance: float = 2.0,
     verbosity: int = 3,
-    absorbing_boundary: bool = True,
 ) -> MeshResult:
     """Generate mesh for Palace EM simulation.
 
@@ -177,9 +177,12 @@ def generate_mesh(
         driven_config: Optional DrivenConfig for frequency sweep settings
         eigenmode_config: Optional EigenmodeConfig for eigenmode problems
         write_config: Whether to write config.json (default True)
+        pec_blocks: PEC configuration
         planar_conductors: If True, treat conductors as 2D PEC surfaces
+        absorbing_boundary: If True, use absorbing boundary conditions on outer surfaces
         refine_from_curves: Refine mesh based on distance to conductor edges
         merge_via_distance: Max gap between vias to merge (um)
+        verbosity: Sets gmsh verbosity level
 
     Returns:
         MeshResult with paths and metadata
