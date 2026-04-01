@@ -217,7 +217,7 @@ class TestSParamsSaveLoad:
         assert loaded.port_names == sp.port_names
         assert len(loaded.freq) == len(sp.freq)
         np.testing.assert_allclose(loaded.freq, sp.freq)
-        for key in sp.keys():
+        for key in sp._data:
             np.testing.assert_allclose(loaded[key].db, sp[key].db)
             np.testing.assert_allclose(loaded[key].deg, sp[key].deg)
 

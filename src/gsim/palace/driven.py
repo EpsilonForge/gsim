@@ -872,7 +872,9 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         if sparams_path is not None:
             sparams_path = Path(sparams_path).with_suffix(".npz")
             if sparams_path.exists() and not overwrite:
-                logger.info("Cached S-parameters found at %s, skipping simulation", sparams_path)
+                logger.info(
+                    "Cached S-parameters found at %s, skipping simulation", sparams_path
+                )
                 return {"sparams": sparams_path}
 
         self.upload(verbose=False)
@@ -931,7 +933,9 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         if sparams_path is not None:
             sparams_path = Path(sparams_path).with_suffix(".npz")
             if sparams_path.exists() and not overwrite:
-                logger.info("Cached S-parameters found at %s, skipping simulation", sparams_path)
+                logger.info(
+                    "Cached S-parameters found at %s, skipping simulation", sparams_path
+                )
                 return {"sparams": sparams_path}
         import os
         import subprocess

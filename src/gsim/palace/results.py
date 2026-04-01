@@ -257,7 +257,7 @@ class SParams:
         return filepath
 
     @classmethod
-    def from_file(cls, filepath: str | Path) -> "SParams":
+    def from_file(cls, filepath: str | Path) -> SParams:
         """Load S-parameters from a ``.npz`` file written by :meth:`save`.
 
         Args:
