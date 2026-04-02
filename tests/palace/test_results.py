@@ -205,11 +205,11 @@ class TestGetPortMap:
 
 
 class TestSParamsSaveLoad:
-    """Tests for SParams save/from_file round-trip."""
+    """Tests for SParams save_npz/from_file round-trip."""
 
     def test_round_trip(self, sim_dir: Path, tmp_path: Path) -> None:
         sp = load_sparams(sim_dir)
-        out = sp.save(tmp_path / "cached")
+        out = sp.save_npz(tmp_path / "cached")
         assert out.suffix == ".npz"
         assert out.exists()
 
@@ -223,7 +223,7 @@ class TestSParamsSaveLoad:
 
     def test_adds_npz_suffix(self, sim_dir: Path, tmp_path: Path) -> None:
         sp = load_sparams(sim_dir)
-        out = sp.save(tmp_path / "no_ext")
+        out = sp.save_npz(tmp_path / "no_ext")
         assert out.name == "no_ext.npz"
 
     def test_from_file_missing_raises(self, tmp_path: Path) -> None:

@@ -91,11 +91,13 @@ class SParams:
         freq: NDArray,
         data: dict[tuple[str, str], SParam],
         port_names: list[str],
+        files: dict[str, Path] | None = None,
     ) -> None:
         """Create from frequency array, S-parameter data, and port names."""
         self._freq = freq
         self._data = data
         self._port_names = port_names
+        self.files = files or {}
 
     @property
     def freq(self) -> NDArray:
@@ -232,7 +234,7 @@ class SParams:
         fig.update_layout(title="S-Parameters", height=600)
         return fig
 
-    def save(self, filepath: str | Path) -> Path:
+    def save_npz(self, filepath: str | Path) -> Path:
         """Save S-parameters to a ``.npz`` file.
 
         The file can be reloaded with :meth:`SParams.from_file`.
@@ -258,7 +260,7 @@ class SParams:
 
     @classmethod
     def from_file(cls, filepath: str | Path) -> SParams:
-        """Load S-parameters from a ``.npz`` file written by :meth:`save`.
+        """Load S-parameters from a ``.npz`` file written by :meth:`save_npz`.
 
         Args:
             filepath: Path to the ``.npz`` file.
@@ -363,7 +365,8 @@ def load_sparams(
         deg = parts.get("deg", np.zeros(len(freq)))
         data[(to_name, from_name)] = SParam(db=db, deg=deg)
 
-    return SParams(freq=freq, data=data, port_names=port_names)
+    files = dict(source) if isinstance(source, dict) else None
+    return SParams(freq=freq, data=data, port_names=port_names, files=files)
 
 
 def get_port_map(source: str | Path | dict) -> dict[int, str]:
