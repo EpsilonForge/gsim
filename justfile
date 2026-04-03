@@ -6,6 +6,7 @@ dev:
   uv sync --dev
   uv pip install -e .
   uvx pre-commit install
+  git config diff.ipynb.textconv "jupyter nbconvert --to script --stdout"
 
 # Version bumping
 [linux,macos]
