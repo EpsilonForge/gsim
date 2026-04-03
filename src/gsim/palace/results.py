@@ -234,6 +234,80 @@ class SParams:
         fig.update_layout(title="S-Parameters", height=600)
         return fig
 
+    def _port_index_map(self) -> dict[str, int]:
+        """Return ``{port_name: 1-based index}`` mapping."""
+        return {name: i + 1 for i, name in enumerate(self._port_names)}
+
+    def _sij_label(self, to_port: str, from_port: str) -> str:
+        """Return ``Sij`` label for a port pair."""
+        idx = self._port_index_map()
+        return f"S{idx[to_port]}{idx[from_port]}"
+
+    def plot_interactive(self, phase: bool = False):
+        """Plot S-parameters with interactive legend toggling.
+
+        Uses ``Sij`` notation (e.g. S11, S21) and prints the port
+        mapping so you know which index corresponds to which port.
+        Reflections (Sii) are hidden by default; first 4 transmission
+        traces are visible, the rest are togglable via the legend.
+
+        Args:
+            phase: If True, plot phase (deg). Default is magnitude (dB).
+
+        Returns:
+            plotly Figure
+        """
+        import plotly.graph_objects as go  # type: ignore[import-untyped]
+
+        # Print port mapping
+        idx = self._port_index_map()
+        mapping = ", ".join(f"Port {i}: {name}" for name, i in idx.items())
+        print(f"Port mapping: {mapping}")  # noqa: T201
+
+        # Build ordered labels with reflection detection
+        entries: list[tuple[str, SParam]] = []
+        for (to_p, from_p), sp in self._data.items():
+            entries.append((self._sij_label(to_p, from_p), sp))
+
+        transmission = [(l, sp) for l, sp in entries if l[1] != l[2]]
+        reflections = [(l, sp) for l, sp in entries if l[1] == l[2]]
+        ordered = transmission + reflections
+        visible_set = {l for l, _ in transmission[:4]}
+
+        fig = go.Figure()
+
+        for label, sp in ordered:
+            y = sp.deg if phase else sp.db
+            vis = True if label in visible_set else "legendonly"
+            fig.add_scatter(
+                x=self._freq,
+                y=y,
+                mode="lines",
+                name=label,
+                visible=vis,
+            )
+
+        ylabel = "Phase (deg)" if phase else "|S| (dB)"
+        fig.update_layout(
+            xaxis_title="Frequency (GHz)",
+            yaxis_title=ylabel,
+            width=700,
+            height=400,
+            margin=dict(t=40, b=40, l=60, r=10),
+            legend=dict(
+                groupclick="toggleitem",
+                itemclick="toggle",
+                itemdoubleclick="toggleothers",
+                itemsizing="constant",
+                bordercolor="#888",
+                borderwidth=1,
+                bgcolor="rgba(245,245,245,0.9)",
+                entrywidthmode="pixels",
+                entrywidth=70,
+            ),
+        )
+        return fig
+
     def save_npz(self, filepath: str | Path) -> Path:
         """Save S-parameters to a ``.npz`` file.
 

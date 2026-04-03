@@ -159,6 +159,26 @@ class TestSParams:
         sp.plot()
         plt.close("all")
 
+    def test_plot_interactive_runs(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        fig = sp.plot_interactive()
+        assert len(fig.data) == len(sp.keys())
+
+    def test_plot_interactive_labels(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        fig = sp.plot_interactive()
+        names = [trace.name for trace in fig.data]
+        # 3 ports → S11, S21, S31 etc.
+        assert "S11" in names
+        assert "S21" in names
+
+    def test_plot_interactive_hides_reflections(self, sim_dir: Path) -> None:
+        sp = load_sparams(sim_dir)
+        fig = sp.plot_interactive()
+        for trace in fig.data:
+            if trace.name[1] == trace.name[2]:  # reflection
+                assert trace.visible == "legendonly"
+
 
 class TestLoadSparamsSource:
     """Tests for source resolution (dir, subdir, dict)."""
