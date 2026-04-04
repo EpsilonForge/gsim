@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import gmsh
 
@@ -29,6 +29,7 @@ def generate_palace_config(
     driven_config: DrivenConfig | None = None,
     eigenmode_config: EigenmodeConfig | None = None,
     absorbing_boundary: bool = True,
+    hints: dict[str, Any] | None = None,
 ) -> Path:
     """Generate Palace config.json file.
 
@@ -284,6 +285,10 @@ def generate_palace_config(
 
     config["Boundaries"] = boundaries
 
+    # Merge any extra hints into the config
+    if hints:
+        config.update(hints)
+
     # Write config file
     config_path = output_path / "config.json"
     with config_path.open("w") as f:
@@ -417,6 +422,7 @@ def write_config(
     driven_config: DrivenConfig | None = None,
     eigenmode_config: EigenmodeConfig | None = None,
     absorbing_boundary: bool = True,
+    hints: dict[str, Any] | None = None,
 ) -> Path:
     """Write Palace config.json from a MeshResult.
 
@@ -455,6 +461,7 @@ def write_config(
         driven_config=driven_config,
         eigenmode_config=eigenmode_config,
         absorbing_boundary=absorbing_boundary,
+        hints=hints,
     )
 
     # Update the mesh_result with the config path

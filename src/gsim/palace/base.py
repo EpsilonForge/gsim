@@ -57,6 +57,7 @@ class PalaceSimMixin:
     _output_dir: Path | None
     _stack_kwargs: dict[str, Any]
     _pec_blocks: list
+    _hints: dict[str, Any]
     absorbing_boundary: bool
 
     # -------------------------------------------------------------------------
@@ -255,7 +256,6 @@ class PalaceSimMixin:
         solver_type: Literal["Default", "SuperLU", "STRUMPACK", "MUMPS"] = "Default",
         preconditioner: Literal["Default", "AMS", "BoomerAMG"] = "Default",
         device: Literal["CPU", "GPU"] = "CPU",
-        num_processors: int | None = None,
     ) -> None:
         """Configure numerical solver parameters.
 
@@ -266,7 +266,6 @@ class PalaceSimMixin:
             solver_type: Linear solver type
             preconditioner: Preconditioner type
             device: Compute device (CPU or GPU)
-            num_processors: Number of processors (None = auto)
 
         Example:
             >>> sim.set_numerical(order=3, tolerance=1e-8)
@@ -278,7 +277,6 @@ class PalaceSimMixin:
             solver_type=solver_type,
             preconditioner=preconditioner,
             device=device,
-            num_processors=num_processors,
         )
 
     # -------------------------------------------------------------------------
@@ -1019,6 +1017,7 @@ class PalaceSimMixin:
             eigenmode_config=self.eigenmode,
             driven_config=self.driven,
             absorbing_boundary=self.absorbing_boundary,
+            hints=self._hints,
         )
 
         # Validate mesh and config
@@ -1500,20 +1499,3 @@ class PalaceSimMixin:
                 excited=excited,
             )
         )
-
-
-def get_num_processes() -> int:
-    """Determine number of processes to use for parallel simulations.
-
-    Returns:
-        Number of processes.
-    """
-    try:
-        import psutil
-
-        num_processes = psutil.cpu_count(logical=True) or 1
-    except ImportError:
-        import os
-
-        num_processes = os.cpu_count() or 1
-    return num_processes
