@@ -677,6 +677,7 @@ class PalaceSimMixin:
                     length=port_config.length or gf_port.width,
                     impedance=port_config.impedance,
                     excited=port_config.excited,
+                    offset=port_config.offset,
                 )
             elif port_config.geometry == "via" and (
                 port_config.from_layer is not None and port_config.to_layer is not None
@@ -687,6 +688,7 @@ class PalaceSimMixin:
                     to_layer=port_config.to_layer,
                     impedance=port_config.impedance,
                     excited=port_config.excited,
+                    offset=port_config.offset,
                 )
 
             # Attach RLC values to port info for downstream consumers
@@ -1401,6 +1403,7 @@ class PalaceSimMixin:
         from_layer: str | None = None,
         to_layer: str | None = None,
         length: float | None = None,
+        offset: float = 0.0,
         impedance: float = 50.0,
         resistance: float | None = None,
         inductance: float | None = None,
@@ -1416,6 +1419,8 @@ class PalaceSimMixin:
             from_layer: Bottom layer for via ports
             to_layer: Top layer for via ports
             length: Port extent along direction (um)
+            offset: Shift the port inward along the waveguide (um).
+                Positive moves away from the boundary, into the conductor.
             impedance: Port impedance (Ohms)
             resistance: Series resistance (Ohms)
             inductance: Series inductance (H)
@@ -1439,6 +1444,7 @@ class PalaceSimMixin:
                 from_layer=from_layer,
                 to_layer=to_layer,
                 length=length,
+                offset=offset,
                 impedance=impedance,
                 resistance=resistance,
                 inductance=inductance,
