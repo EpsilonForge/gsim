@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import math
 
 import gmsh
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Minimalistic meshwell-style entity + boolean pipeline
@@ -102,7 +105,46 @@ def run_boolean_pipeline(entities: list[Entity]) -> dict[str, int]:
 
             processed_in_dim = [e for e in current_group if e.dimtags]
         else:
-            # Keep existing priority-cut logic for dim=2,1,0
+            # --- Pre-step: fragment current-dim entities against higher-dim
+            # entities BEFORE priority cuts.
+            #
+            # The dim=3 fragment can merge floating conductor surfaces that are
+            # coincident with dielectric volume faces, assigning them new tags.
+            # If priority cuts run first (with the old tags), OCC raises
+            # "Unknown entity of dimension N with tag T".  Fragmenting against
+            # the higher-dim entities here refreshes all surface tags so the
+            # subsequent priority cuts operate on valid geometry.
+            if processed_higher_dims:
+                object_dimtags = [dt for e in current_group for dt in e.dimtags]
+                tool_dimtags_hd = [
+                    dt for e in processed_higher_dims for dt in e.dimtags
+                ]
+
+                if object_dimtags and tool_dimtags_hd:
+                    _, out_map = gmsh.model.occ.fragment(
+                        object_dimtags,
+                        tool_dimtags_hd,
+                        removeObject=True,
+                        removeTool=True,
+                    )
+                    gmsh.model.occ.synchronize()
+
+                    idx = 0
+                    for entity in current_group:
+                        new_dimtags: list[tuple[int, int]] = []
+                        for _ in entity.dimtags:
+                            new_dimtags.extend(out_map[idx])
+                            idx += 1
+                        entity.dimtags = list(set(new_dimtags))
+
+                    for entity in processed_higher_dims:
+                        new_dimtags = []
+                        for _ in entity.dimtags:
+                            new_dimtags.extend(out_map[idx])
+                            idx += 1
+                        entity.dimtags = list(set(new_dimtags))
+
+            # Priority cuts among same-dim entities (tags are now fresh).
             for entity in current_group:
                 tool_dimtags = [dt for prev in processed_in_dim for dt in prev.dimtags]
 
@@ -120,7 +162,11 @@ def run_boolean_pipeline(entities: list[Entity]) -> dict[str, int]:
                     processed_in_dim.append(entity)
 
         # --- B. Fragment against higher dimensions ---
-        if processed_higher_dims and processed_in_dim:
+        # For dim < 3 this was already done in the pre-step above, so
+        # processed_higher_dims dimtags are already up to date.
+        # For dim == 3 processed_higher_dims is always empty (first iteration),
+        # so this block is effectively a no-op in all cases — kept for clarity.
+        if processed_higher_dims and processed_in_dim and dim == 3:
             object_dimtags = [dt for e in processed_in_dim for dt in e.dimtags]
             tool_dimtags = [dt for e in processed_higher_dims for dt in e.dimtags]
 
@@ -132,7 +178,6 @@ def run_boolean_pipeline(entities: list[Entity]) -> dict[str, int]:
             )
             gmsh.model.occ.synchronize()
 
-            # Update tags using the mapping
             idx = 0
             for entity in processed_in_dim:
                 new_dimtags: list[tuple[int, int]] = []
@@ -251,6 +296,33 @@ def create_box(
     return volumetag
 
 
+def _create_wire_loop(
+    kernel,
+    pts_x: list[float],
+    pts_y: list[float],
+    z: float,
+    meshseed: float = 0,
+) -> int | None:
+    """Create a closed curve loop from polygon vertices.
+
+    Returns:
+        Curve loop tag, or None if fewer than 3 valid edges.
+    """
+    verts = [
+        kernel.addPoint(pts_x[v], pts_y[v], z, meshseed, -1) for v in range(len(pts_x))
+    ]
+    lines = []
+    for v in range(len(verts)):
+        try:
+            ltag = kernel.addLine(verts[v], verts[(v + 1) % len(verts)], -1)
+            lines.append(ltag)
+        except Exception:
+            pass  # Skip degenerate (zero-length) lines
+    if len(lines) < 3:
+        return None
+    return kernel.addCurveLoop(lines, tag=-1)
+
+
 def create_polygon_surface(
     kernel,
     pts_x: list[float],
@@ -260,6 +332,10 @@ def create_polygon_surface(
     holes: list[tuple[list[float], list[float]]] | None = None,
 ) -> int | None:
     """Create a planar surface from polygon vertices at z height.
+
+    Holes are removed via ``occ.cut()`` for robustness — the OCC kernel
+    handles boolean subtraction more reliably than passing multiple curve
+    loops to ``addPlaneSurface``.
 
     Args:
         kernel: gmsh.model.occ kernel
@@ -272,55 +348,42 @@ def create_polygon_surface(
     Returns:
         Surface tag, or None if polygon is invalid
     """
-    numvertices = len(pts_x)
-    if numvertices < 3:
+    if len(pts_x) < 3:
         return None
 
-    linetaglist = []
-    vertextaglist = []
-
-    # Create vertices
-    for v in range(numvertices):
-        vertextag = kernel.addPoint(pts_x[v], pts_y[v], z, meshseed, -1)
-        vertextaglist.append(vertextag)
-
-    # Create lines connecting vertices
-    for v in range(numvertices):
-        pt_start = vertextaglist[v]
-        pt_end = vertextaglist[(v + 1) % numvertices]
-        try:
-            linetag = kernel.addLine(pt_start, pt_end, -1)
-            linetaglist.append(linetag)
-        except Exception:
-            pass  # Skip degenerate lines
-
-    if len(linetaglist) < 3:
+    exterior_loop = _create_wire_loop(kernel, pts_x, pts_y, z, meshseed)
+    if exterior_loop is None:
         return None
 
-    # Create outer curve loop
-    curvetag = kernel.addCurveLoop(linetaglist, tag=-1)
+    exterior_surf = kernel.addPlaneSurface([exterior_loop], tag=-1)
 
-    # Create hole curve loops
-    all_loops = [curvetag]
-    for hx, hy in holes or []:
-        hole_lines = []
-        hole_verts = []
-        for v in range(len(hx)):
-            vtag = kernel.addPoint(hx[v], hy[v], z, meshseed, -1)
-            hole_verts.append(vtag)
-        for v in range(len(hx)):
-            try:
-                ltag = kernel.addLine(hole_verts[v], hole_verts[(v + 1) % len(hx)], -1)
-                hole_lines.append(ltag)
-            except Exception:
-                pass
-        if len(hole_lines) >= 3:
-            hole_loop = kernel.addCurveLoop(hole_lines, tag=-1)
-            all_loops.append(hole_loop)
+    if not holes:
+        return exterior_surf
 
-    surfacetag = kernel.addPlaneSurface(all_loops, tag=-1)
+    # Build hole surfaces and subtract them via boolean cut
+    hole_dimtags: list[tuple[int, int]] = []
+    for hx, hy in holes:
+        hloop = _create_wire_loop(kernel, list(hx), list(hy), z, meshseed)
+        if hloop is not None:
+            hsurf = kernel.addPlaneSurface([hloop], tag=-1)
+            hole_dimtags.append((2, hsurf))
 
-    return surfacetag
+    if not hole_dimtags:
+        return exterior_surf
+
+    result, _ = kernel.cut(
+        [(2, exterior_surf)],
+        hole_dimtags,
+        removeObject=True,
+        removeTool=True,
+    )
+    kernel.synchronize()
+
+    if result:
+        return result[0][1]
+
+    logger.warning("Boolean cut for polygon holes returned empty result")
+    return None
 
 
 def extrude_polygon(
