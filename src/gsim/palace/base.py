@@ -453,9 +453,12 @@ class PalaceSimMixin:
                         )
                     if (
                         not boundaries.get("LumpedPort")
+                        and not boundaries.get("LumpedElement")
                         and self.simulation_type == "driven"
                     ):
-                        errors.append("config.json has no LumpedPort entries.")
+                        errors.append(
+                            "config.json has no LumpedPort or LumpedElement entries."
+                        )
                 except json.JSONDecodeError as e:
                     errors.append(f"config.json is invalid JSON: {e}")
 

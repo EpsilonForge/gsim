@@ -280,6 +280,19 @@ def _make_qpdk_sim(component, stack, tmp_path):
     return sim
 
 
+def _make_qpdk_junction_sim(component, stack, tmp_path):
+    """Create, configure, and mesh a QPDK-style DrivenSim with a reactive port."""
+    sim = DrivenSim()
+    sim.set_output_dir(str(tmp_path / "palace-sim-qpdk-junction"))
+    sim.set_geometry(component)
+    sim.set_stack(stack)
+    sim.add_port("o1", layer="superconductor", length=5.0, inductance=10e-9)
+    sim.add_cpw_port("o2", layer="superconductor", s_width=10, gap_width=6, length=5.0)
+    sim.set_driven(fmin=5e9, fmax=10e9, num_points=20)
+    sim.mesh(preset="coarse", margin=0)
+    return sim
+
+
 @pytest.fixture(scope="module")
 def qpdk_sim(tmp_path_factory):
     """Mesh once with QPDK-style zero-thickness conductors."""
@@ -287,6 +300,15 @@ def qpdk_sim(tmp_path_factory):
     component = _make_qpdk_component()
     stack = _make_qpdk_stack()
     return _make_qpdk_sim(component, stack, tmp_path)
+
+
+@pytest.fixture(scope="module")
+def qpdk_junction_sim(tmp_path_factory):
+    """Mesh once with QPDK-style structure including an inductive port element."""
+    tmp_path = tmp_path_factory.mktemp("qpdk-junction")
+    component = _make_qpdk_component()
+    stack = _make_qpdk_stack()
+    return _make_qpdk_junction_sim(component, stack, tmp_path)
 
 
 class TestQPDKMesh:
@@ -333,6 +355,24 @@ class TestQPDKMesh:
         """validate_mesh() must pass for a valid QPDK setup."""
         result = qpdk_sim.validate_mesh()
         assert result.valid, f"Validation failed:\n{result}"
+
+
+class TestQPDKReactivePortConfig:
+    """Test driven config generation for reactive (L/C) lumped elements."""
+
+    def test_reactive_port_is_lumped_element(self, qpdk_junction_sim):
+        """Ports with inductance/capacitance > 0 must be emitted as LumpedElement."""
+        qpdk_junction_sim.write_config()
+        config_path = Path(qpdk_junction_sim._output_dir) / "config.json"
+        config = json.loads(config_path.read_text())
+        boundaries = config["Boundaries"]
+
+        assert "LumpedElement" in boundaries, "Missing LumpedElement boundary"
+        assert len(boundaries["LumpedElement"]) == 1, "Expected 1 lumped element"
+        assert boundaries["LumpedElement"][0]["L"] == 10e-9
+
+        assert "LumpedPort" in boundaries, "Missing LumpedPort boundary"
+        assert len(boundaries["LumpedPort"]) == 1, "Expected 1 standard lumped port"
 
 
 # ---------------------------------------------------------------------------

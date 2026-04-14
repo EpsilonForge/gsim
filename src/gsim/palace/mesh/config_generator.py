@@ -218,6 +218,8 @@ def generate_palace_config(
     lumped_ports: list[dict[str, object]] = []
     port_idx = 1
 
+    lumped_elements: list[dict[str, object]] = []
+
     for port in ports:
         if simulation_type != "driven":
             port.excited = False
@@ -249,25 +251,39 @@ def generate_palace_config(
                 direction = (
                     "Z" if port.geometry == PortGeometry.VIA else port.direction.upper()
                 )
-                port_entry: dict[str, object] = {
-                    "Index": port_idx,
-                    "R": port.impedance,
-                    "Direction": direction,
-                    "Excitation": port_idx if port.excited else False,
-                    "Attributes": [port_group["phys_group"]],
-                }
-                if port.resistance is not None:
-                    port_entry["Rs"] = port.resistance
-                if port.inductance is not None:
-                    port_entry["L"] = port.inductance
-                if port.capacitance is not None:
-                    port_entry["C"] = port.capacitance
-                lumped_ports.append(port_entry)
+                has_reactive_element = (
+                    port.inductance is not None and port.inductance > 0
+                ) or (port.capacitance is not None and port.capacitance > 0)
+
+                if has_reactive_element:
+                    element_entry: dict[str, object] = {
+                        "Direction": direction,
+                        "Attributes": [port_group["phys_group"]],
+                    }
+                    if port.resistance is not None:
+                        element_entry["R"] = port.resistance
+                    if port.inductance is not None and port.inductance > 0:
+                        element_entry["L"] = port.inductance
+                    if port.capacitance is not None and port.capacitance > 0:
+                        element_entry["C"] = port.capacitance
+                    lumped_elements.append(element_entry)
+                else:
+                    port_entry: dict[str, object] = {
+                        "Index": port_idx,
+                        "R": port.impedance,
+                        "Direction": direction,
+                        "Excitation": port_idx if port.excited else False,
+                        "Attributes": [port_group["phys_group"]],
+                    }
+                    if port.resistance is not None:
+                        port_entry["Rs"] = port.resistance
+                    lumped_ports.append(port_entry)
         port_idx += 1
 
     boundaries: dict[str, object] = {
         "Conductivity": conductors,
         "LumpedPort": lumped_ports,
+        "LumpedElement": lumped_elements,
     }
 
     # Add PEC boundaries if any exist
