@@ -122,6 +122,7 @@ class PalaceSimMixin:
         *,
         yaml_path: str | Path | None = None,
         air_above: float = 200.0,
+        air_below: float = 0.0,
         substrate_thickness: float = 2.0,
         include_substrate: bool = False,
         **kwargs,
@@ -146,6 +147,7 @@ class PalaceSimMixin:
             stack: Custom gsim LayerStack (bypasses PDK extraction).
             yaml_path: Path to custom YAML stack file.
             air_above: Air box height above top metal in um.
+            air_below: Air box height below substrate/oxide in um.
             substrate_thickness: Thickness below z=0 in um.
             include_substrate: Include lossy silicon substrate.
             **kwargs: Additional args passed to extract_layer_stack.
@@ -162,6 +164,7 @@ class PalaceSimMixin:
         self._stack_kwargs = {
             "yaml_path": yaml_path,
             "air_above": air_above,
+            "air_below": air_below,
             "substrate_thickness": substrate_thickness,
             "include_substrate": include_substrate,
             **kwargs,
@@ -806,7 +809,7 @@ class PalaceSimMixin:
             show_gui=mesh_config.show_gui,
             preview_only=mesh_config.preview_only,
             planar_conductors=mesh_config.planar_conductors,
-            refine_from_curves=mesh_config.refine_from_curves,
+            refine_near_conductor_curves=mesh_config.refine_near_conductor_curves,
         )
 
         # Resolve stack
@@ -931,7 +934,7 @@ class PalaceSimMixin:
             show_gui=show_gui,
             preview_only=True,
             planar_conductors=mesh_config.planar_conductors,
-            refine_from_curves=mesh_config.refine_from_curves,
+            refine_near_conductor_curves=mesh_config.refine_near_conductor_curves,
         )
 
         # Generate mesh in temp directory

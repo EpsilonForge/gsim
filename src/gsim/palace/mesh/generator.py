@@ -58,7 +58,7 @@ def _setup_mesh_fields(
     stack: LayerStack,
     refined_cellsize: float,
     max_cellsize: float,
-    refine_from_curves: bool = False,
+    refine_near_conductor_curves: bool = False,
 ) -> None:
     """Set up mesh refinement fields.
 
@@ -69,35 +69,23 @@ def _setup_mesh_fields(
         stack: LayerStack with material properties
         refined_cellsize: Fine mesh size near conductors (um)
         max_cellsize: Coarse mesh size in air/dielectric (um)
-        refine_from_curves: Refine mesh based on distance to conductor edges
+        refine_near_conductor_curves: Refine mesh based on distance to conductor curves
     """
-    # Collect boundary lines from conductor surfaces
-    boundary_lines = []
-    for surface_info in groups["conductor_surfaces"].values():
-        for tag in surface_info["tags"]:
-            lines = gmsh_utils.get_boundary_lines(tag, kernel)
-            boundary_lines.extend(lines)
+    boundary_lines: list[int] = []
+    if refine_near_conductor_curves:
+        # Collect only curves belonging to conducting materials/surfaces.
+        for surface_info in groups["conductor_surfaces"].values():
+            for tag in surface_info["tags"]:
+                lines = gmsh_utils.get_boundary_lines(tag, kernel)
+                boundary_lines.extend(lines)
 
-    # Add PEC surface edges when refine_from_curves is enabled
-    if refine_from_curves:
+        # Include user-defined PEC conductor surfaces when present.
         for surface_info in groups["pec_surfaces"].values():
             for tag in surface_info["tags"]:
                 lines = gmsh_utils.get_boundary_lines(tag, kernel)
                 boundary_lines.extend(lines)
 
-    # Add port boundaries
-    for surface_info in groups["port_surfaces"].values():
-        if surface_info.get("type") == "cpw":
-            # CPW port: get tags from each element
-            for elem in surface_info["elements"]:
-                for tag in elem["tags"]:
-                    lines = gmsh_utils.get_boundary_lines(tag, kernel)
-                    boundary_lines.extend(lines)
-        else:
-            # Regular port
-            for tag in surface_info["tags"]:
-                lines = gmsh_utils.get_boundary_lines(tag, kernel)
-                boundary_lines.extend(lines)
+        boundary_lines = sorted(set(boundary_lines))
 
     # Setup main refinement field
     field_ids = []
@@ -156,7 +144,8 @@ def generate_mesh(
     planar_conductors: bool = False,
     pec_blocks: list[PECBlockConfig] | None = None,
     absorbing_boundary: bool = True,
-    refine_from_curves: bool = False,
+    refine_near_conductor_curves: bool = False,
+    refine_from_curves: bool | None = None,
     merge_via_distance: float = 2.0,
     verbosity: int = 3,
 ) -> MeshResult:
@@ -182,7 +171,8 @@ def generate_mesh(
         pec_blocks: PEC configuration
         planar_conductors: If True, treat conductors as 2D PEC surfaces
         absorbing_boundary: If True, use absorbing boundary conditions on outer surfaces
-        refine_from_curves: Refine mesh based on distance to conductor edges
+        refine_near_conductor_curves: Refine mesh based on distance to conductor curves
+        refine_from_curves: Deprecated alias for refine_near_conductor_curves
         merge_via_distance: Max gap between vias to merge (um)
         verbosity: Sets gmsh verbosity level
 
@@ -191,6 +181,9 @@ def generate_mesh(
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if refine_from_curves is not None and not refine_near_conductor_curves:
+        refine_near_conductor_curves = refine_from_curves
 
     msh_path = output_dir / f"{model_name}.msh"
 
@@ -275,7 +268,7 @@ def generate_mesh(
             stack,
             refined_mesh_size,
             max_mesh_size,
-            refine_from_curves,
+            refine_near_conductor_curves,
         )
 
         # Show GUI if requested

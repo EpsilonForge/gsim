@@ -88,7 +88,7 @@ class MeshConfig:
 
     # Conductor modeling
     planar_conductors: bool = False  # Treat conductors as 2D PEC surfaces
-    refine_from_curves: bool = False  # Refine mesh near conductor edges
+    refine_near_conductor_curves: bool = False  # Refine mesh near conductor curves
 
     # Via merging: merge nearby via polygons within this distance (um)
     merge_via_distance: float = 2.0
@@ -112,6 +112,16 @@ class MeshConfig:
         if self.boundary_conditions is None:
             # Default: ABC everywhere
             self.boundary_conditions = ["ABC", "ABC", "ABC", "ABC", "ABC", "ABC"]
+
+    @property
+    def refine_from_curves(self) -> bool:
+        """Backward-compatible alias for refine_near_conductor_curves."""
+        return self.refine_near_conductor_curves
+
+    @refine_from_curves.setter
+    def refine_from_curves(self, value: bool) -> None:
+        """Set refine_near_conductor_curves via legacy alias."""
+        self.refine_near_conductor_curves = value
 
     @classmethod
     def coarse(cls, **kwargs) -> MeshConfig:
@@ -143,7 +153,7 @@ class MeshConfig:
             refined_mesh_size=refined,
             max_mesh_size=max_size,
             cells_per_wavelength=cpw,
-            refine_from_curves=True,
+            refine_near_conductor_curves=True,
             **kwargs,
         )
 
@@ -155,7 +165,7 @@ class MeshConfig:
             refined_mesh_size=refined,
             max_mesh_size=max_size,
             cells_per_wavelength=cpw,
-            refine_from_curves=True,
+            refine_near_conductor_curves=True,
             **kwargs,
         )
 
@@ -240,7 +250,7 @@ def generate_mesh(
         eigenmode_config=eigenmode_config,
         write_config=write_config,
         planar_conductors=config.planar_conductors,
-        refine_from_curves=config.refine_from_curves,
+        refine_near_conductor_curves=config.refine_near_conductor_curves,
         pec_blocks=pec_blocks,
         merge_via_distance=config.merge_via_distance,
         absorbing_boundary=absorbing_boundary,

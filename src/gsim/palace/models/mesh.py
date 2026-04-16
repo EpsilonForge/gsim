@@ -24,7 +24,7 @@ class MeshConfig(BaseModel):
         fmax: Maximum frequency for mesh sizing (Hz)
         boundary_conditions: List of boundary conditions for each face
         planar_conductors: Treat conductors as 2D PEC surfaces instead of volumes
-        refine_from_curves: Refine mesh based on distance to conductor edges
+        refine_near_conductor_curves: Refine mesh based on distance to conductor curves
         show_gui: Show gmsh GUI during meshing
         preview_only: Generate preview only, don't save mesh
     """
@@ -49,7 +49,7 @@ class MeshConfig(BaseModel):
     fmax: float = Field(default=100e9, gt=0)
     boundary_conditions: list[str] | None = None
     planar_conductors: bool = False
-    refine_from_curves: bool = False
+    refine_near_conductor_curves: bool = False
     merge_via_distance: float = Field(default=2.0, ge=0)
     show_gui: bool = False
     preview_only: bool = False
@@ -70,6 +70,28 @@ class MeshConfig(BaseModel):
         if self.boundary_conditions is None:
             self.boundary_conditions = ["ABC", "ABC", "ABC", "ABC", "ABC", "ABC"]
         return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def _map_legacy_refine_field(cls, data: Any) -> Any:
+        """Map legacy refine_from_curves input to the new field name."""
+        if (
+            isinstance(data, dict)
+            and "refine_from_curves" in data
+            and "refine_near_conductor_curves" not in data
+        ):
+            data["refine_near_conductor_curves"] = data["refine_from_curves"]
+        return data
+
+    @property
+    def refine_from_curves(self) -> bool:
+        """Backward-compatible alias for refine_near_conductor_curves."""
+        return self.refine_near_conductor_curves
+
+    @refine_from_curves.setter
+    def refine_from_curves(self, value: bool) -> None:
+        """Set refine_near_conductor_curves via legacy alias."""
+        self.refine_near_conductor_curves = value
 
     @classmethod
     def coarse(cls, **kwargs: Any) -> Self:
@@ -113,7 +135,7 @@ class MeshConfig(BaseModel):
             "refined_mesh_size": 5.0,
             "max_mesh_size": 300.0,
             "cells_per_wavelength": 10,
-            "refine_from_curves": True,
+            "refine_near_conductor_curves": True,
         }
         defaults.update(kwargs)
         return cls(**defaults)
@@ -129,7 +151,7 @@ class MeshConfig(BaseModel):
             "refined_mesh_size": 2.0,
             "max_mesh_size": 70.0,
             "cells_per_wavelength": 20,
-            "refine_from_curves": True,
+            "refine_near_conductor_curves": True,
         }
         defaults.update(kwargs)
         return cls(**defaults)
