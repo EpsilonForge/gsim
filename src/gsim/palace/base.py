@@ -334,13 +334,17 @@ class PalaceSimMixin:
         margin_y: float | None = None,
     ) -> MeshConfig:
         """Build mesh config from preset with optional overrides."""
-        # Build mesh config from preset
-        if preset == "coarse":
+        if preset is None or preset == "default":
+            mesh_config = MeshConfig.default()
+        elif preset == "coarse":
             mesh_config = MeshConfig.coarse()
         elif preset == "fine":
             mesh_config = MeshConfig.fine()
         else:
-            mesh_config = MeshConfig.default()
+            raise ValueError(
+                f"Unknown preset {preset!r}; "
+                "expected one of 'coarse', 'default', 'fine', or None"
+            )
 
         # Scale refined_mesh_size to the smallest conductor feature (polygon
         # bbox or inter-polygon gap) when the user didn't specify an explicit
