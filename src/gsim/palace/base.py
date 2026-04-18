@@ -7,6 +7,7 @@ DrivenSim, EigenmodeSim, ElectrostaticSim.
 from __future__ import annotations
 
 import logging
+import math
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -332,8 +333,20 @@ class PalaceSimMixin:
         show_gui: bool,
         margin_x: float | None = None,
         margin_y: float | None = None,
+        auto_size: bool = False,
+        cells_per_feature: int = 2,
     ) -> MeshConfig:
-        """Build mesh config from preset with optional overrides."""
+        """Build mesh config from preset with optional overrides.
+
+        When ``auto_size`` is True and ``refined_mesh_size`` is not explicitly
+        provided, ``refined_mesh_size`` is scaled down to
+        ``min(preset_size, min_conductor_feature / cells_per_feature)``.
+
+        When ``auto_size`` is False (the default), presets use their literal
+        ``refined_mesh_size``. If a small conductor feature is detected that
+        may be under-resolved by the preset, a warning is emitted suggesting
+        ``auto_size=True``.
+        """
         if preset is None or preset == "default":
             mesh_config = MeshConfig.default()
         elif preset == "coarse":
@@ -346,29 +359,52 @@ class PalaceSimMixin:
                 "expected one of 'coarse', 'default', 'fine', or None"
             )
 
-        # Scale refined_mesh_size to the smallest conductor feature (polygon
-        # bbox or inter-polygon gap) when the user didn't specify an explicit
-        # value. Runs for every preset — the min(preset, auto) floor inside
-        # auto_refined_mesh_size() means large-feature designs keep the
-        # preset's size, while small-feature designs get proportional
-        # refinement regardless of whether coarse/default/fine was chosen.
-        if refined_mesh_size is None:
+        # Auto-size is explicit opt-in. Presets are "honest" speed tiers by
+        # default; when auto_size=True the refined_mesh_size shrinks to
+        # min(preset, min_conductor_feature / cells_per_feature). When
+        # auto_size=False we just warn if a small feature risks being
+        # under-resolved.
+        if auto_size:
+            if refined_mesh_size is None:
+                component = self.geometry.component if self.geometry else None
+                if component is not None:
+                    from gsim.palace.mesh.auto_size import auto_refined_mesh_size
+
+                    stack = self._resolve_stack()
+                    scaled = auto_refined_mesh_size(
+                        component,
+                        stack,
+                        preset_size=mesh_config.refined_mesh_size,
+                        cells_per_feature=cells_per_feature,
+                    )
+                    if scaled < mesh_config.refined_mesh_size:
+                        logger.info(
+                            "Auto-sizing refined_mesh_size: %.3f -> %.3f um "
+                            "(min conductor feature / %d)",
+                            mesh_config.refined_mesh_size,
+                            scaled,
+                            cells_per_feature,
+                        )
+                        mesh_config.refined_mesh_size = scaled
+        else:
             component = self.geometry.component if self.geometry else None
             if component is not None:
-                from gsim.palace.mesh.auto_size import auto_refined_mesh_size
+                from gsim.palace.mesh.auto_size import min_conductor_feature_size
 
                 stack = self._resolve_stack()
-                auto_size = auto_refined_mesh_size(
-                    component, stack, preset_size=mesh_config.refined_mesh_size
-                )
-                if auto_size < mesh_config.refined_mesh_size:
-                    logger.info(
-                        "Auto-sizing refined_mesh_size: %.3f -> %.3f um "
-                        "(min conductor feature / 4)",
+                feature = min_conductor_feature_size(component, stack)
+                if (
+                    feature is not None
+                    and math.isfinite(feature)
+                    and feature < mesh_config.refined_mesh_size / 2
+                ):
+                    logger.warning(
+                        "Small conductor feature detected (%.3f um) may be "
+                        "under-resolved by refined_mesh_size=%.3f um. "
+                        "Pass auto_size=True to scale the mesh down.",
+                        feature,
                         mesh_config.refined_mesh_size,
-                        auto_size,
                     )
-                    mesh_config.refined_mesh_size = auto_size
 
         # Preserve planar_conductors from sim.mesh_config if not
         # explicitly provided via sim.mesh(planar_conductors=...)
@@ -892,6 +928,8 @@ class PalaceSimMixin:
         fmax: float | None = None,
         planar_conductors: bool | None = None,
         show_gui: bool = True,
+        auto_size: bool = False,
+        cells_per_feature: int = 2,
     ) -> None:
         """Preview the mesh without running simulation.
 
@@ -908,6 +946,10 @@ class PalaceSimMixin:
             fmax: Max frequency for mesh sizing (Hz)
             planar_conductors: Treat conductors as 2D PEC surfaces
             show_gui: Show gmsh GUI for interactive preview
+            auto_size: If True, scale refined_mesh_size down to the smallest
+                conductor feature / cells_per_feature. Off by default.
+            cells_per_feature: Target cells across the smallest conductor
+                feature when auto_size=True. Default 2.
 
         Example:
             >>> sim.preview(preset="fine", planar_conductors=True, show_gui=True)
@@ -933,6 +975,8 @@ class PalaceSimMixin:
             fmax=fmax,
             planar_conductors=planar_conductors,
             show_gui=show_gui,
+            auto_size=auto_size,
+            cells_per_feature=cells_per_feature,
         )
 
         # Resolve stack
@@ -983,6 +1027,8 @@ class PalaceSimMixin:
         show_gui: bool = False,
         model_name: str = "palace",
         verbose: bool = True,
+        auto_size: bool = False,
+        cells_per_feature: int = 2,
     ) -> SimulationResult:
         """Generate the mesh for Palace simulation.
 
@@ -1004,6 +1050,11 @@ class PalaceSimMixin:
             show_gui: Show gmsh GUI during meshing
             model_name: Base name for output files
             verbose: Print progress messages
+            auto_size: If True, scale refined_mesh_size down to the smallest
+                conductor feature / cells_per_feature. Off by default so presets
+                use their literal refined_mesh_size.
+            cells_per_feature: Target cells across the smallest conductor
+                feature when auto_size=True. Default 2.
 
         Returns:
             SimulationResult with mesh path
@@ -1035,6 +1086,8 @@ class PalaceSimMixin:
             fmax=fmax,
             planar_conductors=planar_conductors,
             show_gui=show_gui,
+            auto_size=auto_size,
+            cells_per_feature=cells_per_feature,
         )
 
         # Validate configuration
@@ -1052,7 +1105,7 @@ class PalaceSimMixin:
         palace_ports = extract_ports(component, stack)
 
         # Generate mesh (config is written separately by simulate() or write_config())
-        return self._generate_mesh_internal(
+        result = self._generate_mesh_internal(
             output_dir=output_dir,
             mesh_config=mesh_config,
             ports=palace_ports,
@@ -1061,6 +1114,27 @@ class PalaceSimMixin:
             verbose=verbose,
             write_config=False,
         )
+
+        # Post-mesh summary: nodes, tets, refined / max sizes (in um).
+        stats = result.mesh_stats or {}
+        node_count = stats.get("nodes")
+        tet_count = stats.get("tetrahedra")
+        if node_count is not None and tet_count is not None:
+            logger.info(
+                "Mesh: %s nodes \u00b7 %s tets \u00b7 refined=%.3g \u00b5m \u00b7 "
+                "max=%.3g \u00b5m",
+                f"{node_count:,}",
+                f"{tet_count:,}",
+                mesh_config.refined_mesh_size,
+                mesh_config.max_mesh_size,
+            )
+            if node_count > 75_000:
+                logger.warning(
+                    "Mesh has %s nodes (>75,000) \u2014 simulation may be slow.",
+                    f"{node_count:,}",
+                )
+
+        return result
 
     def write_config(self) -> Path:
         """Write Palace config.json after mesh generation.
