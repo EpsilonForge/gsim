@@ -1225,7 +1225,7 @@ class PalaceSimMixin:
         *,
         verbose: Literal["quiet", "status", "full"] = "status",
         wait: bool = True,
-    ) -> dict[str, Path] | str:
+    ) -> SParams | dict[str, Path] | str:
         """Run simulation on GDSFactory+ cloud.
 
         Requires mesh() to be called first. Automatically calls
@@ -1240,16 +1240,24 @@ class PalaceSimMixin:
                 If ``False``, upload + start and return the ``job_id``.
 
         Returns:
-            ``dict[str, Path]`` of output files when ``wait=True``,
-            or ``job_id`` string when ``wait=False``.
+            - :class:`SParams` for :class:`DrivenSim` (driven sweeps with
+              ``port-S.csv``).
+            - ``dict[str, Path]`` of output files for eigenmode /
+              electrostatic runs.
+            - ``job_id`` string when ``wait=False``.
+
+            Subclasses narrow this annotation to the concrete type they
+            return (e.g. ``DrivenSim.run -> SParams | str``).
 
         Raises:
             ValueError: If output_dir not set or mesh not generated
             RuntimeError: If simulation fails
 
         Example:
-            >>> results = sim.run()
-            >>> print(f"S-params saved to: {results['port-S.csv']}")
+            >>> sp = driven_sim.run()  # returns SParams
+            >>> sp.s21.db  # dB magnitude of S21
+            >>> results = eigen_sim.run()  # returns dict[str, Path]
+            >>> print(results["eig.csv"])
         """
         self.upload(verbose=False)
         self.start(verbose=verbose != "quiet")
@@ -1316,7 +1324,8 @@ class PalaceSimMixin:
             >>> results = sim.run_local(
             ...     use_apptainer=False, palace_executable="/usr/local/bin/palace"
             ... )
-            >>> print(f"S-params: {results['port-S.csv']}")
+            >>> # For DrivenSim: `results` is SParams -> results.s21.db
+            >>> # For eigen / electrostatic: `results` is dict[str, Path]
         """
         import os
         import shutil
