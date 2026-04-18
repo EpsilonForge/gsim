@@ -7,7 +7,7 @@ simulations to extract S-parameters.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
@@ -22,6 +22,9 @@ from gsim.palace.models import (
     PortConfig,
     WavePortConfig,
 )
+
+if TYPE_CHECKING:
+    from gsim.palace.results import SParams
 
 
 class DrivenSim(PalaceSimMixin, BaseModel):
@@ -42,7 +45,8 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         >>> sim.set_driven(fmin=1e9, fmax=100e9, num_points=40)
         >>> sim.set_output_dir("./sim")
         >>> sim.mesh(preset="default")
-        >>> results = sim.run()
+        >>> sp = sim.run()  # SParams
+        >>> sp.s21.db  # dB magnitude of S21 vs frequency
 
     Attributes:
         geometry: Wrapped gdsfactory Component (from common)
@@ -96,6 +100,40 @@ class DrivenSim(PalaceSimMixin, BaseModel):
 
     # Cloud job state (set by upload/run)
     _job_id: str | None = PrivateAttr(default=None)
+
+    # -------------------------------------------------------------------------
+    # Cloud run (narrowed return type)
+    # -------------------------------------------------------------------------
+
+    def run(
+        self,
+        parent_dir: str | Path | None = None,
+        *,
+        verbose: Literal["quiet", "status", "full"] = "status",
+        wait: bool = True,
+    ) -> SParams | str:
+        """Run the driven sim on GDSFactory+ cloud.
+
+        Thin wrapper over :meth:`PalaceSimMixin.run` that narrows the
+        return type: the palace result parser always turns a completed
+        driven run (which has ``port-S.csv``) into an
+        :class:`~gsim.palace.results.SParams` object.
+
+        Returns:
+            :class:`SParams` when ``wait=True`` (the default), or the
+            ``job_id`` string when ``wait=False``.
+        """
+        from gsim.palace.results import SParams as _SParams
+
+        result = super().run(parent_dir, verbose=verbose, wait=wait)
+        if isinstance(result, (_SParams, str)):
+            return result
+        msg = (
+            f"DrivenSim.run expected SParams (driven sweep with "
+            f"port-S.csv) but got {type(result).__name__}. "
+            "This usually means the cloud job did not produce S-params."
+        )
+        raise RuntimeError(msg)
 
     # -------------------------------------------------------------------------
     # Driven configuration

@@ -294,10 +294,15 @@ class SParams:
         fig.update_layout(
             xaxis_title="Frequency (GHz)",
             yaxis_title=ylabel,
-            width=700,
-            height=400,
-            margin=dict(t=40, b=40, l=60, r=10),
+            width=650,
+            height=350,
+            margin=dict(t=40, b=40, l=60, r=140),
+            modebar=dict(orientation="v"),
             legend=dict(
+                x=1.02,
+                y=1,
+                xanchor="left",
+                yanchor="top",
                 groupclick="toggleitem",
                 itemclick="toggle",
                 itemdoubleclick="toggleothers",

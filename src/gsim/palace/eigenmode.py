@@ -42,7 +42,8 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
         >>> sim.set_eigenmode(num_modes=10, target=50e9)
         >>> sim.set_output_dir("./sim")
         >>> sim.mesh(preset="default")
-        >>> results = sim.run()
+        >>> results = sim.run()  # dict[str, Path]
+        >>> print(results["eig.csv"])
 
     Attributes:
         geometry: Wrapped gdsfactory Component (from common)

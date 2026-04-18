@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 def _conductor_gds_tuples(stack: LayerStack) -> set[tuple[int, int]]:
     """Return the set of ``(layer, datatype)`` tuples for conductor layers."""
     return {
-        tuple(layer.gds_layer)
+        (int(layer.gds_layer[0]), int(layer.gds_layer[1]))
         for layer in stack.layers.values()
         if layer.layer_type == "conductor"
     }
@@ -155,7 +155,7 @@ def auto_refined_mesh_size(
     component,
     stack: LayerStack,
     preset_size: float,
-    cells_per_feature: int = 4,
+    cells_per_feature: int = 2,
 ) -> float:
     """Pick ``refined_mesh_size`` scaled to the smallest conductor feature.
 

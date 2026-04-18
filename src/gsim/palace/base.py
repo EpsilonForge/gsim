@@ -7,6 +7,7 @@ DrivenSim, EigenmodeSim, ElectrostaticSim.
 from __future__ import annotations
 
 import logging
+import math
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -332,39 +333,78 @@ class PalaceSimMixin:
         show_gui: bool,
         margin_x: float | None = None,
         margin_y: float | None = None,
+        auto_size: bool = False,
+        cells_per_feature: int = 2,
     ) -> MeshConfig:
-        """Build mesh config from preset with optional overrides."""
-        # Build mesh config from preset
-        if preset == "coarse":
+        """Build mesh config from preset with optional overrides.
+
+        When ``auto_size`` is True and ``refined_mesh_size`` is not explicitly
+        provided, ``refined_mesh_size`` is scaled down to
+        ``min(preset_size, min_conductor_feature / cells_per_feature)``.
+
+        When ``auto_size`` is False (the default), presets use their literal
+        ``refined_mesh_size``. If a small conductor feature is detected that
+        may be under-resolved by the preset, a warning is emitted suggesting
+        ``auto_size=True``.
+        """
+        if preset is None or preset == "default":
+            mesh_config = MeshConfig.default()
+        elif preset == "coarse":
             mesh_config = MeshConfig.coarse()
         elif preset == "fine":
             mesh_config = MeshConfig.fine()
         else:
-            mesh_config = MeshConfig.default()
+            raise ValueError(
+                f"Unknown preset {preset!r}; "
+                "expected one of 'coarse', 'default', 'fine', or None"
+            )
 
-        # Scale refined_mesh_size to the smallest conductor feature (polygon
-        # bbox or inter-polygon gap) when the user didn't specify an explicit
-        # value. Runs for every preset — the min(preset, auto) floor inside
-        # auto_refined_mesh_size() means large-feature designs keep the
-        # preset's size, while small-feature designs get proportional
-        # refinement regardless of whether coarse/default/fine was chosen.
-        if refined_mesh_size is None:
+        # Auto-size is explicit opt-in. Presets are "honest" speed tiers by
+        # default; when auto_size=True the refined_mesh_size shrinks to
+        # min(preset, min_conductor_feature / cells_per_feature). When
+        # auto_size=False we just warn if a small feature risks being
+        # under-resolved.
+        if auto_size:
+            if refined_mesh_size is None:
+                component = self.geometry.component if self.geometry else None
+                if component is not None:
+                    from gsim.palace.mesh.auto_size import auto_refined_mesh_size
+
+                    stack = self._resolve_stack()
+                    scaled = auto_refined_mesh_size(
+                        component,
+                        stack,
+                        preset_size=mesh_config.refined_mesh_size,
+                        cells_per_feature=cells_per_feature,
+                    )
+                    if scaled < mesh_config.refined_mesh_size:
+                        logger.info(
+                            "Auto-sizing refined_mesh_size: %.3f -> %.3f um "
+                            "(min conductor feature / %d)",
+                            mesh_config.refined_mesh_size,
+                            scaled,
+                            cells_per_feature,
+                        )
+                        mesh_config.refined_mesh_size = scaled
+        else:
             component = self.geometry.component if self.geometry else None
             if component is not None:
-                from gsim.palace.mesh.auto_size import auto_refined_mesh_size
+                from gsim.palace.mesh.auto_size import min_conductor_feature_size
 
                 stack = self._resolve_stack()
-                auto_size = auto_refined_mesh_size(
-                    component, stack, preset_size=mesh_config.refined_mesh_size
-                )
-                if auto_size < mesh_config.refined_mesh_size:
-                    logger.info(
-                        "Auto-sizing refined_mesh_size: %.3f -> %.3f um "
-                        "(min conductor feature / 4)",
+                feature = min_conductor_feature_size(component, stack)
+                if (
+                    feature is not None
+                    and math.isfinite(feature)
+                    and feature < mesh_config.refined_mesh_size / 2
+                ):
+                    logger.warning(
+                        "Small conductor feature detected (%.3f um) may be "
+                        "under-resolved by refined_mesh_size=%.3f um. "
+                        "Pass auto_size=True to scale the mesh down.",
+                        feature,
                         mesh_config.refined_mesh_size,
-                        auto_size,
                     )
-                    mesh_config.refined_mesh_size = auto_size
 
         # Preserve planar_conductors from sim.mesh_config if not
         # explicitly provided via sim.mesh(planar_conductors=...)
@@ -812,8 +852,7 @@ class PalaceSimMixin:
         write_config: bool = True,
     ) -> SimulationResult:
         """Internal mesh generation."""
-        from gsim.palace.mesh import MeshConfig as LegacyMeshConfig
-        from gsim.palace.mesh import generate_mesh
+        from gsim.palace.mesh.generator import generate_mesh
 
         component = self.geometry.component if self.geometry else None
 
@@ -821,20 +860,6 @@ class PalaceSimMixin:
         effective_fmax = mesh_config.fmax
         if driven_config is not None and mesh_config.fmax == 100e9:
             effective_fmax = driven_config.fmax
-
-        legacy_mesh_config = LegacyMeshConfig(
-            refined_mesh_size=mesh_config.refined_mesh_size,
-            max_mesh_size=mesh_config.max_mesh_size,
-            cells_per_wavelength=mesh_config.cells_per_wavelength,
-            margin=mesh_config.margin,
-            margin_x=mesh_config.margin_x,
-            margin_y=mesh_config.margin_y,
-            airbox_margin=mesh_config.airbox_margin,
-            fmax=effective_fmax,
-            show_gui=mesh_config.show_gui,
-            preview_only=mesh_config.preview_only,
-            planar_conductors=mesh_config.planar_conductors,
-        )
 
         # Resolve stack
         stack = self._resolve_stack()
@@ -847,14 +872,22 @@ class PalaceSimMixin:
             stack=stack,
             ports=ports,
             output_dir=output_dir,
-            config=legacy_mesh_config,
             model_name=model_name,
+            refined_mesh_size=mesh_config.refined_mesh_size,
+            max_mesh_size=mesh_config.max_mesh_size,
+            margin_x=mesh_config.effective_margin_x,
+            margin_y=mesh_config.effective_margin_y,
+            air_margin=mesh_config.airbox_margin,
+            fmax=effective_fmax,
+            show_gui=mesh_config.show_gui,
+            simulation_type=self.simulation_type,
             driven_config=driven_config,
             eigenmode_config=self.eigenmode,
-            simulation_type=self.simulation_type,
             write_config=write_config,
-            absorbing_boundary=self.absorbing_boundary,
+            planar_conductors=mesh_config.planar_conductors,
             pec_blocks=self._pec_blocks or None,
+            absorbing_boundary=self.absorbing_boundary,
+            merge_via_distance=mesh_config.merge_via_distance,
             verbosity=3,
         )
 
@@ -895,6 +928,8 @@ class PalaceSimMixin:
         fmax: float | None = None,
         planar_conductors: bool | None = None,
         show_gui: bool = True,
+        auto_size: bool = False,
+        cells_per_feature: int = 2,
     ) -> None:
         """Preview the mesh without running simulation.
 
@@ -911,12 +946,15 @@ class PalaceSimMixin:
             fmax: Max frequency for mesh sizing (Hz)
             planar_conductors: Treat conductors as 2D PEC surfaces
             show_gui: Show gmsh GUI for interactive preview
+            auto_size: If True, scale refined_mesh_size down to the smallest
+                conductor feature / cells_per_feature. Off by default.
+            cells_per_feature: Target cells across the smallest conductor
+                feature when auto_size=True. Default 2.
 
         Example:
             >>> sim.preview(preset="fine", planar_conductors=True, show_gui=True)
         """
-        from gsim.palace.mesh import MeshConfig as LegacyMeshConfig
-        from gsim.palace.mesh import generate_mesh
+        from gsim.palace.mesh.generator import generate_mesh
 
         component = self.geometry.component if self.geometry else None
 
@@ -937,6 +975,8 @@ class PalaceSimMixin:
             fmax=fmax,
             planar_conductors=planar_conductors,
             show_gui=show_gui,
+            auto_size=auto_size,
+            cells_per_feature=cells_per_feature,
         )
 
         # Resolve stack
@@ -945,21 +985,6 @@ class PalaceSimMixin:
         # Get ports
         ports = self._get_ports_for_preview(stack)
 
-        # Build legacy mesh config with preview mode
-        legacy_mesh_config = LegacyMeshConfig(
-            refined_mesh_size=mesh_config.refined_mesh_size,
-            max_mesh_size=mesh_config.max_mesh_size,
-            cells_per_wavelength=mesh_config.cells_per_wavelength,
-            margin=mesh_config.margin,
-            margin_x=mesh_config.margin_x,
-            margin_y=mesh_config.margin_y,
-            airbox_margin=mesh_config.airbox_margin,
-            fmax=mesh_config.fmax,
-            show_gui=show_gui,
-            preview_only=True,
-            planar_conductors=mesh_config.planar_conductors,
-        )
-
         # Generate mesh in temp directory
         with tempfile.TemporaryDirectory() as tmpdir:
             generate_mesh(
@@ -967,12 +992,20 @@ class PalaceSimMixin:
                 stack=stack,
                 ports=ports,
                 output_dir=tmpdir,
-                config=legacy_mesh_config,
+                refined_mesh_size=mesh_config.refined_mesh_size,
+                max_mesh_size=mesh_config.max_mesh_size,
+                margin_x=mesh_config.effective_margin_x,
+                margin_y=mesh_config.effective_margin_y,
+                air_margin=mesh_config.airbox_margin,
+                fmax=mesh_config.fmax,
+                show_gui=True,
+                simulation_type=self.simulation_type,
                 driven_config=self.driven,
                 eigenmode_config=self.eigenmode,
-                simulation_type=self.simulation_type,
-                absorbing_boundary=self.absorbing_boundary,
+                planar_conductors=mesh_config.planar_conductors,
                 pec_blocks=self._pec_blocks or None,
+                absorbing_boundary=self.absorbing_boundary,
+                merge_via_distance=mesh_config.merge_via_distance,
             )
 
     # -------------------------------------------------------------------------
@@ -994,6 +1027,8 @@ class PalaceSimMixin:
         show_gui: bool = False,
         model_name: str = "palace",
         verbose: bool = True,
+        auto_size: bool = False,
+        cells_per_feature: int = 2,
     ) -> SimulationResult:
         """Generate the mesh for Palace simulation.
 
@@ -1015,6 +1050,11 @@ class PalaceSimMixin:
             show_gui: Show gmsh GUI during meshing
             model_name: Base name for output files
             verbose: Print progress messages
+            auto_size: If True, scale refined_mesh_size down to the smallest
+                conductor feature / cells_per_feature. Off by default so presets
+                use their literal refined_mesh_size.
+            cells_per_feature: Target cells across the smallest conductor
+                feature when auto_size=True. Default 2.
 
         Returns:
             SimulationResult with mesh path
@@ -1046,6 +1086,8 @@ class PalaceSimMixin:
             fmax=fmax,
             planar_conductors=planar_conductors,
             show_gui=show_gui,
+            auto_size=auto_size,
+            cells_per_feature=cells_per_feature,
         )
 
         # Validate configuration
@@ -1063,7 +1105,7 @@ class PalaceSimMixin:
         palace_ports = extract_ports(component, stack)
 
         # Generate mesh (config is written separately by simulate() or write_config())
-        return self._generate_mesh_internal(
+        result = self._generate_mesh_internal(
             output_dir=output_dir,
             mesh_config=mesh_config,
             ports=palace_ports,
@@ -1072,6 +1114,27 @@ class PalaceSimMixin:
             verbose=verbose,
             write_config=False,
         )
+
+        # Post-mesh summary: nodes, tets, refined / max sizes (in um).
+        stats = result.mesh_stats or {}
+        node_count = stats.get("nodes")
+        tet_count = stats.get("tetrahedra")
+        if node_count is not None and tet_count is not None:
+            logger.info(
+                "Mesh: %s nodes \u00b7 %s tets \u00b7 refined=%.3g \u00b5m \u00b7 "
+                "max=%.3g \u00b5m",
+                f"{node_count:,}",
+                f"{tet_count:,}",
+                mesh_config.refined_mesh_size,
+                mesh_config.max_mesh_size,
+            )
+            if node_count > 75_000:
+                logger.warning(
+                    "Mesh has %s nodes (>75,000) \u2014 simulation may be slow.",
+                    f"{node_count:,}",
+                )
+
+        return result
 
     def write_config(self) -> Path:
         """Write Palace config.json after mesh generation.
@@ -1236,7 +1299,7 @@ class PalaceSimMixin:
         *,
         verbose: Literal["quiet", "status", "full"] = "status",
         wait: bool = True,
-    ) -> dict[str, Path] | str:
+    ) -> SParams | dict[str, Path] | str:
         """Run simulation on GDSFactory+ cloud.
 
         Requires mesh() to be called first. Automatically calls
@@ -1251,16 +1314,24 @@ class PalaceSimMixin:
                 If ``False``, upload + start and return the ``job_id``.
 
         Returns:
-            ``dict[str, Path]`` of output files when ``wait=True``,
-            or ``job_id`` string when ``wait=False``.
+            - :class:`SParams` for :class:`DrivenSim` (driven sweeps with
+              ``port-S.csv``).
+            - ``dict[str, Path]`` of output files for eigenmode /
+              electrostatic runs.
+            - ``job_id`` string when ``wait=False``.
+
+            Subclasses narrow this annotation to the concrete type they
+            return (e.g. ``DrivenSim.run -> SParams | str``).
 
         Raises:
             ValueError: If output_dir not set or mesh not generated
             RuntimeError: If simulation fails
 
         Example:
-            >>> results = sim.run()
-            >>> print(f"S-params saved to: {results['port-S.csv']}")
+            >>> sp = driven_sim.run()  # returns SParams
+            >>> sp.s21.db  # dB magnitude of S21
+            >>> results = eigen_sim.run()  # returns dict[str, Path]
+            >>> print(results["eig.csv"])
         """
         self.upload(verbose=False)
         self.start(verbose=verbose != "quiet")
@@ -1327,7 +1398,8 @@ class PalaceSimMixin:
             >>> results = sim.run_local(
             ...     use_apptainer=False, palace_executable="/usr/local/bin/palace"
             ... )
-            >>> print(f"S-params: {results['port-S.csv']}")
+            >>> # For DrivenSim: `results` is SParams -> results.s21.db
+            >>> # For eigen / electrostatic: `results` is dict[str, Path]
         """
         import os
         import shutil

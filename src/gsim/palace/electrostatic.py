@@ -43,7 +43,8 @@ class ElectrostaticSim(PalaceSimMixin, BaseModel):
         >>> sim.set_electrostatic()
         >>> sim.set_output_dir("./sim")
         >>> sim.mesh(preset="default")
-        >>> results = sim.run()
+        >>> results = sim.run()  # dict[str, Path]
+        >>> print(results["terminal-C.csv"])
 
     Attributes:
         geometry: Wrapped gdsfactory Component (from common)
