@@ -300,6 +300,30 @@ class MaterialData(BaseModel):
     extinction_coeff: float = Field(default=0.0, ge=0)
 
 
+class FiberSourceConfig(BaseModel):
+    """Serialized Gaussian-beam fiber source for XZ 2D sims.
+
+    Mirrors :class:`gsim.meep.models.api.FiberSource` but with k-direction
+    and center-z pre-computed on the client so the runner doesn't need the
+    stack-resolution logic.
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    x: float
+    z_offset: float = Field(ge=0)
+    angle_deg: float
+    waist: float = Field(gt=0)
+    wavelength: float = Field(gt=0)
+    wavelength_span: float = Field(ge=0)
+    num_freqs: int = Field(ge=1)
+    polarization: Literal["TE", "TM"]
+    k_direction: list[float] = Field(
+        description="Unit k-vector in the XZ plane: [sin(theta), 0, -cos(theta)]"
+    )
+    center_z: float = Field(description="Absolute Z of the beam-plane line source (um)")
+
+
 class SimConfig(BaseModel):
     """Complete serializable simulation config written as JSON.
 
@@ -318,6 +342,26 @@ class SimConfig(BaseModel):
             "background slabs, places geometry at z=0, and uses "
             "transverse-electric parity (EVEN_Y+ODD_Z) for "
             "eigenmode sources."
+        ),
+    )
+    plane: Literal["xy", "xz"] = Field(
+        default="xy",
+        description=(
+            "2D simulation plane when is_3d=False. 'xy' → effective-index "
+            "top-down; 'xz' → vertical cross-section at y=y_cut."
+        ),
+    )
+    y_cut: float | None = Field(
+        default=None,
+        description=(
+            "Y coordinate of the XZ cross-section (um). Required when plane='xz'."
+        ),
+    )
+    fiber_source: FiberSourceConfig | None = Field(
+        default=None,
+        description=(
+            "Gaussian-beam fiber source (XZ 2D only). When set, the runner "
+            "uses this instead of the EigenModeSource from `source`."
         ),
     )
     gds_filename: str = Field(description="GDS file with 2D layout")
