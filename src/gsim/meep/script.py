@@ -986,6 +986,26 @@ def save_geometry_diagnostics(sim, config, cell_center):
         pass
 
     is_3d = config.get("is_3d", True)
+    plane = config.get("plane", "xy")
+    is_xz = plane == "xz"
+
+    if is_xz:
+        # XZ 2D: cell is invariant in Y. Plot the XZ cross-section.
+        try:
+            fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+            sim.plot2D(ax=ax)
+            y_cut = config.get("y_cut") or 0.0
+            ax.set_title(f"XZ cross-section at y={y_cut:.3f} um")
+            ax.set_xlabel("x (um)")
+            ax.set_ylabel("z (um)")
+            fig.tight_layout()
+            if mp.am_master():
+                fig.savefig("meep_geometry_xz.png", dpi=150)
+                logger.info("Saved meep_geometry_xz.png")
+            plt.close(fig)
+        except Exception as e:
+            logger.warning("XZ geometry plot failed: %s", e)
+        return
 
     if is_3d:
         z_min = min(l["zmin"] for l in config["layer_stack"])
@@ -1064,6 +1084,26 @@ def save_field_snapshot(sim, config, cell_center):
         return
 
     is_3d = config.get("is_3d", True)
+    plane = config.get("plane", "xy")
+    is_xz = plane == "xz"
+
+    if is_xz:
+        try:
+            fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+            sim.plot2D(ax=ax, fields=mp.Ey)
+            y_cut = config.get("y_cut") or 0.0
+            ax.set_title(f"Ey field at y={y_cut:.3f} um (post-run)")
+            ax.set_xlabel("x (um)")
+            ax.set_ylabel("z (um)")
+            fig.tight_layout()
+            if mp.am_master():
+                fig.savefig("meep_fields_xz.png", dpi=150)
+                logger.info("Saved meep_fields_xz.png")
+            plt.close(fig)
+        except Exception as e:
+            logger.warning("Field snapshot (XZ) failed: %s", e)
+        return
+
     if is_3d:
         z_min = min(l["zmin"] for l in config["layer_stack"])
         z_max = max(l["zmax"] for l in config["layer_stack"])
