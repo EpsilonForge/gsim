@@ -75,8 +75,8 @@ def _build_minimal_gc_sim():
         waist=5.4,
         wavelength=1.55,
         wavelength_span=0.04,
-        num_freqs=5,
     )
+    sim.num_freqs = 5
     sim.monitors = ["o1"]
     sim.domain.pml = 1.0
     sim.domain.margin = 0.5

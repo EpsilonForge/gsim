@@ -1528,11 +1528,9 @@ class TestFiberSource:
             waist=5.4,
             wavelength=1.55,
             wavelength_span=0.05,
-            num_freqs=21,
             polarization="TE",
         )
         assert fs.angle_deg == 14.5
-        assert fs.num_freqs == 21
 
     def test_waist_must_be_positive(self):
         from gsim.meep.models.api import FiberSource
@@ -1559,7 +1557,6 @@ class TestSimulationFiberSource:
             waist=5.4,
             wavelength=1.55,
             wavelength_span=0.05,
-            num_freqs=21,
             polarization="TE",
         )
 
@@ -1649,7 +1646,6 @@ class TestSimConfigXZ:
             waist=5.4,
             wavelength=1.55,
             wavelength_span=0.05,
-            num_freqs=21,
             polarization="TE",
             k_direction=[0.25, 0.0, -0.97],
         )

@@ -310,11 +310,65 @@ class TestWavelengthDerivation:
 
     def test_from_source_custom(self):
         sim = Simulation()
-        sim.source = ModeSource(wavelength=1.31, wavelength_span=0.05, num_freqs=21)
+        sim.source = ModeSource(wavelength=1.31, wavelength_span=0.05)
+        sim.num_freqs = 21
         wl = sim._wavelength_config()
         assert wl.wavelength == 1.31
         assert wl.bandwidth == 0.05
         assert wl.num_freqs == 21
+
+    def test_num_freqs_propagates_with_mode_source(self):
+        sim = Simulation()
+        sim.num_freqs = 51
+        wl = sim._wavelength_config()
+        assert wl.num_freqs == 51
+
+    def test_num_freqs_propagates_with_fiber_source(self):
+        # Regression: sim.source_fiber(num_freqs=51) previously produced
+        # a WavelengthConfig with num_freqs=11 because _wavelength_config
+        # read self.source.num_freqs, ignoring the fiber source.
+        sim = Simulation()
+        sim.solver.is_3d = False
+        sim.solver.plane = "xz"
+        sim.source_fiber(
+            x=0.0,
+            z=2.0,
+            waist=5.2,
+            wavelength=1.55,
+            wavelength_span=0.04,
+        )
+        sim.num_freqs = 51
+        wl = sim._wavelength_config()
+        assert wl.num_freqs == 51
+        assert wl.wavelength == 1.55
+        assert wl.bandwidth == 0.04
+
+    def test_wavelength_config_picks_fiber_source_when_active(self):
+        sim = Simulation()
+        sim.solver.is_3d = False
+        sim.solver.plane = "xz"
+        sim.source.wavelength = 1.31
+        sim.source.wavelength_span = 0.02
+        sim.source_fiber(
+            x=0.0,
+            z=2.0,
+            waist=5.2,
+            wavelength=1.55,
+            wavelength_span=0.04,
+        )
+        wl = sim._wavelength_config()
+        assert wl.wavelength == 1.55
+        assert wl.bandwidth == 0.04
+
+    def test_both_sources_rejected_at_validate(self):
+        sim = Simulation()
+        sim.solver.is_3d = False
+        sim.solver.plane = "xz"
+        sim.source.port = "o1"
+        sim.source_fiber(x=0.0, z=2.0, waist=5.2)
+        result = sim.validate_config()
+        assert not result.valid
+        assert any(("Both" in e) or ("one source" in e.lower()) for e in result.errors)
 
 
 # ---------------------------------------------------------------------------

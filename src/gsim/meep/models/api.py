@@ -82,13 +82,7 @@ class ModeSource(BaseModel):
     wavelength_span: float = Field(
         default=0.1,
         ge=0,
-        description="Wavelength span of the measurement frequency grid in um. "
-        "Together with num_freqs, sets the spacing between monitor frequency points.",
-    )
-    num_freqs: int = Field(
-        default=11,
-        ge=1,
-        description="Number of frequency points",
+        description="Wavelength span of the measurement frequency grid in um.",
     )
 
     def __call__(self, **kwargs: Any) -> ModeSource:
@@ -141,7 +135,6 @@ class FiberSource(BaseModel):
     wavelength_span: float = Field(
         default=0.05, ge=0, description="Wavelength span (um)"
     )
-    num_freqs: int = Field(default=21, ge=1, description="Number of frequency points")
     polarization: Literal["TE", "TM"] = Field(
         default="TE",
         description=(

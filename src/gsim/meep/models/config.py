@@ -316,7 +316,6 @@ class FiberSourceConfig(BaseModel):
     waist: float = Field(gt=0)
     wavelength: float = Field(gt=0)
     wavelength_span: float = Field(ge=0)
-    num_freqs: int = Field(ge=1)
     polarization: Literal["TE", "TM"]
     k_direction: list[float] = Field(
         description="Unit k-vector in the XZ plane: [sin(theta), 0, -cos(theta)]"

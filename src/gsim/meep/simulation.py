@@ -87,6 +87,15 @@ class Simulation(BaseModel):
         ),
     )
     monitors: list[str] = Field(default_factory=list)
+    num_freqs: int = Field(
+        default=11,
+        ge=1,
+        description=(
+            "Number of frequency points sampled by flux/DFT monitors. "
+            "Orthogonal to source choice — parameterizes the measurement "
+            "grid, not the excitation."
+        ),
+    )
     domain: Domain = Field(default_factory=Domain)
     solver: FDTD = Field(default_factory=FDTD)
 
@@ -202,6 +211,18 @@ class Simulation(BaseModel):
                     for m in self.monitors
                     if m not in port_names
                 )
+
+        # TODO: refactor source into a more coherent style. Today `Simulation.source`
+        # is a default-factory ModeSource that's always present, so we detect
+        # "user opted into mode source" via `source.port is not None` (Option A).
+        # A cleaner design would make source selection explicit — e.g. a single
+        # `Simulation.source` union field set by `sim.source(...)` or
+        # `sim.source_fiber(...)`, so "exactly one source" is a type-level invariant.
+        if self.fiber_source is not None and self.source.port is not None:
+            errors.append(
+                "Both `source.port` and `fiber_source` are set. Exactly one source "
+                "drives the sim — unset source.port, or drop the fiber source."
+            )
 
         if self.geometry.stack is None:
             warnings_list.append(
@@ -416,13 +437,14 @@ class Simulation(BaseModel):
     # -------------------------------------------------------------------------
 
     def _wavelength_config(self) -> Any:
-        """Derive WavelengthConfig from source."""
+        """Derive WavelengthConfig from the active source + sim-level num_freqs."""
         from gsim.meep.models.config import WavelengthConfig
 
+        active = self.fiber_source if self.fiber_source is not None else self.source
         return WavelengthConfig(
-            wavelength=self.source.wavelength,
-            bandwidth=self.source.wavelength_span,
-            num_freqs=self.source.num_freqs,
+            wavelength=active.wavelength,
+            bandwidth=active.wavelength_span,
+            num_freqs=self.num_freqs,
         )
 
     def _source_config(self) -> Any:
@@ -675,7 +697,6 @@ class Simulation(BaseModel):
                 waist=self.fiber_source.waist,
                 wavelength=self.fiber_source.wavelength,
                 wavelength_span=self.fiber_source.wavelength_span,
-                num_freqs=self.fiber_source.num_freqs,
                 polarization=self.fiber_source.polarization,
                 k_direction=k_direction,
             )
