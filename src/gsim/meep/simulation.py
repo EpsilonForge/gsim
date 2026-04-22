@@ -248,6 +248,28 @@ class Simulation(BaseModel):
             self.geometry.stack = get_stack()
 
     # -------------------------------------------------------------------------
+    # Internal: fiber-aware z margin
+    # -------------------------------------------------------------------------
+
+    def _expand_margin_z_above_for_fiber(self) -> None:
+        """Bump ``domain.margin_z_above`` to include the fiber source plane.
+
+        When the user configures ``sim.source_fiber(...)`` the Gaussian beam
+        sits ``z_offset`` above the cladding top. The z-crop shrinks the
+        stack around the core, so the current ``margin_z_above`` (default
+        0.5 µm) would put the fiber above the cell. Here we enlarge the
+        margin to hold the beam plane plus a waist-sized buffer.
+        """
+        if self.fiber_source is None:
+            return
+        fs = self.fiber_source
+        # Room for the beam plane + beam-half-waist so the Gaussian tail
+        # is inside the sim cell before PML.
+        needed = fs.z_offset + max(fs.waist / 2.0, 0.5)
+        if self.domain.margin_z_above < needed:
+            self.domain.margin_z_above = needed
+
+    # -------------------------------------------------------------------------
     # Internal: z-crop
     # -------------------------------------------------------------------------
 
@@ -494,8 +516,20 @@ class Simulation(BaseModel):
         if self.geometry.component is None:
             raise ValueError("No geometry set.")
 
-        # Apply z-crop if requested (only meaningful in 3D)
-        if is_3d:
+        # Apply z-crop for 3D and XZ 2D (both use the vertical dimension).
+        # XY 2D collapses z entirely so cropping is meaningless.
+        if is_3d or plane == "xz":
+            # For XZ 2D, default z_crop to "auto" so users don't end up with
+            # a huge auto-built stack (e.g. the 5 µm air_above) pinning the
+            # cell height. This mirrors what 3D notebooks do explicitly.
+            if plane == "xz" and self.geometry.z_crop is None:
+                self.geometry.z_crop = "auto"
+
+            # When a fiber source is configured in XZ mode, expand
+            # margin_z_above so the cropped stack still contains the beam
+            # plane (and a little PML headroom).
+            self._expand_margin_z_above_for_fiber()
+
             self._apply_z_crop()
 
         import gdsfactory as gf

@@ -667,3 +667,47 @@ class TestXZValidation:
 
         with pytest.raises(ValueError, match="no valid monitors and no fiber source"):
             sim.build_config()
+
+
+class TestXZAutoCrop:
+    """Tests for XZ 2D auto z-crop + fiber-aware margin."""
+
+    def test_xz_defaults_z_crop_auto(self):
+        from gsim.meep.simulation import Simulation
+
+        sim = Simulation()
+        sim.geometry.component = _xz_straight_component()
+        sim.geometry.stack = _xz_trivial_stack()
+        sim.materials = {"si": 3.47, "SiO2": 1.44}
+        sim.solver.is_3d = False
+        sim.solver.plane = "xz"
+        sim.source_fiber(x=0.0, z_offset=1.0, waist=5.4)
+
+        sim.build_config()
+
+        # build_config resolves z_crop to "auto", applies it, then clears it.
+        assert sim.geometry.z_crop is None
+        # Stack should have been cropped around the core layer.
+        assert sim.geometry.stack is not None
+        z_min = min(l.zmin for l in sim.geometry.stack.layers.values())
+        z_max = max(l.zmax for l in sim.geometry.stack.layers.values())
+        # Core is at [0.0, 0.22]; cropped range should be a few um at most.
+        assert z_max - z_min < 10.0
+
+    def test_xz_fiber_expands_margin_z_above(self):
+        from gsim.meep.simulation import Simulation
+
+        sim = Simulation()
+        sim.geometry.component = _xz_straight_component()
+        sim.geometry.stack = _xz_trivial_stack()
+        sim.materials = {"si": 3.47, "SiO2": 1.44}
+        sim.solver.is_3d = False
+        sim.solver.plane = "xz"
+        sim.source_fiber(x=0.0, z_offset=1.2, waist=5.4, angle_deg=14.5)
+
+        initial_margin = sim.domain.margin_z_above
+        sim.build_config()
+        # Margin should grow to at least z_offset + waist/2 so the fiber
+        # beam plane sits inside the simulation cell.
+        assert sim.domain.margin_z_above >= 1.2 + 5.4 / 2
+        assert sim.domain.margin_z_above > initial_margin
