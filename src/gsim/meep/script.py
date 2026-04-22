@@ -591,11 +591,13 @@ def _build_fiber_source(config, fiber):
 
     src_x_size = _estimate_source_x_size(config)
 
+    # beam_x0 is the focus offset *relative to* the source center, not an
+    # absolute position (MEEP docs). Focus sits on the source line → zero.
     src = mp.GaussianBeamSource(
         src=mp.GaussianSource(frequency=fcen, fwidth=fwidth, is_integrated=True),
         center=center,
         size=mp.Vector3(src_x_size, 0, 0),
-        beam_x0=center,
+        beam_x0=mp.Vector3(0, 0, 0),
         beam_kdir=k_dir,
         beam_w0=fiber["waist"],
         beam_E0=e_dir,
@@ -604,16 +606,60 @@ def _build_fiber_source(config, fiber):
 
 
 def _estimate_source_x_size(config):
-    """Estimate a source-line X length that spans the interior of the cell."""
+    """Source-line X length for the fiber Gaussian beam.
+
+    The line is centered on ``fiber.x`` (not the cell center). To avoid
+    spilling into PML — which corrupts the launched beam when the fiber
+    sits off-center in the cell — cap the half-size to the distance from
+    ``fiber.x`` to the nearest cell-interior edge (minus a small safety).
+
+    Target length is ``6 * waist`` so the Gaussian envelope is captured
+    well. If the cell is too narrow for that, cap and log a warning —
+    the user should increase ``domain.margin_xy`` or move the fiber.
+    """
     bbox = config.get("component_bbox")
     domain = config["domain"]
     dpml = domain["dpml"]
     margin_xy = domain["margin_xy"]
+    fiber = config.get("fiber_source")
+
     if bbox is not None:
         width = bbox[2] - bbox[0]
+        bbox_left, bbox_right = bbox[0], bbox[2]
     else:
         width = 20.0
-    return max(width + 2 * margin_xy - 2 * dpml, 2.0)
+        bbox_left, bbox_right = -10.0, 10.0
+
+    interior_width = width + 2 * margin_xy
+    if fiber is None:
+        return max(interior_width, 2.0)
+
+    interior_left = bbox_left - margin_xy
+    interior_right = bbox_right + margin_xy
+    fx = fiber["x"]
+    waist = fiber.get("waist", 0.0)
+
+    safety = max(dpml * 0.1, 0.1)
+    max_half = min(fx - interior_left, interior_right - fx) - safety
+    if max_half <= 0.0:
+        logger.warning(
+            "Fiber x=%.2f is outside or at the cell interior edge "
+            "(interior [%.2f, %.2f]); using minimum source size. "
+            "Increase domain.margin_xy or move the fiber.",
+            fx, interior_left, interior_right,
+        )
+        return 2.0
+
+    target = max(6.0 * waist, 2.0)
+    if target > 2.0 * max_half:
+        logger.warning(
+            "Fiber source line capped at %.2f um (target %.2f = 6*waist); "
+            "cell is too narrow on one side of fiber x=%.2f. "
+            "Increase domain.margin_xy so the Gaussian envelope fits.",
+            2.0 * max_half, target, fx,
+        )
+        return 2.0 * max_half
+    return target
 
 
 def build_sources(config):
@@ -695,6 +741,9 @@ def build_sources(config):
     return sources
 
 
+FIBER_FLUX_OFFSET = 0.3  # μm below fiber source center
+
+
 def build_monitors(config, sim):
     """Build mode monitors at all ports and return flux regions.
 
@@ -702,6 +751,14 @@ def build_monitors(config, sim):
     the source) by ``source_port_offset + distance_source_to_monitors``
     so the forward-going mode from the source passes through it at
     full amplitude.  This matches the gplugins approach.
+
+    When ``config["fiber_source"]`` is set, also builds a flux monitor
+    just in front of (below) the Gaussian beam to measure the launched
+    power, used as normalization reference for fiber→waveguide S-params.
+
+    Returns:
+        (port_monitors, fiber_flux) where fiber_flux is None unless a
+        fiber source is configured.
     """
     fdtd = config["fdtd"]
     fcen = fdtd["fcen"]
@@ -747,7 +804,21 @@ def build_monitors(config, sim):
         )
         monitors[port["name"]] = flux
 
-    return monitors
+    fiber_flux = None
+    fiber = config.get("fiber_source")
+    if fiber is not None:
+        src_x_size = _estimate_source_x_size(config)
+        z_monitor = fiber["z"] - FIBER_FLUX_OFFSET
+        fiber_flux = sim.add_flux(
+            fcen, df, nfreq,
+            mp.FluxRegion(
+                center=mp.Vector3(fiber["x"], 0.0, z_monitor),
+                size=mp.Vector3(src_x_size, 0, 0),
+                direction=mp.Z,
+            ),
+        )
+
+    return monitors, fiber_flux
 
 
 # ---------------------------------------------------------------------------
@@ -766,7 +837,7 @@ def _port_kpoint(port):
     return mp.Vector3(y=1)
 
 
-def extract_s_params(config, sim, monitors):
+def extract_s_params(config, sim, monitors, fiber_flux=None):
     """Extract S-parameters via mode decomposition.
 
     Uses MEEP eigenmode coefficients with explicit kpoint_func to anchor
@@ -781,10 +852,17 @@ def extract_s_params(config, sim, monitors):
       "+" -> incoming goes +normal, outgoing (reflected/transmitted) goes -normal
       "-" -> incoming goes -normal, outgoing (reflected/transmitted) goes +normal
 
+    When ``config["fiber_source"]`` is set, the reference is the launched
+    power through ``fiber_flux`` rather than a port eigenmode coefficient;
+    S-params are named ``S{i+1}0`` (fiber indexed as port 0).
+
     Returns:
         (s_params, debug_data) tuple where debug_data contains eigenmode
         diagnostics for post-run analysis.
     """
+    if config.get("fiber_source") is not None:
+        return _extract_s_params_fiber(config, sim, monitors, fiber_flux)
+
     port_names = [p["name"] for p in config["ports"]]
     ports = {p["name"]: p for p in config["ports"]}
     source_port = None
@@ -909,6 +987,110 @@ def extract_s_params(config, sim, monitors):
     debug_data["power_conservation"] = [float(p) for p in power_conservation]
 
     return s_params, debug_data
+
+
+def _extract_s_params_fiber(config, sim, monitors, fiber_flux):
+    """Extract fiber→waveguide S-parameters for a Gaussian-beam source.
+
+    Normalization reference is the net flux through ``fiber_flux`` (placed
+    just in front of the Gaussian beam): P_fiber(f). For each port i,
+    S{i+1}0(f) = alpha_out(f) / sqrt(P_fiber(f)), where alpha_out is the
+    outgoing mode coefficient (away from the GC, into the waveguide).
+    """
+    if fiber_flux is None:
+        logger.warning("fiber_source set but no fiber_flux monitor; skipping S-params")
+        return {}, {}
+
+    port_names = [p["name"] for p in config["ports"]]
+    ports = {p["name"]: p for p in config["ports"]}
+
+    fdtd = config["fdtd"]
+    fcen = fdtd["fcen"]
+    nfreq = fdtd["num_freqs"]
+    df = fdtd["df"]
+    freqs = np.linspace(fcen - df / 2, fcen + df / 2, nfreq)
+
+    # Net power crossing the fiber flux plane (beam propagates toward -Z,
+    # so raw flux is negative; take |·| to get launched power into the chip).
+    p_fiber = np.abs(np.array(mp.get_fluxes(fiber_flux)))
+
+    # 2D XZ: use ODD_Y parity to pick the TE-like waveguide mode.
+    is_3d = config.get("is_3d", True)
+    plane = config.get("plane", "xy")
+    if is_3d:
+        eig_parity = mp.NO_PARITY
+    elif plane == "xz":
+        eig_parity = mp.ODD_Y
+    else:
+        eig_parity = mp.EVEN_Y + mp.ODD_Z
+
+    debug_data = {
+        "eigenmode_info": {},
+        "raw_coefficients": {},
+        "incident_coefficients": {
+            "port": "fiber",
+            "power_flux": [float(p) for p in p_fiber],
+        },
+    }
+
+    s_params = {}
+    sqrt_p_fiber = np.sqrt(np.where(p_fiber > 0, p_fiber, np.nan))
+
+    for i, port_i in enumerate(port_names):
+        port = ports[port_i]
+        port_kp = _port_kpoint(port)
+        ob = sim.get_eigenmode_coefficients(
+            monitors[port_i], [1], eig_parity=eig_parity,
+            kpoint_func=lambda f, n, kp=port_kp: kp,
+        )
+
+        debug_data["eigenmode_info"][port_i] = _collect_eigenmode_debug_basic(
+            ob, freqs
+        )
+        nf = len(freqs)
+        debug_data["raw_coefficients"][port_i] = {
+            "forward_mag": [float(abs(ob.alpha[0, k, 0])) for k in range(nf)],
+            "backward_mag": [float(abs(ob.alpha[0, k, 1])) for k in range(nf)],
+        }
+
+        outgoing_idx = 1 if port["direction"] == "+" else 0
+        alpha_out = ob.alpha[0, :, outgoing_idx]
+        s_params[f"S{i+1}0"] = alpha_out / sqrt_p_fiber
+
+    # Coupling efficiency per frequency: Σ |S|² (fraction of launched power
+    # reaching each port mode).
+    coupling = np.zeros(len(freqs))
+    for s_vals in s_params.values():
+        coupling += np.abs(np.nan_to_num(s_vals)) ** 2
+    debug_data["power_conservation"] = [float(c) for c in coupling]
+
+    return s_params, debug_data
+
+
+def _collect_eigenmode_debug_basic(ob, freqs):
+    """Collect kdom / n_eff / group velocity from an eigenmode coeffs object."""
+    info = {"band": 1}
+    try:
+        kdom = ob.kdom
+        kdom_list = [
+            [float(kdom[i].x), float(kdom[i].y), float(kdom[i].z)]
+            for i in range(len(kdom))
+        ]
+        info["kdom"] = kdom_list
+        info["n_eff"] = [
+            float(np.linalg.norm(kdom_list[i])) / float(freqs[i])
+            if float(freqs[i]) > 0 else 0.0
+            for i in range(min(len(kdom_list), len(freqs)))
+        ]
+    except Exception:
+        info["kdom"] = []
+        info["n_eff"] = []
+    try:
+        cg = ob.cg
+        info["group_velocity"] = [float(cg[i]) for i in range(len(cg))]
+    except Exception:
+        info["group_velocity"] = []
+    return info
 
 
 def save_results(config, s_params, output_path="s_parameters.csv"):
@@ -1163,12 +1345,15 @@ def save_animation_field(sim, xy_plane, frame_counter):
     return frame_counter + 1
 
 
-def render_animation_frames(eps_data, extent):
+def render_animation_frames(eps_data, extent, axes=("x", "y")):
     """Render saved field .npz files into PNGs with fixed global colorbar.
 
     Two-pass: first finds the global field maximum across all frames,
     then renders every frame with the same vmin/vmax so field decay is
     clearly visible.
+
+    ``axes`` labels the horizontal/vertical axes on the plot (``("x", "y")``
+    for XY slices, ``("x", "z")`` for XZ 2D slices).
 
     Call only on master rank after sim.run().
     """
@@ -1222,8 +1407,8 @@ def render_animation_frames(eps_data, extent):
         cax = divider.append_axes("right", size="4%", pad=0.06)
         fig.colorbar(im, cax=cax, label="Ey")
         ax.set_title(f"Ey  t={t:.2f}")
-        ax.set_xlabel("x (um)")
-        ax.set_ylabel("y (um)")
+        ax.set_xlabel(f"{axes[0]} (um)")
+        ax.set_ylabel(f"{axes[1]} (um)")
         fig.tight_layout()
         fig.savefig(f"frames/meep_frame_{i:04d}.png", dpi=150)
         plt.close(fig)
@@ -1483,7 +1668,7 @@ def main():
         sys.exit(0)
 
     logger.info("Building monitors...")
-    monitors = build_monitors(config, sim)
+    monitors, fiber_flux = build_monitors(config, sim)
 
     stopping = config["stopping"]
     run_after = stopping["run_after_sources"]
@@ -1513,18 +1698,28 @@ def main():
     animation_interval = diagnostics["animation_interval"]
     _frame_counter = [0]  # mutable container for closure
     _anim_plane = None
+    _anim_axes = ("x", "y")
 
     if diag_animation:
-        if is_3d:
-            z_min_anim = min(l["zmin"] for l in config["layer_stack"])
-            z_max_anim = max(l["zmax"] for l in config["layer_stack"])
-            z_core_anim = (z_min_anim + z_max_anim) / 2
+        if is_xz:
+            # XZ 2D: slice is the whole simulation plane (cell_y is already 0).
+            _anim_plane = mp.Volume(
+                center=cell_center,
+                size=mp.Vector3(sim.cell_size.x, 0, sim.cell_size.z),
+            )
+            _anim_axes = ("x", "z")
         else:
-            z_core_anim = 0
-        _anim_plane = mp.Volume(
-            center=mp.Vector3(cell_center.x, cell_center.y, z_core_anim),
-            size=mp.Vector3(sim.cell_size.x, sim.cell_size.y, 0),
-        )
+            if is_3d:
+                z_min_anim = min(l["zmin"] for l in config["layer_stack"])
+                z_max_anim = max(l["zmax"] for l in config["layer_stack"])
+                z_core_anim = (z_min_anim + z_max_anim) / 2
+            else:
+                z_core_anim = 0
+            _anim_plane = mp.Volume(
+                center=mp.Vector3(cell_center.x, cell_center.y, z_core_anim),
+                size=mp.Vector3(sim.cell_size.x, sim.cell_size.y, 0),
+            )
+            _anim_axes = ("x", "y")
 
         def _capture_frame(sim_obj):
             _frame_counter[0] = save_animation_field(
@@ -1617,15 +1812,21 @@ def main():
         if mp.am_master():
             _ctr = _anim_plane.center
             _sz = _anim_plane.size
-            _extent = [
-                _ctr.x - _sz.x / 2, _ctr.x + _sz.x / 2,
-                _ctr.y - _sz.y / 2, _ctr.y + _sz.y / 2,
-            ]
-            render_animation_frames(eps_data, _extent)
+            if _anim_axes == ("x", "z"):
+                _extent = [
+                    _ctr.x - _sz.x / 2, _ctr.x + _sz.x / 2,
+                    _ctr.z - _sz.z / 2, _ctr.z + _sz.z / 2,
+                ]
+            else:
+                _extent = [
+                    _ctr.x - _sz.x / 2, _ctr.x + _sz.x / 2,
+                    _ctr.y - _sz.y / 2, _ctr.y + _sz.y / 2,
+                ]
+            render_animation_frames(eps_data, _extent, axes=_anim_axes)
             compile_animation_mp4()
 
     logger.info("Extracting S-parameters...")
-    s_params, debug_data = extract_s_params(config, sim, monitors)
+    s_params, debug_data = extract_s_params(config, sim, monitors, fiber_flux)
 
     # Attach simulation metadata to debug_data
     debug_data["_meep_time"] = sim.meep_time()
