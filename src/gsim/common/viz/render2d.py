@@ -888,7 +888,7 @@ def _draw_overlay_xz(
         )
         labeled.add("Source")
         ax.annotate(
-            f"fiber ({fiber.polarization}, {fiber.angle_deg:.1f}°)",
+            "fiber",
             (fx, fz),
             fontsize=7,
             ha="center",
