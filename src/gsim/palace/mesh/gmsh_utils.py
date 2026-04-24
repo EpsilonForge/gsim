@@ -764,3 +764,78 @@ def finalize_mesh_fields(field_ids: list[int]) -> None:
     gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
     gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 0)
     gmsh.option.setNumber("Mesh.Algorithm", 5)  # Delaunay algorithm
+
+
+def set_periodic_mesh(
+    master_entity: Entity,
+    slave_entity: Entity,
+    translation: tuple[float, float, float],
+    tol: float = 1.0,
+) -> int:
+    """Pair fragmented periodic surfaces and enforce a periodic mesh constraint.
+
+    After :func:`run_boolean_pipeline`, a 2-D entity may be split into several
+    sub-surfaces.  This function matches each master fragment to its slave
+    counterpart via translated bounding boxes and calls
+    ``gmsh.model.mesh.setPeriodic`` on every matched pair so that the slave
+    mesh is an exact copy of the master mesh.
+
+    Must be called **after** the boolean pipeline and **before** mesh
+    generation.
+
+    Args:
+        master_entity: The :class:`Entity` on the "donor" side (e.g. x = 0).
+        slave_entity:  The :class:`Entity` on the "receiver" side (e.g. x = L).
+        translation:   ``(dx, dy, dz)`` vector from master to slave.
+        tol:           Bounding-box matching tolerance (model units).
+
+    Returns:
+        Number of matched surface pairs.
+    """
+    dx, dy, dz = translation
+    affine = [
+        1,
+        0,
+        0,
+        dx,
+        0,
+        1,
+        0,
+        dy,
+        0,
+        0,
+        1,
+        dz,
+        0,
+        0,
+        0,
+        1,
+    ]
+
+    master_surfs = [t for d, t in master_entity.dimtags if d == 2]
+    slave_surfs = [t for d, t in slave_entity.dimtags if d == 2]
+
+    matched = 0
+    used_slaves: set[int] = set()
+    for ms in master_surfs:
+        xmin, ymin, zmin, xmax, ymax, zmax = gmsh.model.getBoundingBox(2, ms)
+        for ss in slave_surfs:
+            if ss in used_slaves:
+                continue
+            x2min, y2min, z2min, x2max, y2max, z2max = gmsh.model.getBoundingBox(2, ss)
+            if (
+                abs(x2min - dx - xmin) < tol
+                and abs(x2max - dx - xmax) < tol
+                and abs(y2min - dy - ymin) < tol
+                and abs(y2max - dy - ymax) < tol
+                and abs(z2min - dz - zmin) < tol
+                and abs(z2max - dz - zmax) < tol
+            ):
+                gmsh.model.mesh.setPeriodic(2, [ss], [ms], affine)
+                logger.info("Periodic mesh: surface %s -> %s", ms, ss)
+                used_slaves.add(ss)
+                matched += 1
+                break
+
+    logger.info("Matched %s periodic surface pairs", matched)
+    return matched
