@@ -22,6 +22,7 @@ class TestMeshConfig:
         assert config.curve_fit_layers == ["core", "core2"]
         assert config.curve_fit_tolerance_um == 0.0
         assert config.curve_fit_min_points == 8
+        assert config.curve_fit_corner_angle_deg == 45.0
         assert config.high_order_elements is False
         assert config.high_order_order == 2
         assert config.high_order_optimize is True
@@ -74,11 +75,13 @@ class TestMeshConfig:
             curve_fit_layers=["core"],
             curve_fit_tolerance_um=0.02,
             curve_fit_min_points=12,
+            curve_fit_corner_angle_deg=30.0,
         )
         assert config.curve_fit_mode == "bspline"
         assert config.curve_fit_layers == ["core"]
         assert config.curve_fit_tolerance_um == 0.02
         assert config.curve_fit_min_points == 12
+        assert config.curve_fit_corner_angle_deg == 30.0
 
     def test_high_order_overrides(self):
         """Test custom high-order mesh settings."""

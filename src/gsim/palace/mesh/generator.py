@@ -6,7 +6,7 @@ import logging
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import gmsh
 
@@ -220,10 +220,11 @@ def generate_mesh(
     pec_blocks: list[PECBlockConfig] | None = None,
     absorbing_boundary: bool = True,
     merge_via_distance: float = 2.0,
-    curve_fit_mode: str = "line",
+    curve_fit_mode: Literal["line", "spline", "bspline"] = "line",
     curve_fit_layers: list[str] | None = None,
     curve_fit_tolerance_um: float = 0.0,
     curve_fit_min_points: int = 8,
+    curve_fit_corner_angle_deg: float = 45.0,
     high_order_elements: bool = False,
     high_order_order: int = 2,
     high_order_optimize: bool = True,
@@ -256,6 +257,8 @@ def generate_mesh(
         curve_fit_layers: Layer names where curve fitting is applied
         curve_fit_tolerance_um: Point merge tolerance before curve fitting
         curve_fit_min_points: Min contour points required for curve fitting
+        curve_fit_corner_angle_deg: Turn-angle threshold used to identify
+            sharp corners during curve fitting segmentation
         high_order_elements: Enable high-order geometric mesh elements
         high_order_order: Polynomial order for high-order elements
         high_order_optimize: Run gmsh high-order optimization after meshing
@@ -324,6 +327,7 @@ def generate_mesh(
             curve_fit_layers=curve_fit_layers,
             curve_fit_tolerance_um=curve_fit_tolerance_um,
             curve_fit_min_points=curve_fit_min_points,
+            curve_fit_corner_angle_deg=curve_fit_corner_angle_deg,
         )
 
         all_dielectric_tags = {

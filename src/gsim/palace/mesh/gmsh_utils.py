@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import logging
 import math
+from itertools import pairwise
 
 import gmsh
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+_CORNER_TURN_THRESHOLD_DEG = 45.0
 
 # ---------------------------------------------------------------------------
 # Minimalistic meshwell-style entity + boolean pipeline
@@ -304,6 +307,7 @@ def _create_wire_loop(
     meshseed: float = 0,
     loop_mode: str = "line",
     point_merge_tol: float = 0.0,
+    corner_turn_threshold_deg: float = _CORNER_TURN_THRESHOLD_DEG,
 ) -> int | None:
     """Create a closed curve loop from polygon vertices.
 
@@ -322,25 +326,105 @@ def _create_wire_loop(
         if math.hypot(x - px, y - py) > tol:
             cleaned.append((x, y))
 
-    if len(cleaned) >= 2:
-        if math.hypot(cleaned[0][0] - cleaned[-1][0], cleaned[0][1] - cleaned[-1][1]) <= tol:
-            cleaned.pop()
+    if len(cleaned) >= 2 and (
+        math.hypot(cleaned[0][0] - cleaned[-1][0], cleaned[0][1] - cleaned[-1][1])
+        <= tol
+    ):
+        cleaned.pop()
 
     if len(cleaned) < 3:
         return None
 
     verts = [kernel.addPoint(x, y, z, meshseed, -1) for x, y in cleaned]
 
+    turn_threshold_deg = max(0.0, min(float(corner_turn_threshold_deg), 180.0))
+
+    def _turn_angle_deg(
+        prev_pt: tuple[float, float],
+        curr_pt: tuple[float, float],
+        next_pt: tuple[float, float],
+    ) -> float | None:
+        ax = curr_pt[0] - prev_pt[0]
+        ay = curr_pt[1] - prev_pt[1]
+        bx = next_pt[0] - curr_pt[0]
+        by = next_pt[1] - curr_pt[1]
+        norm_a = math.hypot(ax, ay)
+        norm_b = math.hypot(bx, by)
+        if norm_a <= tol or norm_b <= tol:
+            return None
+        cos_theta = (ax * bx + ay * by) / (norm_a * norm_b)
+        cos_theta = max(-1.0, min(1.0, cos_theta))
+        return math.degrees(math.acos(cos_theta))
+
+    def _corner_indices(points: list[tuple[float, float]]) -> list[int]:
+        if len(points) < 3:
+            return []
+        corners: list[int] = []
+        for idx in range(len(points)):
+            prev_pt = points[(idx - 1) % len(points)]
+            curr_pt = points[idx]
+            next_pt = points[(idx + 1) % len(points)]
+            turn_angle = _turn_angle_deg(prev_pt, curr_pt, next_pt)
+            if turn_angle is not None and turn_angle >= turn_threshold_deg:
+                corners.append(idx)
+        return corners
+
+    def _corner_to_corner_segments(
+        num_points: int,
+        corners: list[int],
+    ) -> list[list[int]]:
+        unique = sorted(set(corners))
+        if num_points < 3 or len(unique) < 2:
+            return []
+
+        segments: list[list[int]] = []
+        for idx, start in enumerate(unique):
+            end = unique[(idx + 1) % len(unique)]
+            segment = [start]
+            cursor = (start + 1) % num_points
+            while cursor != end:
+                segment.append(cursor)
+                cursor = (cursor + 1) % num_points
+            segment.append(end)
+            segments.append(segment)
+        return segments
+
     if loop_mode in {"spline", "bspline"} and len(verts) >= 4:
+        corners = _corner_indices(cleaned)
+        if len(corners) >= 2:
+            try:
+                segmented_curves: list[int] = []
+                for segment in _corner_to_corner_segments(len(verts), corners):
+                    segment_pts = [verts[i] for i in segment]
+                    if len(segment_pts) >= 4:
+                        if loop_mode == "bspline":
+                            curve = kernel.addBSpline(segment_pts, -1)
+                        else:
+                            curve = kernel.addSpline(segment_pts, -1)
+                        segmented_curves.append(curve)
+                    else:
+                        for p1, p2 in pairwise(segment_pts):
+                            segmented_curves.append(kernel.addLine(p1, p2, -1))
+
+                if len(segmented_curves) >= 3:
+                    return kernel.addCurveLoop(segmented_curves, tag=-1)
+            except Exception:
+                logger.debug(
+                    "Failed segmented %s loop, falling back to full-curve loop",
+                    loop_mode,
+                )
+
         try:
-            curve_pts = verts + [verts[0]]
+            curve_pts = [*verts, verts[0]]
             if loop_mode == "bspline":
                 curve = kernel.addBSpline(curve_pts, -1)
             else:
                 curve = kernel.addSpline(curve_pts, -1)
             return kernel.addCurveLoop([curve], tag=-1)
         except Exception:
-            logger.debug("Failed to create %s loop, falling back to line loop", loop_mode)
+            logger.debug(
+                "Failed to create %s loop, falling back to line loop", loop_mode
+            )
 
     lines = []
     for v in range(len(verts)):
@@ -364,6 +448,7 @@ def create_polygon_surface(
     loop_mode: str = "line",
     fit_tolerance_um: float = 0.0,
     min_points_for_curve_fit: int = 8,
+    corner_turn_threshold_deg: float = _CORNER_TURN_THRESHOLD_DEG,
 ) -> int | None:
     """Create a planar surface from polygon vertices at z height.
 
@@ -382,6 +467,8 @@ def create_polygon_surface(
         fit_tolerance_um: Point merge tolerance before loop creation
         min_points_for_curve_fit: Minimum contour points required to attempt
             spline/bspline loop creation
+        corner_turn_threshold_deg: Turn-angle threshold used to detect corners
+            when segmenting spline/bspline loops
 
     Returns:
         Surface tag, or None if polygon is invalid
@@ -401,6 +488,7 @@ def create_polygon_surface(
         meshseed,
         loop_mode=effective_mode,
         point_merge_tol=fit_tolerance_um,
+        corner_turn_threshold_deg=corner_turn_threshold_deg,
     )
     if exterior_loop is None and effective_mode != "line":
         exterior_loop = _create_wire_loop(
@@ -411,6 +499,7 @@ def create_polygon_surface(
             meshseed,
             loop_mode="line",
             point_merge_tol=fit_tolerance_um,
+            corner_turn_threshold_deg=corner_turn_threshold_deg,
         )
     if exterior_loop is None:
         return None
@@ -432,6 +521,7 @@ def create_polygon_surface(
             meshseed,
             loop_mode="line",
             point_merge_tol=fit_tolerance_um,
+            corner_turn_threshold_deg=corner_turn_threshold_deg,
         )
         if hloop is not None:
             hsurf = kernel.addPlaneSurface([hloop], tag=-1)

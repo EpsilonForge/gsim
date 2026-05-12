@@ -345,6 +345,7 @@ class PalaceSimMixin:
         curve_fit_layers: list[str] | None = None,
         curve_fit_tolerance_um: float | None = None,
         curve_fit_min_points: int | None = None,
+        curve_fit_corner_angle_deg: float | None = None,
         high_order_elements: bool | None = None,
         high_order_order: int | None = None,
         high_order_optimize: bool | None = None,
@@ -427,6 +428,9 @@ class PalaceSimMixin:
             mesh_config.curve_fit_layers = list(existing_config.curve_fit_layers)
             mesh_config.curve_fit_tolerance_um = existing_config.curve_fit_tolerance_um
             mesh_config.curve_fit_min_points = existing_config.curve_fit_min_points
+            mesh_config.curve_fit_corner_angle_deg = (
+                existing_config.curve_fit_corner_angle_deg
+            )
             mesh_config.high_order_elements = existing_config.high_order_elements
             mesh_config.high_order_order = existing_config.high_order_order
             mesh_config.high_order_optimize = existing_config.high_order_optimize
@@ -462,6 +466,8 @@ class PalaceSimMixin:
             mesh_config.curve_fit_tolerance_um = curve_fit_tolerance_um
         if curve_fit_min_points is not None:
             mesh_config.curve_fit_min_points = curve_fit_min_points
+        if curve_fit_corner_angle_deg is not None:
+            mesh_config.curve_fit_corner_angle_deg = curve_fit_corner_angle_deg
         if high_order_elements is not None:
             mesh_config.high_order_elements = high_order_elements
         if high_order_order is not None:
@@ -930,6 +936,7 @@ class PalaceSimMixin:
             curve_fit_layers=mesh_config.curve_fit_layers,
             curve_fit_tolerance_um=mesh_config.curve_fit_tolerance_um,
             curve_fit_min_points=mesh_config.curve_fit_min_points,
+            curve_fit_corner_angle_deg=mesh_config.curve_fit_corner_angle_deg,
             high_order_elements=mesh_config.high_order_elements,
             high_order_order=mesh_config.high_order_order,
             high_order_optimize=mesh_config.high_order_optimize,
@@ -979,6 +986,7 @@ class PalaceSimMixin:
         curve_fit_layers: list[str] | None = None,
         curve_fit_tolerance_um: float | None = None,
         curve_fit_min_points: int | None = None,
+        curve_fit_corner_angle_deg: float | None = None,
         high_order_elements: bool | None = None,
         high_order_order: int | None = None,
         high_order_optimize: bool | None = None,
@@ -1006,6 +1014,8 @@ class PalaceSimMixin:
             curve_fit_layers: Layer names where spline fitting is applied.
             curve_fit_tolerance_um: Point merge tolerance before fitting.
             curve_fit_min_points: Min contour points required to fit curves.
+            curve_fit_corner_angle_deg: Turn-angle threshold used to split
+                sharp corners from smooth curve-fit segments.
             high_order_elements: Enable high-order geometric mesh elements.
             high_order_order: Polynomial order for high-order elements.
             high_order_optimize: Run gmsh high-order optimization after meshing.
@@ -1040,6 +1050,7 @@ class PalaceSimMixin:
             curve_fit_layers=curve_fit_layers,
             curve_fit_tolerance_um=curve_fit_tolerance_um,
             curve_fit_min_points=curve_fit_min_points,
+            curve_fit_corner_angle_deg=curve_fit_corner_angle_deg,
             high_order_elements=high_order_elements,
             high_order_order=high_order_order,
             high_order_optimize=high_order_optimize,
@@ -1076,6 +1087,7 @@ class PalaceSimMixin:
                 curve_fit_layers=mesh_config.curve_fit_layers,
                 curve_fit_tolerance_um=mesh_config.curve_fit_tolerance_um,
                 curve_fit_min_points=mesh_config.curve_fit_min_points,
+                curve_fit_corner_angle_deg=mesh_config.curve_fit_corner_angle_deg,
                 high_order_elements=mesh_config.high_order_elements,
                 high_order_order=mesh_config.high_order_order,
                 high_order_optimize=mesh_config.high_order_optimize,
@@ -1106,6 +1118,7 @@ class PalaceSimMixin:
         curve_fit_layers: list[str] | None = None,
         curve_fit_tolerance_um: float | None = None,
         curve_fit_min_points: int | None = None,
+        curve_fit_corner_angle_deg: float | None = None,
         high_order_elements: bool | None = None,
         high_order_order: int | None = None,
         high_order_optimize: bool | None = None,
@@ -1139,6 +1152,8 @@ class PalaceSimMixin:
             curve_fit_layers: Layer names where spline fitting is applied.
             curve_fit_tolerance_um: Point merge tolerance before fitting.
             curve_fit_min_points: Min contour points required to fit curves.
+            curve_fit_corner_angle_deg: Turn-angle threshold used to split
+                sharp corners from smooth curve-fit segments.
             high_order_elements: Enable high-order geometric mesh elements.
             high_order_order: Polynomial order for high-order elements.
             high_order_optimize: Run gmsh high-order optimization after meshing.
@@ -1179,6 +1194,7 @@ class PalaceSimMixin:
             curve_fit_layers=curve_fit_layers,
             curve_fit_tolerance_um=curve_fit_tolerance_um,
             curve_fit_min_points=curve_fit_min_points,
+            curve_fit_corner_angle_deg=curve_fit_corner_angle_deg,
             high_order_elements=high_order_elements,
             high_order_order=high_order_order,
             high_order_optimize=high_order_optimize,

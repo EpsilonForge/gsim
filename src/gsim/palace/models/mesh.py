@@ -53,6 +53,7 @@ class MeshConfig(BaseModel):
     curve_fit_layers: list[str] = Field(default_factory=lambda: ["core", "core2"])
     curve_fit_tolerance_um: float = Field(default=0.0, ge=0)
     curve_fit_min_points: int = Field(default=8, ge=3)
+    curve_fit_corner_angle_deg: float = Field(default=45.0, gt=0, lt=180)
     high_order_elements: bool = False
     high_order_order: int = Field(default=2, ge=2, le=6)
     high_order_optimize: bool = True

@@ -542,6 +542,7 @@ def add_patterned_dielectrics(
     curve_fit_layers: list[str] | None = None,
     curve_fit_tolerance_um: float = 0.0,
     curve_fit_min_points: int = 8,
+    curve_fit_corner_angle_deg: float = 45.0,
 ) -> dict[str, list[int]]:
     """Add patterned dielectric volumes from stack dielectric layers.
 
@@ -559,6 +560,8 @@ def add_patterned_dielectrics(
         curve_fit_layers: Layer names where spline/bspline fitting is allowed.
         curve_fit_tolerance_um: Point merge tolerance before curve fitting.
         curve_fit_min_points: Minimum contour points to attempt curve fitting.
+        curve_fit_corner_angle_deg: Turn-angle threshold for corner detection
+            during spline/bspline segmentation.
 
     Returns:
         Dict mapping dielectric layer name -> list of volume tags.
@@ -603,6 +606,7 @@ def add_patterned_dielectrics(
                 loop_mode=surface_loop_mode,
                 fit_tolerance_um=curve_fit_tolerance_um,
                 min_points_for_curve_fit=curve_fit_min_points,
+                corner_turn_threshold_deg=curve_fit_corner_angle_deg,
             )
             if surfacetag is not None:
                 surfaces.append(surfacetag)
