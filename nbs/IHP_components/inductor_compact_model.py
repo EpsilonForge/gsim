@@ -234,6 +234,6 @@ def run_inductor_workflow(results, degree: int = 5, n_stages: int = 2):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Example usage (comment out when importing as a module)
+# Example usage
 # ─────────────────────────────────────────────────────────────────────────────
 # model, circuit_fn, S_total = run_inductor_workflow(results, degree=5, n_stages=2)
