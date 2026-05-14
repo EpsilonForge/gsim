@@ -90,6 +90,35 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
     _configured_ports: bool = PrivateAttr(default=False)
 
     # -------------------------------------------------------------------------
+    # Cloud run (narrowed return type)
+    # -------------------------------------------------------------------------
+
+    def run(
+        self,
+        parent_dir: str | Path | None = None,
+        *,
+        verbose: Literal["quiet", "status", "full"] = "status",
+        wait: bool = True,
+    ) -> dict[str, Path] | str:
+        """Run the eigenmode sim on GDSFactory+ cloud.
+
+        Thin wrapper over :meth:`PalaceSimMixin.run` that narrows the
+        return type: an eigenmode run returns a ``dict[str, Path]`` of
+        output files keyed by name (e.g. ``"eig.csv"``), or the
+        ``job_id`` string when ``wait=False``.
+        """
+        from gsim.palace.results import SParams
+
+        result = super().run(parent_dir, verbose=verbose, wait=wait)
+        if isinstance(result, SParams):
+            msg = (
+                "EigenmodeSim.run got SParams from the cloud, but an "
+                "eigenmode job is expected to produce eig.csv outputs."
+            )
+            raise TypeError(msg)
+        return result
+
+    # -------------------------------------------------------------------------
     # Eigenmode configuration
     # -------------------------------------------------------------------------
 
