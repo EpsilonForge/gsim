@@ -7,7 +7,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.2
 #   kernelspec:
-#     display_name: .venv (3.12.3)
+#     display_name: .venv
 #     language: python
 #     name: python3
 # ---
@@ -53,39 +53,39 @@ xmax, ymax = bbox.right, bbox.top
 margin_outer = 0.0
 margin_inner = -15.0
 
-ol, oright = xmin - margin_outer, xmax + margin_outer
-ob, ot = ymin - margin_outer, ymax + margin_outer
-il, ir = xmin - margin_inner, xmax + margin_inner
-ib, it = ymin - margin_inner, ymax + margin_inner
+xlo, xro = xmin - margin_outer, xmax + margin_outer
+ybo, yto = ymin - margin_outer, ymax + margin_outer
+xli, xri = xmin - margin_inner, xmax + margin_inner
+ybi, yti = ymin - margin_inner, ymax + margin_inner
 
-w_v = il - ol  # Width vertical walls
-h_h = ot - it  # Height horizontal walls
+w_v = xli - xlo  # Width vertical walls
+h_h = yto - yti  # Height horizontal walls
 over = 0.5  # Overlap for Gmsh to fuse the pieces
 
 # Left wall
 c.add_ref(
     gf.components.rectangle(
-        size=(w_v + over, ot - ob), layer="Metal1drawing", centered=True
+        size=(w_v + over, yto - ybo), layer="Metal1drawing", centered=True
     )
-).move((ol + w_v / 2 + over / 2, (ot + ob) / 2))
+).move((xlo + w_v / 2 + over / 2, (yto + ybo) / 2))
 # Right wall
 c.add_ref(
     gf.components.rectangle(
-        size=(w_v + over, ot - ob), layer="Metal1drawing", centered=True
+        size=(w_v + over, yto - ybo), layer="Metal1drawing", centered=True
     )
-).move((oright - w_v / 2 - over / 2, (ot + ob) / 2))
+).move((xro - w_v / 2 - over / 2, (yto + ybo) / 2))
 # Top wall
 c.add_ref(
     gf.components.rectangle(
-        size=(oright - ol, h_h + over), layer="Metal1drawing", centered=True
+        size=(xro - xlo, h_h + over), layer="Metal1drawing", centered=True
     )
-).move(((oright + ol) / 2, ot - h_h / 2 - over / 2))
+).move(((xro + xlo) / 2, yto - h_h / 2 - over / 2))
 # Bottom wall
 c.add_ref(
     gf.components.rectangle(
-        size=(oright - ol, h_h + over), layer="Metal1drawing", centered=True
+        size=(xro - xlo, h_h + over), layer="Metal1drawing", centered=True
     )
-).move(((oright + ol) / 2, ob + h_h / 2 + over / 2))
+).move(((xro + xlo) / 2, ybo + h_h / 2 + over / 2))
 
 cc = c.copy()
 
