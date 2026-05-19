@@ -59,6 +59,9 @@ from gsim.palace.driven import DrivenSim
 from gsim.palace.eigenmode import EigenmodeSim
 from gsim.palace.electrostatic import ElectrostaticSim
 
+# Material resolution with dispersion
+from gsim.palace.materials import resolve_palace_materials_at_frequency
+
 # Mesh utilities
 from gsim.palace.mesh import (
     MeshConfig,
@@ -163,6 +166,7 @@ __all__ = [
     "print_job_summary",
     "print_stack",
     "print_stack_table",
+    "resolve_palace_materials_at_frequency",
     "run_simulation",
 ]
 
