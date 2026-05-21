@@ -122,29 +122,6 @@ def extract_geometry(component, stack: LayerStack) -> GeometryData:
     )
 
 
-def get_layer_info(stack: LayerStack, gds_layer: int) -> dict | None:
-    """Get layer info from stack by GDS layer number.
-
-    Args:
-        stack: LayerStack with layer definitions
-        gds_layer: GDS layer number
-
-    Returns:
-        Dict with layer info or None if not found
-    """
-    for name, layer in stack.layers.items():
-        if layer.gds_layer[0] == gds_layer:
-            return {
-                "name": name,
-                "zmin": layer.zmin,
-                "zmax": layer.zmax,
-                "thickness": layer.zmax - layer.zmin,
-                "material": layer.material,
-                "type": layer.layer_type,
-            }
-    return None
-
-
 def _merge_via_polygons(
     polys: list[tuple[list[float], list[float], list]],
     merge_distance: float,
@@ -209,6 +186,29 @@ def _merge_via_polygons(
     return result
 
 
+def get_layer_info(stack: LayerStack, gds_layer: int) -> dict | None:
+    """Get layer info from stack by GDS layer number.
+
+    Args:
+        stack: LayerStack with layer definitions
+        gds_layer: GDS layer number
+
+    Returns:
+        Dict with layer info or None if not found
+    """
+    for name, layer in stack.layers.items():
+        if layer.gds_layer[0] == gds_layer:
+            return {
+                "name": name,
+                "zmin": layer.zmin,
+                "zmax": layer.zmax,
+                "thickness": layer.zmax - layer.zmin,
+                "material": layer.material,
+                "type": layer.layer_type,
+            }
+    return None
+
+
 def add_metals(
     kernel,
     geometry: GeometryData,
@@ -216,9 +216,14 @@ def add_metals(
     planar_conductors: bool = False,
     merge_via_distance: float = 2.0,
 ) -> dict:
-    """Add metal and via geometries to gmsh.
+    """Add metal, via, and shaped-dielectric geometries to gmsh.
 
     Creates extruded volumes for vias and shells (surfaces) for conductors.
+    Shaped dielectrics (auto-detected: ``layer_type="dielectric"`` with
+    thin patterned layers) are extruded as 3D solid volumes, similar to
+    vias, but are not hollowed out — they retain their full volume and
+    carry dielectric permittivity in the Palace config.
+
     If planar_conductors is True, conductors are treated as 2D surfaces (PEC).
 
     Args:
@@ -233,10 +238,13 @@ def add_metals(
     Returns:
         Dict with layer_name -> {"volumes": [...], "surfaces_xy": [...],
         "surfaces_z": [...]} where volumes contains raw int tags for vias
-        and (volumetag, surface_tags) tuples for conductors.
+        and shaped dielectrics, and (volumetag, surface_tags) tuples for
+        conductors.
     """
     # layer_name -> {"volumes": [], "surfaces_xy": [], "surfaces_z": []}
     metal_tags = {}
+    # Track shaped-dielectric layer names for downstream classification
+    shaped_dielectric_names: set[str] = set()
 
     # Group polygons by layer
     polygons_by_layer = {}
@@ -260,8 +268,19 @@ def add_metals(
         layer_type = layer_info["type"]
         zmin = layer_info["zmin"]
         thickness = layer_info["thickness"]
+        # Auto-detect: a dielectric layer whose GDS layer has polygon
+        # geometry in the component is a shaped dielectric — it gets
+        # extruded as a 3D volume following the polygon cross-section
+        # (e.g. waveguide core).  Only thin patterned layers (< 5 µm)
+        # are treated as shaped; thick layers (> 5 µm) like substrate
+        # or vacuum remain full-bbox boxes.
+        _SHAPED_DIELECTRIC_MAX_THICKNESS = 5.0  # um
+        is_shaped_dielectric = (
+            layer_type == "dielectric"
+            and thickness < _SHAPED_DIELECTRIC_MAX_THICKNESS
+        )
 
-        if layer_type not in ("conductor", "via"):
+        if layer_type not in ("conductor", "via") and not is_shaped_dielectric:
             continue
 
         if layer_name not in metal_tags:
@@ -270,6 +289,9 @@ def add_metals(
                 "surfaces_xy": [],
                 "surfaces_z": [],
             }
+
+        if is_shaped_dielectric:
+            shaped_dielectric_names.add(layer_name)
 
         # Merge nearby via polygons before creating gmsh surfaces
         if layer_type == "via":
@@ -291,7 +313,44 @@ def add_metals(
         is_planar = (
             planar_conductors or thickness == 0 or thickness < min_volume_thickness
         )
-        if layer_type == "conductor" and is_planar:
+
+        if is_shaped_dielectric:
+            # Shaped dielectric: extrude as solid 3D volume (like a via)
+            # but keep the full volume (no shell extraction). The volume
+            # carries dielectric permittivity in the Palace config.
+            if thickness == 0 or thickness < min_volume_thickness:
+                logger.warning(
+                    "Shaped dielectric layer '%s' too thin for 3D meshing "
+                    "(%.3f um < %.3f um), skipping shaped extrusion",
+                    layer_name,
+                    thickness,
+                    min_volume_thickness,
+                )
+                continue
+            # Fuse overlapping same-layer surfaces before extrusion
+            if len(surfaces) > 1:
+                dimtags = [(2, s) for s in surfaces]
+                fused, _ = kernel.fuse(
+                    [dimtags[0]],
+                    dimtags[1:],
+                    removeObject=True,
+                    removeTool=True,
+                )
+                kernel.synchronize()
+                surfaces = [t for d, t in fused if d == 2]
+
+            logger.info(
+                "Shaped dielectric layer '%s': 3D volume "
+                "(material=%s, thickness=%.3f um)",
+                layer_name,
+                layer_info["material"],
+                thickness,
+            )
+            for surfacetag in surfaces:
+                result = kernel.extrude([(2, surfacetag)], 0, 0, thickness)
+                volumetag = result[1][1]
+                metal_tags[layer_name]["volumes"].append(volumetag)
+        elif layer_type == "conductor" and is_planar:
             # Zero/thin-thickness or explicitly planar -> 2D PEC surface
             metal_tags[layer_name]["surfaces_xy"].extend(surfaces)
         elif layer_type == "via":
@@ -442,6 +501,10 @@ def add_metals(
     if _conductor_volumes:
         kernel.synchronize()
 
+    # Store shaped-dielectric layer names for downstream classification.
+    # Uses a reserved key that is skipped by consumers iterating per-layer.
+    metal_tags["__shaped_dielectrics__"] = shaped_dielectric_names  # type: ignore[assignment]
+
     return metal_tags
 
 
@@ -559,6 +622,23 @@ def add_dielectrics(
         ymin = ymin_air if is_air_like else ymin0
         xmax = xmax_air if is_air_like else xmax0
         ymax = ymax_air if is_air_like else ymax0
+
+        # When shaped dielectrics exist, ALL non-air dielectric boxes must
+        # extend to the air margins.  A shaped dielectric (e.g. waveguide
+        # core) carves out of the surrounding oxide/substrate boxes, so those
+        # boxes need to be large enough to fully surround the shaped volume.
+        # Auto-detect: any dielectric layer whose GDS layer has polygon
+        # geometry in the component will be extruded as a shaped volume.
+        gds_layers_with_polys = {layernum for layernum, *_ in geometry.polygons}
+        has_shaped = any(
+            layer.layer_type == "dielectric" and layer.gds_layer[0] in gds_layers_with_polys
+            for layer in stack.layers.values()
+        )
+        if has_shaped and not is_air_like:
+            xmin = xmin_air
+            ymin = ymin_air
+            xmax = xmax_air
+            ymax = ymax_air
 
         box_tag = gmsh_utils.create_box(
             kernel,
@@ -742,7 +822,9 @@ def build_entities(
 
     Mesh-order convention (lower = higher priority, gets cut first):
         0  - conductor (2D PEC) surfaces and PEC block surfaces
-        1  - via volumes (3D, higher priority than dielectrics) and port surfaces
+        1  - via volumes (3D, higher priority than dielectrics), shaped
+             dielectric volumes (3D, polygon-extruded dielectrics), and
+             port surfaces
         2  - dielectrics (non-airbox volumes)
         3  - airbox volume (lowest priority, carved by everything else)
 
@@ -752,7 +834,8 @@ def build_entities(
         port_tags: from ``add_ports()``
         port_info: metadata list from ``add_ports()``
         pec_block_tags: from ``add_pec_blocks()``, optional
-        stack: LayerStack for distinguishing via vs conductor layers
+        stack: LayerStack for distinguishing via vs conductor vs shaped
+            dielectric layers
 
     Returns:
         List of Entity objects ready for ``run_boolean_pipeline()``.
@@ -760,16 +843,24 @@ def build_entities(
     Entity = gmsh_utils.Entity
     entities: list[gmsh_utils.Entity] = []
 
-    # Build set of via layer names for quick lookup
+    # Build set of via and shaped-dielectric layer names for quick lookup
     via_layers: set[str] = set()
+    shaped_dielectric_layers: set[str] = set()
     if stack:
         via_layers = {
             n for n, layer in stack.layers.items() if layer.layer_type == "via"
         }
+    _shaped_meta = metal_tags.get("__shaped_dielectrics__")
+    if isinstance(_shaped_meta, set):
+        shaped_dielectric_layers = _shaped_meta
 
-    # --- Conductors and vias ---
+    # --- Conductors, vias, and shaped dielectrics ---
     for layer_name, tag_info in metal_tags.items():
+        if layer_name == "__shaped_dielectrics__":
+            continue
+
         is_via = layer_name in via_layers
+        is_shaped_dielectric = layer_name in shaped_dielectric_layers
 
         # PEC / zero-thickness surfaces
         if tag_info["surfaces_xy"]:
@@ -799,6 +890,21 @@ def build_entities(
                             dim=3,
                             mesh_order=1,
                             tags=via_vol_tags,
+                        )
+                    )
+            elif is_shaped_dielectric:
+                # Shaped dielectric volumes: 3D entities with same priority as
+                # vias so they carve out of surrounding dielectric boxes.
+                shaped_vol_tags = [
+                    item for item in tag_info["volumes"] if isinstance(item, int)
+                ]
+                if shaped_vol_tags:
+                    entities.append(
+                        Entity(
+                            name=layer_name,
+                            dim=3,
+                            mesh_order=1,
+                            tags=shaped_vol_tags,
                         )
                     )
             else:

@@ -393,6 +393,14 @@ class MaterialProperties(BaseModel):
             base.permittivity = (
                 self.permittivity if _is_tensor(self.permittivity) else eps
             )
+            # When a dispersive model (Sellmeier/Lorentzian) covers the
+            # target wavelength, the material behaves as a dielectric at
+            # this frequency — any conductivity from the RF constant model
+            # is physically incorrect and must be dropped.  For example,
+            # silicon has sigma=2 S/m at RF but is a pure dielectric
+            # (n~3.47) at optical wavelengths.
+            if selected.type in ("sellmeier", "lorentzian"):
+                base.conductivity = None
             base.model_type = selected.type
             base.model_source = selected.source
             base.within_validity = within_validity
@@ -746,6 +754,7 @@ MATERIAL_ALIASES: dict[str, str] = {
     "nitride": "Si3N4",
     "sin": "Si3N4",
     "si3n4": "Si3N4",
+    "si": "silicon",
 }
 
 

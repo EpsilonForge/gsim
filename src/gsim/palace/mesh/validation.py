@@ -339,12 +339,15 @@ def validate_mesh(sim) -> ValidationResult:
 
     has_conductors = bool(groups.get("conductor_surfaces"))
     has_pec = bool(groups.get("pec_surfaces"))
-    if not has_conductors and not has_pec:
+    has_shaped_dielectrics = any(
+        v.get("is_shaped_dielectric") for v in groups.get("volumes", {}).values()
+    )
+    if not has_conductors and not has_pec and not has_shaped_dielectrics:
         errors.append(
             "No conductor surfaces in mesh. "
             "Check that conductor layers have polygons and correct layer_type."
         )
-    else:
+    elif has_conductors or has_pec:
         if has_conductors:
             warnings_list.append(
                 f"Conductor surfaces: {list(groups['conductor_surfaces'].keys())}"
@@ -397,7 +400,9 @@ def validate_mesh(sim) -> ValidationResult:
             try:
                 config = json.loads(config_path.read_text())
                 boundaries = config.get("Boundaries", {})
-                if not boundaries.get("Conductivity") and not boundaries.get("PEC"):
+                has_conductivity = bool(boundaries.get("Conductivity"))
+                has_pec = bool(boundaries.get("PEC"))
+                if not has_conductivity and not has_pec and not has_shaped_dielectrics:
                     errors.append("config.json has no Conductivity or PEC boundaries.")
                 if (
                     not boundaries.get("LumpedPort")

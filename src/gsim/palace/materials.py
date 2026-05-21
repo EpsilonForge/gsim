@@ -66,6 +66,8 @@ def resolve_palace_materials_at_frequency(
 
         if evaluated.conductivity is not None:
             new_props["conductivity"] = evaluated.conductivity
+        else:
+            new_props.pop("conductivity", None)
 
         if evaluated.permeability is not None:
             new_props["permeability"] = evaluated.permeability

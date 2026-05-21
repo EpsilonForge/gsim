@@ -162,8 +162,14 @@ def generate_palace_config(
     materials: list[dict[str, object]] = []
     for material_name, info in groups["volumes"].items():
         is_via = info.get("is_via", False)
+        is_shaped_dielectric = info.get("is_shaped_dielectric", False)
 
         if is_via:
+            layer = stack.layers.get(material_name)
+            if layer is None:
+                continue
+            mat_props = stack_materials.get(layer.material, {})
+        elif is_shaped_dielectric:
             layer = stack.layers.get(material_name)
             if layer is None:
                 continue
@@ -181,6 +187,21 @@ def generate_palace_config(
             mat_entry["Permittivity"] = 1.0
             if isinstance(sigma, (int, float)) and sigma > 0:
                 mat_entry["Conductivity"] = sigma
+        elif is_shaped_dielectric:
+            perm = mat_props.get("permittivity", 1.0)
+            mat_entry["Permittivity"] = perm
+
+            lt = mat_props.get("loss_tangent", 0.0)
+            if isinstance(lt, list) or (isinstance(lt, (int, float)) and lt > 0):
+                mat_entry["LossTan"] = lt
+            else:
+                mat_entry["LossTan"] = 0.0
+
+            if "permeability" in mat_props:
+                mat_entry["Permeability"] = mat_props["permeability"]
+
+            if "material_axes" in mat_props:
+                mat_entry["MaterialAxes"] = mat_props["material_axes"]
         else:
             perm = mat_props.get("permittivity", 1.0)
             mat_entry["Permittivity"] = perm
