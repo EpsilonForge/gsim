@@ -471,6 +471,9 @@ def resolve_materials_with_dispersion(
 
             props = _resolve_with_overlay(name, overlay)
 
+        if resolved is not None and resolved.behavior == "conductive":
+            continue
+
         if resolved is None or resolved.permittivity is None:
             warnings.warn(
                 f"Material '{name}' has no permittivity data -- "
@@ -481,9 +484,6 @@ def resolve_materials_with_dispersion(
 
         if force_nodispersion:
             materials[name] = _resolved_to_material_data(resolved, wavelength_um)
-            continue
-
-        if resolved.behavior == "conductive":
             continue
 
         dispersive_model: DispersionModel | None = None

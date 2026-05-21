@@ -436,7 +436,13 @@ class MaterialProperties(BaseModel):
             return base
 
         base.within_validity = False
-        base.validity_note = "no permittivity data available"
+        cond = self.conductivity
+        if isinstance(cond, list):
+            cond = cond[0]
+        if cond is not None and cond >= 1e4:
+            base.validity_note = "conductive material (no permittivity needed)"
+        else:
+            base.validity_note = "no permittivity data available"
         return base
 
     def evaluate_at_frequency(self, freq_hz: float) -> ResolvedMaterial:
@@ -807,7 +813,11 @@ def resolve_material_at_wavelength(
     props = _resolve_with_overlay(material_name, overlay)
     if props is not None:
         resolved = props.evaluate_at_wavelength(wavelength_um)
-        if not resolved.within_validity and resolved.validity_note:
+        if (
+            not resolved.within_validity
+            and resolved.validity_note
+            and resolved.behavior != "conductive"
+        ):
             warnings.warn(
                 f"Material '{material_name}' at wavelength={wavelength_um} um: "
                 f"{resolved.validity_note}",
