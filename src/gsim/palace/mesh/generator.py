@@ -203,7 +203,7 @@ def generate_mesh(
     periodic_axis: str | None = None,
     merge_via_distance: float = 2.0,
     decimate_tolerance: float | None = None,
-    verbosity: int = 3,
+    verbosity: int = 0,
 ) -> MeshResult:
     """Generate mesh for Palace EM simulation.
 
