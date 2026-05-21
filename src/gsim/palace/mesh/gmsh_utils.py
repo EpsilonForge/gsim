@@ -193,8 +193,7 @@ def run_boolean_pipeline(entities: list[Entity]) -> dict[str, int]:
                     if destroyed:
                         for prev in processed_in_dim:
                             prev.dimtags = [
-                                dt for dt in prev.dimtags
-                                if dt[1] not in destroyed
+                                dt for dt in prev.dimtags if dt[1] not in destroyed
                             ]
 
                 if entity.dimtags:
