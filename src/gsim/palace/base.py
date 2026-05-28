@@ -57,7 +57,7 @@ class PalaceSimMixin:
     cpw_ports: list[CPWPortConfig]
     wave_ports: list[WavePortConfig]
     terminals: list[TerminalConfig]
-    simulation_type: Literal["driven", "eigenmode", "electrostatic"]
+    simulation_type: Literal["driven", "eigenmode", "electrostatic", "boundarymode"]
     _output_dir: Path | None
     _stack_kwargs: dict[str, Any]
     _pec_blocks: list
@@ -795,7 +795,7 @@ class PalaceSimMixin:
                 offset=cpw_config.offset,
             )
         # Configure wave ports
-        for port_config in self.wave_ports:
+        for port_config in self.wave_ports or []:
             if port_config.name is None:
                 continue
 
@@ -867,6 +867,7 @@ class PalaceSimMixin:
             simulation_type=self.simulation_type,
             driven_config=driven_config,
             eigenmode_config=self.eigenmode,
+            boundary_mode_config=getattr(self, "boundary_mode", None),
             write_config=write_config,
             planar_conductors=mesh_config.planar_conductors,
             pec_blocks=self._pec_blocks or None,
@@ -994,6 +995,7 @@ class PalaceSimMixin:
                 simulation_type=self.simulation_type,
                 driven_config=self.driven,
                 eigenmode_config=self.eigenmode,
+                boundary_mode_config=getattr(self, "boundary_mode", None),
                 planar_conductors=mesh_config.planar_conductors,
                 pec_blocks=self._pec_blocks or None,
                 absorbing_boundary=self.absorbing_boundary,
@@ -1164,6 +1166,7 @@ class PalaceSimMixin:
             simulation_type=self.simulation_type,
             eigenmode_config=self.eigenmode,
             driven_config=self.driven,
+            boundary_mode_config=getattr(self, "boundary_mode", None),
             absorbing_boundary=self.absorbing_boundary,
             hints=self._hints,
         )

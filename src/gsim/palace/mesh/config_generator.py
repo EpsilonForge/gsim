@@ -15,7 +15,7 @@ from gsim.palace.ports.config import PortType
 
 if TYPE_CHECKING:
     from gsim.common.stack import LayerStack
-    from gsim.palace.models import DrivenConfig, EigenmodeConfig
+    from gsim.palace.models import BoundaryModeConfig, DrivenConfig, EigenmodeConfig
     from gsim.palace.ports.config import PalacePort
 
 
@@ -30,6 +30,7 @@ def generate_palace_config(
     simulation_type: str = "driven",
     driven_config: DrivenConfig | None = None,
     eigenmode_config: EigenmodeConfig | None = None,
+    boundary_mode_config: BoundaryModeConfig | None = None,
     absorbing_boundary: bool = True,
     periodic_axis: str | None = None,
     hints: dict[str, Any] | None = None,
@@ -55,6 +56,7 @@ def generate_palace_config(
     if simulation_type not in (
         "driven",
         "eigenmode",
+        "boundarymode",
         "electrostatic",
         "electrostatics",
     ):
@@ -91,6 +93,17 @@ def generate_palace_config(
             },
         )
 
+    if boundary_mode_config is not None:
+        solver_boundarymode = boundary_mode_config.to_palace_config()
+    else:
+        solver_boundarymode = {
+            "Freq": fmax / 1e9,
+            "N": 1,
+            "Save": 0,
+            "Tol": 1.0e-6,
+            "Type": "Default",
+        }
+
     linear_conf: dict[str, object] = {
         "Type": "Default",
         "KSPType": "GMRES",
@@ -122,19 +135,31 @@ def generate_palace_config(
         solver_conf["Driven"] = solver_driven
     elif simulation_type == "eigenmode":
         solver_conf["Eigenmode"] = solver_eigenmode
+    elif simulation_type == "boundarymode":
+        solver_conf["BoundaryMode"] = solver_boundarymode
     else:
         raise NotImplementedError
         # solver_conf["Electrostatics"] = solver_driven
 
+    problem_type_map = {
+        "driven": "Driven",
+        "eigenmode": "Eigenmode",
+        "boundarymode": "BoundaryMode",
+        "electrostatic": "Electrostatic",
+        "electrostatics": "Electrostatic",
+    }
+
+    model_l0 = 1e-6
+
     config: dict[str, object] = {
         "Problem": {
-            "Type": simulation_type.capitalize(),
+            "Type": problem_type_map[simulation_type],
             "Verbose": 3,
             "Output": f"output/{model_name}",
         },
         "Model": {
             "Mesh": f"{model_name}.msh",
-            "L0": 1e-6,  # um
+            "L0": model_l0,  # um
             "Refinement": {
                 "UniformLevels": 0,
                 "Tol": 1e-2,
@@ -388,7 +413,7 @@ def generate_palace_config(
 
         floquet_vector = eigenmode_config.compute_floquet_wave_vector(
             periodic_axis=axis_lit,
-            l0=float(config["Model"]["L0"]),
+            l0=model_l0,
         )
 
         boundaries["Periodic"] = {
@@ -539,6 +564,7 @@ def write_config(
     simulation_type: str = "driven",
     driven_config: DrivenConfig | None = None,
     eigenmode_config: EigenmodeConfig | None = None,
+    boundary_mode_config: BoundaryModeConfig | None = None,
     absorbing_boundary: bool = True,
     hints: dict[str, Any] | None = None,
 ) -> Path:
@@ -578,6 +604,7 @@ def write_config(
         simulation_type=simulation_type,
         driven_config=driven_config,
         eigenmode_config=eigenmode_config,
+        boundary_mode_config=boundary_mode_config,
         absorbing_boundary=absorbing_boundary,
         periodic_axis=mesh_result.periodic_axis,
         hints=hints,
