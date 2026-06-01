@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import meshio
 import numpy as np
 import pyvista as pv
+import pytest
 
 from gsim import viz
 from gsim.viz import _aligned_block_tags, _normalize_solid_cell_block
+
+_SKIP_RENDER_ON_WIN = pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="PyVista off-screen rendering is unstable on Windows CI",
+)
 
 
 def test_normalize_quadratic_triangle_preserves_order() -> None:
@@ -146,6 +153,7 @@ def _write_minimal_msh(
     mesh.write(str(path), file_format="gmsh22")
 
 
+@_SKIP_RENDER_ON_WIN
 def test_plot_solid_renders_surface_groups(tmp_path: Path) -> None:
     """End-to-end smoke test for solid-mode rendering with transparency."""
     msh = tmp_path / "solid.msh"
@@ -163,6 +171,7 @@ def test_plot_solid_renders_surface_groups(tmp_path: Path) -> None:
     assert out.exists()
 
 
+@_SKIP_RENDER_ON_WIN
 def test_plot_solid_falls_back_to_volume_cells(tmp_path: Path) -> None:
     """When only 3D cells exist they should still render via the volume path."""
     msh = tmp_path / "vol.msh"
@@ -174,6 +183,7 @@ def test_plot_solid_falls_back_to_volume_cells(tmp_path: Path) -> None:
     assert out.exists()
 
 
+@_SKIP_RENDER_ON_WIN
 def test_plot_solid_skips_unsupported_blocks(tmp_path: Path) -> None:
     """Unsupported cell blocks should be skipped without aborting the render."""
     msh = tmp_path / "mixed.msh"
