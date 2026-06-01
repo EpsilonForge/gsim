@@ -7,7 +7,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.2
 #   kernelspec:
-#     display_name: .venv (3.12.3)
+#     display_name: .venv (3.12.13)
 #     language: python
 #     name: python3
 # ---
@@ -102,13 +102,13 @@ from gsim.palace import DrivenSim
 sim = DrivenSim()
 
 # Set output directory
-sim.set_output_dir("./palace-sim-inductor-guardring")
+sim.set_output_dir("./palace-sim-rlc-inductor")
 
 # Set the component geometry
 sim.set_geometry(cc)
 
 # Configure layer stack from active PDK
-sim.set_stack(substrate_thickness=180.0, air_above=200.0, include_substrate=True)
+sim.set_stack(substrate_thickness=180.0, include_substrate=True)
 
 # Configure ports
 sim.add_port(
@@ -126,23 +126,34 @@ print(sim.validate_config())
 
 # %%
 # Generate mesh (presets: "coarse", "default", "fine")
-sim.mesh(preset="default", margin=50, refined_mesh_size=1.5)
+sim.set_airbox(margin_x=50, margin_y=50, z_above=50, z_below=5)
+sim.mesh(preset="default", refined_mesh_size=1.5)
+sim.write_config()
 
 # %%
-sim.plot_mesh(show_groups=["metal", "P"], interactive=False)
+sim.plot_mesh(show_groups=["metal", "P"])
+
+# %%
+sim.plot_mesh(
+    style="solid",
+    transparent_groups=["air__None", "sio2__None", "air__sio2"],
+)
 
 # %% [markdown]
 # ### Run simulation on cloud
 
 # %%
 # Run simulation on GDSFactory+ cloud
-results = sim.run()
+results = sim.run(parent_dir="./palace-sim-rlc-inductor")
 
 # %%
 results.plot_interactive()
 
 # %%
 results.plot_interactive(phase=True)
+
+# %%
+results.plot()
 
 # %% [markdown]
 # ### Analytical RLC Model Fit
@@ -332,7 +343,7 @@ plt.show()
 # %% [markdown]
 # ### Define Circulax Component
 #
-# With the fitted values from the analytical fit, we define `MyInductor` as a frequency-domain circulax component using `@fdomain_component`. The decorator converts the RLC admittance matrix into a two-port component compatible with any circulax netlist.
+# With the fitted values from the analytical fit, we define `my_inductor` as a frequency-domain circulax component using `@fdomain_component`. The decorator converts the RLC admittance matrix into a two-port component compatible with any circulax netlist.
 #
 # The admittance matrix for a symmetric two-port is:
 #
@@ -352,7 +363,7 @@ from circulax.s_transforms import fdomain_component
 
 
 @fdomain_component(ports=("p1", "p2"))
-def MyInductor(f, R=1.0, L=100e-12, C=10e-15):
+def my_inductor(f, R=1.0, L=100e-12, C=10e-15):
     w = 2.0 * jnp.pi * f
     Y_RL = 1.0 / (R + 1j * w * L)  # series RL branch
     Y_C = 1j * w * C  # parallel capacitance
@@ -374,7 +385,7 @@ net_dict = {
     },
 }
 
-models = {"my_inductor": MyInductor, "ground": lambda: 0}
+models = {"my_inductor": my_inductor, "ground": lambda: 0}
 
 circuit = compile_circuit(net_dict, models)
 groups = circuit.groups
@@ -431,7 +442,7 @@ from circulax.solvers import setup_ac_sweep
 from circulax.utils import update_params_dict
 
 # Port node for IN — check port_map output above
-port_node = [v for k, v in circuit.port_map.items() if k == "IN"][0]
+port_node = next(v for k, v in circuit.port_map.items() if k == "IN")
 
 
 # Positive parametrization
@@ -481,7 +492,7 @@ vg_fn = jax.jit(jax.value_and_grad(loss_circulax))
 vg_fn(raw_params_ini)  # warm-up
 
 raw_params = raw_params_ini
-for step in range(200):
+for step in range(500):
     loss, grads = vg_fn(raw_params)
     if step % 20 == 0:
         params = positive(raw_params)
