@@ -102,7 +102,7 @@ from gsim.palace import DrivenSim
 sim = DrivenSim()
 
 # Set output directory
-sim.set_output_dir("./palace-sim-inductor-guardring")
+sim.set_output_dir("./palace-sim-inductor")
 
 # Set the component geometry
 sim.set_geometry(cc)
@@ -151,9 +151,6 @@ results.plot_interactive()
 # %% papermill={"duration": 0.012891, "end_time": "2026-05-18T13:29:14.675333", "exception": false, "start_time": "2026-05-18T13:29:14.662442", "status": "completed"}
 results.plot_interactive(phase=True)
 
-# %%
-results.plot()
-
 # %% [markdown]
 # ### Analytical RLC Model Fit
 
@@ -166,7 +163,7 @@ results.plot()
 import numpy as np
 import skrf as rf
 
-f = results.freq * 1e9  # GHz → Hz
+f = results.freq * 1e9  # GHz -> Hz
 w = 2 * np.pi * f
 
 ports = results.port_names
@@ -217,7 +214,7 @@ import jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)
 
 
-# The RLC impedance function.
+# The RLC impedance function
 def z_rlc(w, Q):
     return (1 + 1j * w * Q) / (1 - w**2 + 1j * w / Q)
 
@@ -250,7 +247,7 @@ mask = absZ > np.max(absZ) / np.sqrt(2)
 Q_ini = f0_ini / np.ptp(f_sim[mask]) if mask.sum() > 1 else 5.0
 par_ini = jnp.array([f0_ini, Q_ini, R_ini])
 
-print(f"f0 = {f0_ini / 1e9:.3f} GHz | Q = {Q_ini:.3f} | R = {R_ini:.4f} Ω")
+print(f"f0 = {f0_ini / 1e9:.3f} GHz | Q = {Q_ini:.3f} | R = {R_ini:.4f} Ohm")
 
 # %% [markdown]
 # ### Optimization
@@ -296,7 +293,7 @@ tau = Q_fit / w0
 L_fit = tau * R_fit
 C_fit = 1 / (L_fit * w0**2)
 
-print(f"R = {R_fit:.6f} Ω")
+print(f"R = {R_fit:.6f} Ohm")
 print(f"L = {L_fit * 1e12:.4f} pH")
 print(f"C = {C_fit * 1e15:.4f} fF")
 print(f"f0 = {f0_fit / 1e9:.4f} GHz  Q = {Q_fit:.3f}")
@@ -309,7 +306,7 @@ print(f"f0 = {f0_fit / 1e9:.4f} GHz  Q = {Q_fit:.3f}")
 # %%
 import matplotlib.pyplot as plt
 
-print(f"\nR = {R_fit:.6f} Ω")
+print(f"\nR = {R_fit:.6f} Ohm")
 print(f"L = {L_fit * 1e12:.4f} pH")
 print(f"C = {C_fit * 1e15:.4f} fF")
 print(f"f0 = {f0_fit / 1e9:.4f} GHz  Q = {Q_fit:.3f}")
@@ -321,11 +318,11 @@ axes[0].plot(f_sim / 1e9, np.abs(Z_sim), ".", ms=3, label="Sim")
 axes[0].plot(
     f_sim / 1e9,
     np.abs(Z_fit),
-    label=f"RLC fit  L={L_fit * 1e12:.1f}pH  C={C_fit * 1e15:.1f}fF  R={R_fit:.3f}Ω",
+    label=f"RLC fit  L={L_fit * 1e12:.1f}pH  C={C_fit * 1e15:.1f}fF  R={R_fit:.3f}Ohm",
 )
 axes[0].set_yscale("log")
 axes[0].set_xlabel("f [GHz]")
-axes[0].set_ylabel("|Z| [Ω]")
+axes[0].set_ylabel("|Z| [Ohm]")
 axes[0].legend()
 
 axes[1].plot(f_sim / 1e9, np.angle(Z_sim, deg=True), ".", ms=3, label="Sim")
@@ -497,7 +494,7 @@ for step in range(500):
         params = positive(raw_params)
         R_, L_, C_ = params
         print(
-            f"step {step:3d}: R={float(R_):.5f} Ω  L={float(L_) * 1e12:.3f} pH  C={float(C_) * 1e15:.3f} fF  loss={float(loss):.3e}"
+            f"step {step:3d}: R={float(R_):.5f} Ohm  L={float(L_) * 1e12:.3f} pH  C={float(C_) * 1e15:.3f} fF  loss={float(loss):.3e}"
         )
     updates, opt_state = optimizer.update(grads, opt_state)
     raw_params = optax.apply_updates(raw_params, updates)
@@ -506,7 +503,7 @@ R_fit_cx, L_fit_cx, C_fit_cx = [float(x) for x in positive(raw_params)]
 f0_cx = 1.0 / (2 * np.pi * np.sqrt(L_fit_cx * C_fit_cx))
 Q_cx = 2 * np.pi * f0_cx * L_fit_cx / R_fit_cx
 
-print(f"\nR = {R_fit_cx:.6f} Ω")
+print(f"\nR = {R_fit_cx:.6f} Ohm")
 print(f"L = {L_fit_cx * 1e12:.4f} pH")
 print(f"C = {C_fit_cx * 1e15:.4f} fF")
 print(f"f0 = {f0_cx / 1e9:.4f} GHz  Q = {Q_cx:.3f}")
@@ -540,7 +537,7 @@ axes[0].plot(
 )
 axes[0].set_yscale("log")
 axes[0].set_xlabel("f [GHz]")
-axes[0].set_ylabel("|Z| [Ω]")
+axes[0].set_ylabel("|Z| [Ohm]")
 axes[0].legend()
 
 axes[1].plot(

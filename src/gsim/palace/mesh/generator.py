@@ -7,7 +7,7 @@ import math
 from dataclasses import dataclass, field
 from numbers import Integral
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import gmsh
 
@@ -21,20 +21,104 @@ from .geometry import (
     GeometryData,
     add_dielectrics,
     add_metals,
+    add_patterned_dielectrics,
     add_pec_blocks,
     add_ports,
     build_entities,
     extract_geometry,
+    resolve_mesh_domain_bounds,
 )
 from .groups import assign_physical_groups
 
 if TYPE_CHECKING:
     from gsim.common.stack import LayerStack
-    from gsim.palace.models import DrivenConfig, EigenmodeConfig
+    from gsim.palace.models import DrivenConfig, EigenmodeConfig, NumericalConfig
     from gsim.palace.models.pec import PECBlockConfig
     from gsim.palace.ports.config import PalacePort
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for domain-boundary filtering
+# ---------------------------------------------------------------------------
+
+
+def _collect_pec_surface_lines(groups: dict) -> list[int]:
+    """Collect boundary curves from PEC surfaces for mesh refinement.
+
+    When planar conductors are embedded in dielectric volumes, the boolean
+    pipeline may merge the conductor's boundary curves into the volume edges.
+    This helper queries the live gmsh model for the boundary curves of each
+    PEC surface and returns those that are valid dim-1 entities.
+    """
+    lines: list[int] = []
+    for surface_info in groups.get("pec_surfaces", {}).values():
+        for stag in surface_info.get("tags", []):
+            try:
+                boundary = gmsh.model.getBoundary(
+                    [(2, stag)], combined=False, oriented=False, recursive=False
+                )
+                for bdim, btag in boundary:
+                    if bdim == 1:
+                        try:
+                            gmsh.model.getBoundingBox(1, btag)
+                            lines.append(btag)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    return lines
+
+
+def _get_domain_bbox(tol: float = 1e-3) -> tuple[float, float, float, float]:
+    """Return the simulation domain XY bounding box from gmsh.
+
+    Uses the overall bounding box of all entities; any volume that spans
+    the full domain (airbox, vacuum, substrate) determines the extents.
+
+    If gmsh is empty (e.g. unit tests), falls back to a zero-sized box.
+    """
+    try:
+        xmin, ymin, _zmin, xmax, ymax, _zmax = gmsh.model.getBoundingBox(-1, -1)
+    except Exception:
+        return (0.0, 0.0, 0.0, 0.0)
+    return (xmin - tol, ymin - tol, xmax + tol, ymax + tol)
+
+
+def _line_on_domain_boundary(
+    line_tag: int,
+    domain_bbox: tuple[float, float, float, float],
+    tol: float = 1.0,
+) -> bool:
+    """Return True when a curve lies on the XY domain boundary.
+
+    A curve is considered a domain-boundary edge when both of its
+    endpoints sit on the same domain wall (x=xmin, x=xmax, y=ymin,
+    or y=ymax).  This filters out large planar ground-plane sheets whose
+    outer perimeter is just the simulation box outline.
+    """
+    try:
+        tmin, tmax = gmsh.model.getParametrizationBounds(1, line_tag)
+        p1 = gmsh.model.getValue(1, line_tag, tmin)
+        p2 = gmsh.model.getValue(1, line_tag, tmax)
+    except Exception:
+        return False
+
+    # Guard against empty coordinates (e.g. unit-test stubs)
+    if len(p1) < 2 or len(p2) < 2:
+        return False
+
+    xmin, ymin, xmax, ymax = domain_bbox
+    x1, y1 = p1[0], p1[1]
+    x2, y2 = p2[0], p2[1]
+
+    on_xmin = abs(x1 - xmin) < tol and abs(x2 - xmin) < tol
+    on_xmax = abs(x1 - xmax) < tol and abs(x2 - xmax) < tol
+    on_ymin = abs(y1 - ymin) < tol and abs(y2 - ymin) < tol
+    on_ymax = abs(y1 - ymax) < tol and abs(y2 - ymax) < tol
+
+    return on_xmin or on_xmax or on_ymin or on_ymax
 
 
 @dataclass
@@ -76,6 +160,13 @@ def _setup_mesh_fields(
     port_line_count = 0
     pec_line_count = 0
     shaped_dielectric_count = 0
+    dielectric_line_count = 0
+
+    # Get the overall simulation domain bbox.  Dielectric boxes span the
+    # full domain; the largest volume's XY extent defines the boundary.
+    # This is used to skip boundary lines that sit on the domain edge
+    # (e.g. a planar conductor that covers the entire top surface).
+    domain_bbox = _get_domain_bbox()
 
     # Conductor-surface edges are always refined — the refined_cellsize only
     # takes effect where boundary curves drive the Threshold field, and metal
@@ -89,11 +180,49 @@ def _setup_mesh_fields(
     # User-defined PEC conductor surfaces are always refined — they mark
     # narrow vertical stitches between ground planes at port boundaries,
     # which are field-concentration sites by construction.
+    #
+    # Skip PEC edges that lie on the domain boundary (e.g. a full-domain
+    # ground plane sheet).  Those edges do not represent a conductor
+    # feature; they are just the simulation box outline.
     for surface_info in groups["pec_surfaces"].values():
         for tag in surface_info["tags"]:
             lines = gmsh_utils.get_boundary_lines(tag, kernel)
-            boundary_lines.extend(lines)
-            pec_line_count += len(lines)
+            for ltag in lines:
+                if _line_on_domain_boundary(ltag, domain_bbox):
+                    continue
+                boundary_lines.append(ltag)
+                pec_line_count += 1
+
+    # Explicit refinement lines for planar conductors — embedded 2D PEC
+    # surfaces lose their boundary curves during boolean fragmentation,
+    # so independent wire loops are added to drive fine mesh at the
+    # conductor perimeter.
+    for line_info in groups.get("refinement_lines", {}).values():
+        for ltag in line_info.get("tags", []):
+            try:
+                if _line_on_domain_boundary(ltag, domain_bbox):
+                    continue
+            except Exception:
+                continue
+            boundary_lines.append(ltag)
+            pec_line_count += 1
+
+    # For planar conductors, the PEC surface boundary curves may have been
+    # merged into volume edges by the boolean pipeline.  The fallback in
+    # assign_physical_groups already populates refinement_lines by querying
+    # the live model, so _collect_pec_surface_lines is only needed when
+    # that fallback was skipped (e.g. in unit tests with mocked groups).
+    if not groups.get("refinement_lines"):
+        pec_surface_lines = _collect_pec_surface_lines(groups)
+        for ltag in pec_surface_lines:
+            if ltag not in boundary_lines:
+                try:
+                    if _line_on_domain_boundary(ltag, domain_bbox):
+                        continue
+                except Exception:
+                    continue
+                boundary_lines.append(ltag)
+                pec_line_count += 1
 
     # Shaped-dielectric volume boundaries are refined — the permittivity
     # discontinuity at the core-cladding interface concentrates fields.
@@ -127,16 +256,82 @@ def _setup_mesh_fields(
                 boundary_lines.extend(lines)
                 port_line_count += len(lines)
 
+    # Dielectric interfaces are also field-concentration regions for
+    # photonic structures; refine high-permittivity dielectric boundaries
+    # (for example, core/air interfaces) when they exist as volume groups.
+    for volume_name, volume_info in groups.get("volumes", {}).items():
+        if volume_info.get("is_via", False):
+            continue
+
+        layer = stack.layers.get(volume_name)
+        material_name = layer.material if layer is not None else volume_name
+        material_props = stack.materials.get(material_name, {})
+        permittivity = material_props.get("permittivity", 1.0)
+        if isinstance(permittivity, list):
+            try:
+                permittivity = max(float(v) for v in permittivity)
+            except (TypeError, ValueError):
+                permittivity = 1.0
+        if not isinstance(permittivity, int | float) or permittivity <= 1.0:
+            continue
+
+        for vtag in volume_info.get("tags", []):
+            try:
+                boundaries = gmsh.model.getBoundary(
+                    [(3, vtag)],
+                    combined=False,
+                    oriented=False,
+                    recursive=False,
+                )
+            except Exception:
+                logger.debug(
+                    "Skipping dielectric boundary refinement for stale volume tag %s",
+                    vtag,
+                )
+                continue
+
+            for dim, stag in boundaries:
+                if dim != 2:
+                    continue
+
+                # Skip exterior/domain-boundary surfaces — these are surfaces
+                # that only belong to one volume (labelled "...__None" in the
+                # boolean pipeline). Refining their edges would force fine mesh
+                # at the simulation domain boundary, wasting elements where no
+                # internal field concentration exists.
+                pg_tags = gmsh.model.getPhysicalGroupsForEntity(dim, stag)
+                is_exterior = False
+                for pg_tag in pg_tags:
+                    name = gmsh.model.getPhysicalName(dim, pg_tag)
+                    if name and "__None" in name:
+                        is_exterior = True
+                        break
+                if is_exterior:
+                    continue
+
+                # For dielectric interfaces that span the full domain (e.g.
+                # sapphire__vacuum at z=500), only refine the *internal*
+                # edges — skip lines that sit on the XY domain boundary.
+                # The outer perimeter of a large interface is just the
+                # simulation box outline and does not need fine mesh.
+                lines = gmsh_utils.get_boundary_lines(stag, kernel)
+                for ltag in lines:
+                    if _line_on_domain_boundary(ltag, domain_bbox):
+                        continue
+                    boundary_lines.append(ltag)
+                    dielectric_line_count += 1
+
     boundary_lines = sorted(set(boundary_lines))
 
     logger.info(
         "Mesh refinement: %d boundary lines "
-        "(conductor=%d, port=%d, pec=%d, shaped_dielectric=%d)",
+        "(conductor=%d, port=%d, pec=%d, shaped_dielectric=%d, dielectric=%d)",
         len(boundary_lines),
         conductor_line_count,
         port_line_count,
         pec_line_count,
         shaped_dielectric_count,
+        dielectric_line_count,
     )
 
     # Setup main refinement field
@@ -155,6 +350,11 @@ def _setup_mesh_fields(
         material_name = dielectric["material"]
         material_props = stack.materials.get(material_name, {})
         permittivity = material_props.get("permittivity", 1.0)
+        if isinstance(permittivity, list):
+            try:
+                permittivity = max(float(v) for v in permittivity)
+            except (TypeError, ValueError):
+                permittivity = 1.0
 
         if permittivity > 1:
             local_max = max_cellsize / math.sqrt(permittivity)
@@ -196,14 +396,23 @@ def generate_mesh(
     simulation_type: str = "driven",
     driven_config: DrivenConfig | None = None,
     eigenmode_config: EigenmodeConfig | None = None,
+    numerical_config: NumericalConfig | None = None,
     write_config: bool = True,
     planar_conductors: bool = False,
     pec_blocks: list[PECBlockConfig] | None = None,
     absorbing_boundary: bool = True,
     periodic_axis: str | None = None,
     merge_via_distance: float = 2.0,
+    curve_fit_mode: Literal["line", "spline", "bspline"] = "line",
+    curve_fit_layers: list[str] | None = None,
+    curve_fit_tolerance_um: float = 0.0,
+    curve_fit_min_points: int = 8,
+    curve_fit_corner_angle_deg: float = 45.0,
+    high_order_elements: bool = False,
+    high_order_order: int = 2,
+    high_order_optimize: bool = True,
+    verbosity: int = 3,
     decimate_tolerance: float | None = None,
-    verbosity: int = 0,
 ) -> MeshResult:
     """Generate mesh for Palace EM simulation.
 
@@ -227,12 +436,22 @@ def generate_mesh(
         simulation_type: Type of simulation (driven, eigenmode or electrostatics)
         driven_config: Optional DrivenConfig for frequency sweep settings
         eigenmode_config: Optional EigenmodeConfig for eigenmode problems
+        numerical_config: Optional NumericalConfig for solver settings
         write_config: Whether to write config.json (default True)
         pec_blocks: PEC configuration
         planar_conductors: If True, treat conductors as 2D PEC surfaces
         absorbing_boundary: If True, use absorbing boundary conditions on outer surfaces
         periodic_axis: ("x" or "y") for meshing constraints on opposite domain sides
         merge_via_distance: Max gap between vias to merge (um)
+        curve_fit_mode: Patterned dielectric boundary mode: line/spline/bspline
+        curve_fit_layers: Layer names where curve fitting is applied
+        curve_fit_tolerance_um: Point merge tolerance before curve fitting
+        curve_fit_min_points: Min contour points required for curve fitting
+        curve_fit_corner_angle_deg: Turn-angle threshold used to identify
+            sharp corners during curve fitting segmentation
+        high_order_elements: Enable high-order geometric mesh elements
+        high_order_order: Polynomial order for high-order elements
+        high_order_optimize: Run gmsh high-order optimization after meshing
         decimate_tolerance: Relative tolerance for polygon decimation
             (None = no decimation; typical 0.001-0.01)
         verbosity: Sets gmsh verbosity level
@@ -280,13 +499,30 @@ def generate_mesh(
             pec_block_tags = add_pec_blocks(kernel, component, pec_blocks, stack)
 
         logger.info("Adding ports...")
+        domain_bounds = resolve_mesh_domain_bounds(
+            geometry,
+            stack,
+            margin_x=margin_x,
+            margin_y=margin_y,
+            air_margin=air_margin,
+            airbox_margin_x=airbox_margin_x,
+            airbox_margin_y=airbox_margin_y,
+            airbox_z_above=airbox_z_above,
+            airbox_z_below=airbox_z_below,
+        )
         domain_bbox = (
             geometry.bbox[0] - margin_x,
             geometry.bbox[1] - margin_y,
             geometry.bbox[2] + margin_x,
             geometry.bbox[3] + margin_y,
         )
-        port_tags, port_info = add_ports(kernel, ports, stack, domain_bbox=domain_bbox)
+        port_tags, port_info = add_ports(
+            kernel,
+            ports,
+            stack,
+            domain_bbox=domain_bbox,
+            domain_bounds=domain_bounds,
+        )
 
         logger.info("Adding dielectrics...")
         dielectric_tags = add_dielectrics(
@@ -302,11 +538,30 @@ def generate_mesh(
             airbox_z_below=airbox_z_below,
         )
 
+        logger.info("Adding patterned dielectric layers...")
+        patterned_dielectric_tags = add_patterned_dielectrics(
+            kernel,
+            geometry,
+            stack,
+            curve_fit_mode=curve_fit_mode,
+            curve_fit_layers=curve_fit_layers,
+            curve_fit_tolerance_um=curve_fit_tolerance_um,
+            curve_fit_min_points=curve_fit_min_points,
+            curve_fit_corner_angle_deg=curve_fit_corner_angle_deg,
+        )
+
+        all_dielectric_tags = {
+            name: list(tags) for name, tags in dielectric_tags.items()
+        }
+        for layer_name, vol_tags in patterned_dielectric_tags.items():
+            all_dielectric_tags.setdefault(layer_name, []).extend(vol_tags)
+
         # Build entities and run boolean pipeline
         logger.info("Running boolean pipeline...")
         entities = build_entities(
             metal_tags,
             dielectric_tags,
+            patterned_dielectric_tags,
             port_tags,
             port_info,
             pec_block_tags=pec_block_tags or None,
@@ -322,7 +577,7 @@ def generate_mesh(
         groups = assign_physical_groups(
             kernel,
             metal_tags,
-            dielectric_tags,
+            all_dielectric_tags,
             port_tags,
             port_info,
             entities,
@@ -330,6 +585,23 @@ def generate_mesh(
             stack,
             pec_block_tags=pec_block_tags or None,
         )
+
+        # After assign_physical_groups, refinement_lines may reference
+        # curves that were merged during boolean. Refresh them from the
+        # live model so _setup_mesh_fields sees only valid tags.
+        for line_info in groups.get("refinement_lines", {}).values():
+            valid_tags = []
+            for ltag in line_info.get("tags", []):
+                try:
+                    gmsh.model.getBoundingBox(1, ltag)
+                    valid_tags.append(ltag)
+                except Exception:
+                    pass
+            line_info["tags"] = valid_tags
+        # Prune empty entries so the downstream loop stays quiet.
+        groups["refinement_lines"] = {
+            k: v for k, v in groups.get("refinement_lines", {}).items() if v.get("tags")
+        }
 
         if periodic_info:
             donor_surfaces = periodic_info.get("master_surfaces")
@@ -390,8 +662,32 @@ def generate_mesh(
         if show_gui:
             gmsh.fltk.run()
 
+        if high_order_elements:
+            logger.info(
+                "Enabling high-order elements (order=%d, optimize=%s)",
+                high_order_order,
+                high_order_optimize,
+            )
+            gmsh.option.setNumber("Mesh.ElementOrder", high_order_order)
+            gmsh.option.setNumber("Mesh.SecondOrderLinear", 0)
+            gmsh.option.setNumber(
+                "Mesh.HighOrderOptimize", 1 if high_order_optimize else 0
+            )
+
         logger.info("Generating mesh...")
         gmsh.model.mesh.generate(3)
+
+        if high_order_elements:
+            gmsh.model.mesh.setOrder(high_order_order)
+            if high_order_optimize:
+                try:
+                    gmsh.model.mesh.optimize("HighOrder")
+                except Exception as exc:
+                    logger.warning(
+                        "High-order optimization failed, using unoptimized high-order "
+                        "elements: %s",
+                        exc,
+                    )
 
         # Collect mesh statistics
         mesh_stats = collect_mesh_stats()
@@ -419,6 +715,7 @@ def generate_mesh(
                 simulation_type,
                 driven_config,
                 eigenmode_config,
+                numerical_config,
                 absorbing_boundary,
                 periodic_axis,
             )
