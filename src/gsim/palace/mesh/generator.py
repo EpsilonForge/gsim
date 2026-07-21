@@ -384,6 +384,85 @@ def _generate_native_boundarymode_groups(
         if layer is not None and layer.layer_type in {"conductor", "via"}:
             metal_piece_tags.update(pieces)
 
+    # Priority-based deduplication for overlapping dielectric layers.
+    #
+    # The gmsh fragment assigns each piece to ALL parent layers that
+    # contain it.  When a patterned layer (e.g. p_rib) is fully inside a
+    # larger patterned layer (e.g. core or slab90), both claim the same
+    # piece.  We resolve this with a priority order:
+    #
+    #   1. Patterned dielectrics with a real GDS layer (doping, rib, slab)
+    #      take priority over background dielectric regions (sio2, passive,
+    #      air) that share the same z-range.
+    #   2. Among overlapping patterned dielectrics, the one with the
+    #      *smaller* total area wins (the doping region carves out of the
+    #      larger silicon region it is embedded in).
+    #
+    # This mirrors the 3D boolean pipeline's mesh_order convention where
+    # smaller / higher-detail volumes carve out of larger background volumes.
+
+    def _is_background_dielectric(layer_name: str) -> bool:
+        """Background dielectric: no real GDS layer (e.g. sio2, passive, air)."""
+        layer = stack.layers.get(layer_name)
+        return layer is None or layer.gds_layer == (999, 0)
+
+    def _is_patterned_dielectric(layer_name: str) -> bool:
+        """Patterned dielectric: has a real GDS layer and is dielectric type."""
+        layer = stack.layers.get(layer_name)
+        return (
+            layer is not None
+            and layer.layer_type == "dielectric"
+            and layer.gds_layer != (999, 0)
+        )
+
+    # Step 1: strip patterned-dielectric pieces from background regions.
+    patterned_piece_tags: set[int] = set()
+    for layer_name, pieces in layer_surfaces.items():
+        if _is_patterned_dielectric(layer_name):
+            patterned_piece_tags.update(pieces)
+
+    if patterned_piece_tags:
+        for layer_name, pieces in list(layer_surfaces.items()):
+            if _is_background_dielectric(layer_name):
+                filtered = pieces - patterned_piece_tags
+                if filtered:
+                    layer_surfaces[layer_name] = filtered
+                else:
+                    layer_surfaces.pop(layer_name, None)
+
+    # Step 2: among patterned dielectrics, resolve overlaps by area.
+    # Compute the bounding-box area of each patterned layer's pieces.
+    patterned_names = [n for n in layer_surfaces if _is_patterned_dielectric(n)]
+
+    def _layer_area(layer_name: str) -> float:
+        """Approximate area of a layer's 2D pieces via bounding boxes."""
+        total = 0.0
+        for stag in layer_surfaces.get(layer_name, set()):
+            try:
+                xmin, ymin, _zmin, xmax, ymax, _zmax = gmsh.model.getBoundingBox(
+                    2, stag
+                )
+                total += (xmax - xmin) * (ymax - ymin)
+            except Exception:
+                pass
+        return total
+
+    # Sort patterned dielectrics by area (smallest first = highest priority).
+    patterned_by_area = sorted(patterned_names, key=_layer_area)
+
+    # For each patterned layer (smallest first), claim its pieces and
+    # remove them from all larger patterned layers.
+    claimed_pieces: set[int] = set()
+    for layer_name in patterned_by_area:
+        pieces = layer_surfaces.get(layer_name, set())
+        # Remove pieces already claimed by smaller (higher-priority) layers.
+        unique = pieces - claimed_pieces
+        if unique:
+            layer_surfaces[layer_name] = unique
+            claimed_pieces.update(unique)
+        else:
+            layer_surfaces.pop(layer_name, None)
+
     if metal_piece_tags:
         for layer_name, pieces in list(layer_surfaces.items()):
             layer = stack.layers.get(layer_name)
@@ -463,7 +542,46 @@ def _generate_native_boundarymode_groups(
                     pec_curves.add(ctag)
 
         if pec_curves:
-            curve_tags = sorted(pec_curves)
+            # Some curves may be internal to the conductor pieces (shared
+            # between two conductor surface fragments).  These curves have no
+            # adjacent volume element in the mesh (conductor surfaces are not
+            # written as volume physical groups), so they would cause a
+            # segfault in MFEM's GetBdrElementFace.  Filter them out by
+            # checking gmsh adjacencies: keep a curve only if at least one
+            # adjacent surface actually has a volume physical group.
+            # Build a set of all surface tags that have a volume PG.
+            vol_pg_surfaces: set[int] = set()
+            for pg_dim, pg_tag in gmsh.model.getPhysicalGroups():
+                if pg_dim == 2:
+                    ents = gmsh.model.getEntitiesForPhysicalGroup(2, pg_tag)
+                    vol_pg_surfaces.update(int(e) for e in ents)
+            filtered_curves: set[int] = set()
+            n_internal = 0
+            for ctag in pec_curves:
+                try:
+                    adj = gmsh.model.getAdjacencies(1, int(ctag))
+                except Exception:
+                    filtered_curves.add(ctag)
+                    continue
+                # adj[1] = dim-2 entities (surfaces) adjacent to this curve
+                adj_surfaces = set(adj[1]) if len(adj) > 1 else set()
+                if not adj_surfaces:
+                    filtered_curves.add(ctag)
+                    continue
+                # Keep the curve if at least one adjacent surface has a PG
+                if adj_surfaces & vol_pg_surfaces:
+                    filtered_curves.add(ctag)
+                else:
+                    n_internal += 1
+            if n_internal > 0:
+                logger.info(
+                    "Filtered %d internal conductor curves for '%s' (%d remaining)",
+                    n_internal,
+                    layer_name,
+                    len(filtered_curves),
+                )
+
+            curve_tags = sorted(filtered_curves)
             sigma = _material_conductivity(layer_name)
             if _is_conductive(sigma):
                 cond_pg = gmsh.model.addPhysicalGroup(1, curve_tags)

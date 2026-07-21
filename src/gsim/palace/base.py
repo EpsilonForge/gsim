@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -32,6 +33,28 @@ if TYPE_CHECKING:
     from gsim.palace.results import PalaceTextResults, SParams
 
 logger = logging.getLogger(__name__)
+
+
+def _count_physical_cpus() -> int:
+    """Return the number of physical CPU cores (not logical threads)."""
+    try:
+        with open("/proc/cpuinfo") as f:
+            content = f.read()
+        # Each physical core has a unique (physical_id, core_id) pair.
+        cores: set[tuple[str, str]] = set()
+        phys_id = None
+        for line in content.splitlines():
+            if line.startswith("physical id"):
+                phys_id = line.split(":")[1].strip()
+            elif line.startswith("core id"):
+                core_id = line.split(":")[1].strip()
+                if phys_id is not None:
+                    cores.add((phys_id, core_id))
+        if cores:
+            return len(cores)
+    except Exception:
+        pass
+    return os.cpu_count() or 1
 
 
 class PalaceSimMixin:
@@ -1613,7 +1636,7 @@ class PalaceSimMixin:
         *,
         palace_sif_path: str | Path | None = None,
         palace_executable: str | Path | None = None,
-        use_apptainer: bool = True,
+        use_apptainer: bool = False,
         num_processes: int | None = None,
         num_threads: int | None = None,
         verbose: bool = True,
@@ -1693,7 +1716,7 @@ class PalaceSimMixin:
 
         # Default to all available CPUs when caller does not specify -np.
         if num_processes is None:
-            num_processes = os.cpu_count() or 1
+            num_processes = _count_physical_cpus()
 
         # Check required files exist
         if not config_path.exists():

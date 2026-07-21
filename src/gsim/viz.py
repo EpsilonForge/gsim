@@ -14,9 +14,32 @@ from typing import Any, Literal, cast
 
 import meshio
 import numpy as np
-import pyvista as pv
 
 logger = logging.getLogger(__name__)
+
+
+# -- Headless-safe PyVista initialisation ------------------------------------
+def _ensure_pyvista():
+    """Import PyVista with off-screen rendering (headless-safe)."""
+    import os
+    import warnings
+
+    os.environ.pop("DISPLAY", None)
+    os.environ.setdefault("VTK_DEFAULT_RENDER_WINDOW_OFFSCREEN", "1")
+
+    import pyvista as pv
+
+    pv.OFF_SCREEN = True
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            pv.start_xvfb()
+    except Exception:
+        pass
+    return pv
+
+
+pv = _ensure_pyvista()
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +255,7 @@ def _plot_solid(
         else:
             cell_blocks_3d.append((block_cells, pv_type, tags))
 
-    active_blocks = cell_blocks_2d if cell_blocks_2d else cell_blocks_3d
+    active_blocks = cell_blocks_2d or cell_blocks_3d
 
     if not active_blocks:
         logger.warning("No supported solid cell blocks — falling back to wireframe.")
@@ -341,11 +364,12 @@ def _plot_solid(
 
 def _make_plotter(interactive: bool) -> Any:
     """Create a PyVista plotter with standard window settings."""
+    pv = _ensure_pyvista()
     if interactive:
         plotter = pv.Plotter(window_size=[1200, 900])
     else:
         plotter = pv.Plotter(off_screen=True, window_size=[1200, 900])
-    plotter.set_background("white")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+    plotter.set_background("white")
     return plotter
 
 

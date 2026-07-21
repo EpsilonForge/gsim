@@ -59,6 +59,9 @@ from gsim.palace.driven import DrivenSim
 from gsim.palace.eigenmode import EigenmodeSim
 from gsim.palace.electrostatic import ElectrostaticSim
 
+# Visualization
+from gsim.palace.field_viz import plot_fields_2d
+
 # Field-visualization (NaN-free direct mesh rendering)
 from gsim.palace.fields import (
     BoundaryFieldData,
@@ -134,8 +137,6 @@ from gsim.palace.results import (
 
 # Runtime / binary resolution (optional palace-toolkit-cpu dependency)
 from gsim.palace.runtime import resolve_palace_binary, resolve_palace_library_dir
-
-# Visualization
 from gsim.viz import plot_cross_section, plot_mesh
 
 __all__ = [

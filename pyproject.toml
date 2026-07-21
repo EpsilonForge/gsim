@@ -31,7 +31,7 @@ dependencies = [
 # GitHub Releases. Currently only Linux x86_64 wheels are available, so
 # the extra is platform-marked accordingly.
 palace-toolkit-cpu = [
-  "palacetoolkit-palace-cpu @ https://github.com/EpsilonForge/PalaceToolkit/releases/download/palace-cpu-v0.1.2/palacetoolkit_palace_cpu-0.1.0-py3-none-linux_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "palacetoolkit-palace-cpu @ https://github.com/EpsilonForge/PalaceToolkit/releases/download/palace-cpu-v0.17.0/palacetoolkit_palace_cpu-0.17.0-py3-none-linux_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
 [dependency-groups]
