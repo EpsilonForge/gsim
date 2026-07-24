@@ -231,11 +231,11 @@ for i, comp in enumerate(comps):
     )
 
 fig.update_layout(
-    height=750,
-    width=1050,
+    height=550,
+    autosize=True,
     title_text=(
         f"Rib waveguide fundamental TE mode  "
         f"(lambda={WAVELENGTH:.2f} µm, n_eff={mode.n_eff:.4f})"
     ),
 )
-fig.show()
+fig.show(config={"responsive": True})
