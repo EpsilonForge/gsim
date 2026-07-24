@@ -14,7 +14,7 @@
 # ---
 
 # %% [markdown] papermill={"duration": 0.002263, "end_time": "2026-07-24T09:46:47.879125", "exception": false, "start_time": "2026-07-24T09:46:47.876862", "status": "completed"}
-# # MEEP Eigenmode Solver — 1D Slab Modes
+# # Eigenmode Solver — 1D Slab Modes (meep)
 #
 # Solve 1D slab modes with ``sim.mode_solver()`` + ``sim.solve_modes()``.
 # Runs on GDSFactory+ cloud by default; ``sim.solve_modes_local()`` for local MEEP.

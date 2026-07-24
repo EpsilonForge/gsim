@@ -14,7 +14,7 @@
 # ---
 
 # %% [markdown] papermill={"duration": 0.003127, "end_time": "2026-07-24T12:00:00.754624", "exception": false, "start_time": "2026-07-24T12:00:00.751497", "status": "completed"}
-# # MEEP Mode Solver — TFLN Ridge Waveguide
+# # Mode Solver — TFLN Ridge Waveguide (meep)
 #
 # Fundamental TE mode of thin-film lithium niobate ridge waveguide at lambda=1.55 µm.
 # Reference: Ying Li et al., ACS Omega 2023, 8(10), 9644–9651.

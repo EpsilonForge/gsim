@@ -14,7 +14,7 @@
 # ---
 
 # %% [markdown] papermill={"duration": 0.002045, "end_time": "2026-07-24T11:58:07.011380", "exception": false, "start_time": "2026-07-24T11:58:07.009335", "status": "completed"}
-# # MEEP Mode Solver — Rib Waveguide
+# # Mode Solver — Rib Waveguide (meep)
 #
 # Fundamental TE mode of a silicon rib waveguide: ``n_eff`` + 2D (Y, Z) field profile.
 #
