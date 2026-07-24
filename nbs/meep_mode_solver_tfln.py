@@ -13,7 +13,7 @@
 #     name: python3
 # ---
 
-# %% [markdown] papermill={"duration": 0.003012, "end_time": "2026-07-24T09:56:27.418605", "exception": false, "start_time": "2026-07-24T09:56:27.415593", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.003127, "end_time": "2026-07-24T12:00:00.754624", "exception": false, "start_time": "2026-07-24T12:00:00.751497", "status": "completed"}
 # # MEEP Mode Solver — TFLN Ridge Waveguide
 #
 # Fundamental TE mode of thin-film lithium niobate ridge waveguide at lambda=1.55 µm.
@@ -25,10 +25,10 @@
 # **Expected:** n_eff ~ 1.85, n_group ~ 2.20.
 # ``background_material="sio2"`` fills unpatterned space with SiO2.
 
-# %% [markdown] papermill={"duration": 0.001388, "end_time": "2026-07-24T09:56:27.422312", "exception": false, "start_time": "2026-07-24T09:56:27.420924", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.001785, "end_time": "2026-07-24T12:00:00.758676", "exception": false, "start_time": "2026-07-24T12:00:00.756891", "status": "completed"}
 # ### Imports
 
-# %% papermill={"duration": 1.244585, "end_time": "2026-07-24T09:56:28.668067", "exception": false, "start_time": "2026-07-24T09:56:27.423482", "status": "completed"}
+# %% papermill={"duration": 1.835389, "end_time": "2026-07-24T12:00:02.595708", "exception": false, "start_time": "2026-07-24T12:00:00.760319", "status": "completed"}
 import gdsfactory as gf
 import matplotlib.pyplot as plt
 import numpy as np
@@ -40,7 +40,7 @@ plt.close()
 
 gf.gpdk.PDK.activate()
 
-# %% [markdown] papermill={"duration": 0.000793, "end_time": "2026-07-24T09:56:28.669902", "exception": false, "start_time": "2026-07-24T09:56:28.669109", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.001066, "end_time": "2026-07-24T12:00:02.598170", "exception": false, "start_time": "2026-07-24T12:00:02.597104", "status": "completed"}
 # ### LiNbO3 material (Zelmon 1997)
 #
 # LiNbO3 is birefringent and is now registered as a uniaxial material
@@ -60,10 +60,10 @@ gf.gpdk.PDK.activate()
 # extraordinary axis (zz).
 
 
-# %% [markdown] papermill={"duration": 0.000752, "end_time": "2026-07-24T09:56:28.671377", "exception": false, "start_time": "2026-07-24T09:56:28.670625", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.001125, "end_time": "2026-07-24T12:00:02.600276", "exception": false, "start_time": "2026-07-24T12:00:02.599151", "status": "completed"}
 # ### Build the GDS component
 
-# %% papermill={"duration": 0.005899, "end_time": "2026-07-24T09:56:28.678062", "exception": false, "start_time": "2026-07-24T09:56:28.672163", "status": "completed"}
+# %% papermill={"duration": 0.00652, "end_time": "2026-07-24T12:00:02.608029", "exception": false, "start_time": "2026-07-24T12:00:02.601509", "status": "completed"}
 SLAB_WIDTH = 5.0  # um --- wide slab
 CORE_WIDTH = 1.1  # um --- w0 from reference design
 LENGTH = 10.0  # um --- waveguide length (arbitrary for mode solving)
@@ -101,12 +101,12 @@ print(f"Component: {c.name}")
 print(f"  Ports:  {[p.name for p in c.ports]}")
 print(f"  Layers: {list(c.layers)}")
 
-# %% [markdown] papermill={"duration": 0.001013, "end_time": "2026-07-24T09:56:28.680663", "exception": false, "start_time": "2026-07-24T09:56:28.679650", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.001177, "end_time": "2026-07-24T12:00:02.611178", "exception": false, "start_time": "2026-07-24T12:00:02.610001", "status": "completed"}
 # ### Layer stack
 #
 # SiO2 fills background via ``background_material="sio2"``.
 
-# %% papermill={"duration": 0.004923, "end_time": "2026-07-24T09:56:28.686537", "exception": false, "start_time": "2026-07-24T09:56:28.681614", "status": "completed"}
+# %% papermill={"duration": 0.005052, "end_time": "2026-07-24T12:00:02.617336", "exception": false, "start_time": "2026-07-24T12:00:02.612284", "status": "completed"}
 SLAB_THICKNESS = 0.22  # um  (h3)
 CORE_THICKNESS = 0.40  # um --- total LiNbO3 thickness
 RIDGE_THICKNESS = CORE_THICKNESS - SLAB_THICKNESS  # 0.18 um
@@ -150,10 +150,10 @@ for name, l in stack.layers.items():
         f"t={l.thickness:.3f}  material={l.material}  gds={l.gds_layer}"
     )
 
-# %% [markdown] papermill={"duration": 0.00082, "end_time": "2026-07-24T09:56:28.688301", "exception": false, "start_time": "2026-07-24T09:56:28.687481", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.00124, "end_time": "2026-07-24T12:00:02.619810", "exception": false, "start_time": "2026-07-24T12:00:02.618570", "status": "completed"}
 # ### Solve
 
-# %% papermill={"duration": 55.788678, "end_time": "2026-07-24T09:57:24.477728", "exception": false, "start_time": "2026-07-24T09:56:28.689050", "status": "completed"}
+# %% papermill={"duration": 80.363473, "end_time": "2026-07-24T12:01:22.984371", "exception": false, "start_time": "2026-07-24T12:00:02.620898", "status": "completed"}
 WAVELENGTH = 1.55  # um
 RESOLUTION = 64  # grid points per um
 PML_THICKNESS = WAVELENGTH  # um
@@ -183,19 +183,19 @@ print(f"fields    = {list(mode.fields.keys())}")
 for comp, arr in mode.fields.items():
     print(f"  {comp}: shape={arr.shape}  |max|={np.abs(arr).max():.6f}")
 
-# %% [markdown] papermill={"duration": 0.001008, "end_time": "2026-07-24T09:57:24.480157", "exception": false, "start_time": "2026-07-24T09:57:24.479149", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.001038, "end_time": "2026-07-24T12:01:22.986822", "exception": false, "start_time": "2026-07-24T12:01:22.985784", "status": "completed"}
 # ### Index profile
 
-# %% papermill={"duration": 0.313157, "end_time": "2026-07-24T09:57:24.794233", "exception": false, "start_time": "2026-07-24T09:57:24.481076", "status": "completed"}
+# %% papermill={"duration": 0.256239, "end_time": "2026-07-24T12:01:23.243947", "exception": false, "start_time": "2026-07-24T12:01:22.987708", "status": "completed"}
 mode.plot_index(show=True)
 
-# %% [markdown] papermill={"duration": 0.001301, "end_time": "2026-07-24T09:57:24.796981", "exception": false, "start_time": "2026-07-24T09:57:24.795680", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.001004, "end_time": "2026-07-24T12:01:23.246232", "exception": false, "start_time": "2026-07-24T12:01:23.245228", "status": "completed"}
 # ### Mode profile (interactive)
 #
 # ``|field|`` maps for every component with zoom / pan / hover. The view is
 # auto-cropped to the mode region and axes use equal aspect.
 
-# %% papermill={"duration": 0.32799, "end_time": "2026-07-24T09:57:25.126125", "exception": false, "start_time": "2026-07-24T09:57:24.798135", "status": "completed"}
+# %% papermill={"duration": 0.209603, "end_time": "2026-07-24T12:01:23.456715", "exception": false, "start_time": "2026-07-24T12:01:23.247112", "status": "completed"}
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
