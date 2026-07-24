@@ -13,7 +13,7 @@
 #     name: python3
 # ---
 
-# %% [markdown] papermill={"duration": 0.004081, "end_time": "2026-07-24T09:56:21.806075", "exception": false, "start_time": "2026-07-24T09:56:21.801994", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.002045, "end_time": "2026-07-24T11:58:07.011380", "exception": false, "start_time": "2026-07-24T11:58:07.009335", "status": "completed"}
 # # MEEP Mode Solver — Rib Waveguide
 #
 # Fundamental TE mode of a silicon rib waveguide: ``n_eff`` + 2D (Y, Z) field profile.
@@ -21,10 +21,10 @@
 # **Cross-section:** SiO2 box / Si slab 70 nm / Si rib 150 nm (total 220 nm).
 # Lateral confinement via effective-index contrast.
 
-# %% [markdown] papermill={"duration": 0.001875, "end_time": "2026-07-24T09:56:21.810102", "exception": false, "start_time": "2026-07-24T09:56:21.808227", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.000842, "end_time": "2026-07-24T11:58:07.013311", "exception": false, "start_time": "2026-07-24T11:58:07.012469", "status": "completed"}
 # ### Imports
 
-# %% papermill={"duration": 1.349687, "end_time": "2026-07-24T09:56:23.161139", "exception": false, "start_time": "2026-07-24T09:56:21.811452", "status": "completed"}
+# %% papermill={"duration": 1.906519, "end_time": "2026-07-24T11:58:08.920596", "exception": false, "start_time": "2026-07-24T11:58:07.014077", "status": "completed"}
 import gdsfactory as gf
 import matplotlib.pyplot as plt
 import numpy as np
@@ -36,10 +36,10 @@ plt.close()
 
 gf.gpdk.PDK.activate()
 
-# %% [markdown] papermill={"duration": 0.000912, "end_time": "2026-07-24T09:56:23.163186", "exception": false, "start_time": "2026-07-24T09:56:23.162274", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.000755, "end_time": "2026-07-24T11:58:08.922376", "exception": false, "start_time": "2026-07-24T11:58:08.921621", "status": "completed"}
 # ### Build the GDS component
 
-# %% papermill={"duration": 0.004872, "end_time": "2026-07-24T09:56:23.168748", "exception": false, "start_time": "2026-07-24T09:56:23.163876", "status": "completed"}
+# %% papermill={"duration": 0.006301, "end_time": "2026-07-24T11:58:08.929378", "exception": false, "start_time": "2026-07-24T11:58:08.923077", "status": "completed"}
 SLAB_WIDTH = 3.0  # um
 RIB_WIDTH = 0.5  # um
 LENGTH = 10.0  # um
@@ -69,10 +69,10 @@ print(f"Component: {c.name}")
 print(f"  Ports:  {[p.name for p in c.ports]}")
 print(f"  Layers: {list(c.layers)}")
 
-# %% [markdown] papermill={"duration": 0.000824, "end_time": "2026-07-24T09:56:23.170491", "exception": false, "start_time": "2026-07-24T09:56:23.169667", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.00074, "end_time": "2026-07-24T11:58:08.931019", "exception": false, "start_time": "2026-07-24T11:58:08.930279", "status": "completed"}
 # ### Layer stack
 
-# %% papermill={"duration": 0.003831, "end_time": "2026-07-24T09:56:23.175206", "exception": false, "start_time": "2026-07-24T09:56:23.171375", "status": "completed"}
+# %% papermill={"duration": 0.003585, "end_time": "2026-07-24T11:58:08.935300", "exception": false, "start_time": "2026-07-24T11:58:08.931715", "status": "completed"}
 layers = {
     "ox": Layer(
         name="box",
@@ -110,10 +110,10 @@ for name, l in stack.layers.items():
         f"  {name:6s}  z=[{l.zmin:+.3f}, {l.zmax:+.3f}]  t={l.thickness:.3f}  material={l.material}"
     )
 
-# %% [markdown] papermill={"duration": 0.000897, "end_time": "2026-07-24T09:56:23.177699", "exception": false, "start_time": "2026-07-24T09:56:23.176802", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.000739, "end_time": "2026-07-24T11:58:08.937474", "exception": false, "start_time": "2026-07-24T11:58:08.936735", "status": "completed"}
 # ### Solve
 
-# %% papermill={"duration": 81.022413, "end_time": "2026-07-24T09:57:44.200782", "exception": false, "start_time": "2026-07-24T09:56:23.178369", "status": "completed"}
+# %% papermill={"duration": 104.636625, "end_time": "2026-07-24T11:59:53.574787", "exception": false, "start_time": "2026-07-24T11:58:08.938162", "status": "completed"}
 WAVELENGTH = 1.55  # um
 RESOLUTION = 64
 PML_THICKNESS = 1 * WAVELENGTH
@@ -153,20 +153,20 @@ print(f"fields   = {list(mode.fields.keys())}")
 for comp, arr in mode.fields.items():
     print(f"  {comp}: shape={arr.shape}  |max|={np.abs(arr).max():.6f}")
 
-# %% [markdown] papermill={"duration": 0.001265, "end_time": "2026-07-24T09:57:44.204452", "exception": false, "start_time": "2026-07-24T09:57:44.203187", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.001324, "end_time": "2026-07-24T11:59:53.577025", "exception": false, "start_time": "2026-07-24T11:59:53.575701", "status": "completed"}
 # ### Index profile
 
-# %% papermill={"duration": 0.136745, "end_time": "2026-07-24T09:57:44.342253", "exception": false, "start_time": "2026-07-24T09:57:44.205508", "status": "completed"}
+# %% papermill={"duration": 0.093477, "end_time": "2026-07-24T11:59:53.671339", "exception": false, "start_time": "2026-07-24T11:59:53.577862", "status": "completed"}
 mode.plot_index(show=True)
 
 
-# %% [markdown] papermill={"duration": 0.001173, "end_time": "2026-07-24T09:57:44.345068", "exception": false, "start_time": "2026-07-24T09:57:44.343895", "status": "completed"}
+# %% [markdown] papermill={"duration": 0.000954, "end_time": "2026-07-24T11:59:53.673436", "exception": false, "start_time": "2026-07-24T11:59:53.672482", "status": "completed"}
 # ### Mode profile (interactive)
 #
 # ``|field|`` maps for every component with zoom / pan / hover. Axes use equal
 # aspect so the cross-section is physically proportioned.
 
-# %% papermill={"duration": 0.313923, "end_time": "2026-07-24T09:57:44.660963", "exception": false, "start_time": "2026-07-24T09:57:44.347040", "status": "completed"}
+# %% papermill={"duration": 0.203272, "end_time": "2026-07-24T11:59:53.877703", "exception": false, "start_time": "2026-07-24T11:59:53.674431", "status": "completed"}
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -231,11 +231,11 @@ for i, comp in enumerate(comps):
     )
 
 fig.update_layout(
-    height=750,
-    width=1050,
+    height=550,
+    autosize=True,
     title_text=(
         f"Rib waveguide fundamental TE mode  "
         f"(lambda={WAVELENGTH:.2f} µm, n_eff={mode.n_eff:.4f})"
     ),
 )
-fig.show()
+fig.show(config={"responsive": True})
