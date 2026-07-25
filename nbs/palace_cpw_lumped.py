@@ -98,7 +98,7 @@ sim = DrivenSim()
 sim.set_output_dir("./palace-sim-cpw-lumped")
 sim.set_geometry(c)
 
-stack = get_stack(air_above=100.0, air_below=100.0)  # auto-detects active PDK
+stack = get_stack()  # auto-detects active PDK; air comes from set_airbox() below
 sim.set_stack(stack)
 
 # CPW lumped ports — offset defaults to length/2 (flush with conductor edge)
