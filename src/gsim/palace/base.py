@@ -1328,6 +1328,30 @@ class PalaceSimMixin:
             gmsh_verbosity=verbosity,
         )
 
+        # Without an airbox the absorbing boundary is applied straight to the
+        # outer dielectric surface, often microns from the metal, where it acts
+        # as a lossy sheet and fakes large insertion loss and reflection. Warn
+        # here so it surfaces before any run is submitted.
+        from gsim.palace.mesh.geometry import is_air_like_material
+
+        mesh_result = getattr(self, "_mesh_result", None) or getattr(
+            self, "_last_mesh_result", None
+        )
+        groups = getattr(mesh_result, "groups", None) or {}
+        volumes = groups.get("volumes", {})
+        if groups.get("boundary_surfaces", {}).get("absorbing") and not any(
+            is_air_like_material(stack, name) for name in volumes
+        ):
+            logger.warning(
+                "Absorbing boundary is applied to solid dielectric surfaces "
+                "(%s) because the model has no air region, which produces "
+                "large spurious insertion loss and reflection. Add an airbox "
+                "via set_airbox(margin_x=..., margin_y=..., z_above=..., "
+                "z_below=...). Note that get_stack(air_above=...) is "
+                "deprecated and ignored.",
+                ", ".join(sorted(volumes)),
+            )
+
         # Post-mesh summary: nodes, tets, refined / max sizes (in um).
         stats = result.mesh_stats or {}
         node_count = stats.get("nodes")
