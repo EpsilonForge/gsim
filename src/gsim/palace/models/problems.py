@@ -322,10 +322,11 @@ class BoundaryModeConfig(BaseModel):
             "Freq": self.freq / 1e9,
             "N": self.num_modes,
             "Save": self.save,
-            "Target": self.target,
             "Tol": self.tolerance,
             "Type": self.solver_type,
         }
+        if self.target > 0:  # Palace requires Target > 0 when present; 0 means auto
+            config["Target"] = self.target
         if (
             self.max_size > 0
         ):  # Even when the default is zero, passing it explicitly makes Palace fail

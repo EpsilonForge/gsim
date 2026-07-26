@@ -53,3 +53,9 @@ class TestBoundaryModeConfig:
         assert result["MaxSize"] == 80
         assert result["Type"] == "SLEPc"
         assert "Attributes" not in result
+
+    def test_to_palace_config_omits_auto_target(self):
+        """target=0 means automatic shift, so Target is left out of the config."""
+        result = BoundaryModeConfig(freq=50e9, num_modes=2, save=2).to_palace_config()
+        assert "Target" not in result
+        assert "MaxSize" not in result
