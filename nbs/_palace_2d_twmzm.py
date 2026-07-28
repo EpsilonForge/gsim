@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.19.2
+#       jupytext_version: 1.19.4
 #   kernelspec:
 #     display_name: gsim (3.12.3)
 #     language: python
@@ -374,7 +374,7 @@ sim.set_boundary_mode(freq=50e9, num_modes=2, save=2)
 # to resolve the waveguide geometry.  Use 0.05 um near conductors.
 sim.mesh(
     preset="default",
-    refined_mesh_size=0.05,  # resolve the 400 nm rib
+    refined_mesh_size=0.01,  # resolve the 400 nm rib
     max_mesh_size=40.0,
     fmax=150e9,
     margin_x=0.0,
@@ -387,8 +387,6 @@ print("2D domain groups:", domain_groups)
 
 # %%
 # Interactive 3D mesh visualisation
-# (Groups depend on what the mesh generator creates -- port surfaces
-#  like P1_E0 are absent in BoundaryMode 2D native mode)
 sim.plot_mesh(
     transparent_groups=["air__None", "air__passive", "oxide__passive"],
     style="solid",
@@ -408,41 +406,6 @@ print("Config written to:", sim.output_dir)
 
 # %%
 # -- RF simulation (50 GHz) ------------------------------------------------
-# Uncomment to run.  The resolver tries, in order:
-#   1. PALACE_BIN env var
-#   2. PALACE_EXECUTABLE env var / "palace" in PATH
-#   3. palace-toolkit-cpu (optional pip package)
-
-import subprocess
-import sys
-
-from gsim.palace.runtime import (
-    _palace_cpu_available,
-    resolve_palace_binary,
-)
-
-bin_path = resolve_palace_binary()
-if bin_path is None:
-    print(
-        "No Palace binary found. Install palace-toolkit-cpu: pip install gsim[palace-toolkit-cpu]"
-    )
-    sys.exit(1)
-
-source = "palace-toolkit-cpu" if _palace_cpu_available() else "PATH / env var"
-print(f"Palace binary: {bin_path}  (source: {source})")
-
-try:
-    ver = subprocess.run(  # noqa: S603
-        [str(bin_path), "--version"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-    print(ver.stdout.strip())
-except Exception:
-    pass
-
 results = sim.run_local(verbose=True)
 results.print()
 
@@ -469,6 +432,27 @@ fig, ax, stream_inputs = plot_fields_2d(
     normal="x",
     origin=0.0,
     title="RF Mode |E_t| at x=0 (50 GHz)",
+)
+
+# %%
+# -- Rib waveguide zoom: select by physical group names ----------------
+from gsim.palace import plot_fields_2d
+
+fig, ax, stream_inputs = plot_fields_2d(
+    "./palace-sim-mzm-pn",
+    field="E_real",
+    normal="x",
+    origin=0.0,
+    physical_groups=[
+        "n_rib",
+        "npp_slab_0",
+        "npp_slab_1",
+        "p_rib",
+        "pp_slab_0",
+        "pp_slab_1",
+        "slab90",
+    ],
+    title="RF Mode |E_t| in the Rib Waveguide (50 GHz, zoomed)",
 )
 
 # %% [markdown]

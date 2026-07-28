@@ -60,7 +60,7 @@ from gsim.palace.eigenmode import EigenmodeSim
 from gsim.palace.electrostatic import ElectrostaticSim
 
 # Visualization
-from gsim.palace.field_viz import plot_fields_2d
+from gsim.palace.field_viz import plot_fields_2d, resolve_physical_groups
 
 # Field-visualization (NaN-free direct mesh rendering)
 from gsim.palace.fields import (
@@ -214,6 +214,7 @@ __all__ = [
     "print_stack_table",
     "resolve_boundary_type_attributes",
     "resolve_entity_attributes",
+    "resolve_physical_groups",
     "resolve_palace_binary",
     "resolve_palace_library_dir",
     "resolve_palace_materials_at_frequency",

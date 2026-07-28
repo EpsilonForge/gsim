@@ -1847,10 +1847,24 @@ class PalaceSimMixin:
                         resolved_exe = bundled
                         lib_dir = resolve_palace_library_dir()
                         if verbose:
+                            from gsim.palace.runtime import _palace_cpu_available as _cpu_avail
+
+                            source = "palace-toolkit-cpu" if _cpu_avail() else "PALACE_BIN / PATH"
                             logger.info(
-                                "Using Palace binary from runtime resolver: %s",
-                                bundled,
+                                "Palace binary: %s  (source: %s)",
+                                bundled, source,
                             )
+                            try:
+                                import subprocess as _sp
+
+                                ver = _sp.run(
+                                    [str(bundled), "--version"],
+                                    capture_output=True, text=True, timeout=10, check=False,
+                                )
+                                if ver.returncode == 0:
+                                    logger.info(ver.stdout.strip())
+                            except Exception:
+                                pass
                     else:
                         # Last resort: "palace" in PATH
                         resolved_exe = "palace"
