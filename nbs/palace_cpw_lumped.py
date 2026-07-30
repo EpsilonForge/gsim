@@ -1,13 +1,14 @@
 # ---
 # jupyter:
 #   jupytext:
+#     formats: ipynb,py:percent
 #     text_representation:
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
 #       jupytext_version: 1.19.2
 #   kernelspec:
-#     display_name: .venv
+#     display_name: Python 3 (ipykernel)
 #     language: python
 #     name: python3
 # ---
@@ -97,7 +98,7 @@ sim = DrivenSim()
 sim.set_output_dir("./palace-sim-cpw-lumped")
 sim.set_geometry(c)
 
-stack = get_stack(air_above=100.0, air_below=100.0)  # auto-detects active PDK
+stack = get_stack()  # auto-detects active PDK; air comes from set_airbox() below
 sim.set_stack(stack)
 
 # CPW lumped ports — offset defaults to length/2 (flush with conductor edge)

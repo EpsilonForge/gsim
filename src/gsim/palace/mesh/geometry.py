@@ -28,6 +28,50 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _contains_air_token(name: str | None) -> bool:
+    """Return True when *name* reads as an air/vacuum region name."""
+    if not name:
+        return False
+
+    normalized = name.strip().lower().replace("-", "_")
+    if normalized in {"air", "vacuum"}:
+        return True
+
+    tokens = [tok for tok in normalized.split("_") if tok]
+    return "air" in tokens or "vacuum" in tokens
+
+
+def is_air_like_material(
+    stack: LayerStack,
+    material_name: str,
+    dielectric_name: str | None = None,
+) -> bool:
+    """Return True when a stack material behaves as air/vacuum.
+
+    A material qualifies if it is a dielectric with permittivity 1, or if
+    either the material or region name contains an ``air``/``vacuum`` token.
+    """
+    mat = stack.materials.get(material_name)
+    if isinstance(mat, dict):
+        mat_type = str(mat.get("type", "")).strip().lower()
+        eps = mat.get("permittivity")
+    else:
+        mat_type = str(getattr(mat, "type", "")).strip().lower()
+        eps = getattr(mat, "permittivity", None)
+
+    if mat_type == "dielectric":
+        try:
+            if eps is not None and abs(float(eps) - 1.0) <= 1e-9:
+                return True
+        except (TypeError, ValueError):
+            pass
+
+    if _contains_air_token(material_name):
+        return True
+
+    return _contains_air_token(dielectric_name)
+
+
 @dataclass
 class GeometryData:
     """Container for geometry data extracted from component."""
@@ -93,41 +137,6 @@ def resolve_dielectric_regions(
     xmax_air = xmax0 + margin_x
     ymax_air = ymax0 + margin_y
 
-    def _contains_air_token(name: str | None) -> bool:
-        if not name:
-            return False
-
-        normalized = name.strip().lower().replace("-", "_")
-        if normalized in {"air", "vacuum"}:
-            return True
-
-        tokens = [tok for tok in normalized.split("_") if tok]
-        return "air" in tokens or "vacuum" in tokens
-
-    def _is_air_or_vacuum(
-        material_name: str,
-        dielectric_name: str | None = None,
-    ) -> bool:
-        mat = stack.materials.get(material_name)
-        if isinstance(mat, dict):
-            mat_type = str(mat.get("type", "")).strip().lower()
-            eps = mat.get("permittivity")
-        else:
-            mat_type = str(getattr(mat, "type", "")).strip().lower()
-            eps = getattr(mat, "permittivity", None)
-
-        if mat_type == "dielectric":
-            try:
-                if eps is not None and abs(float(eps) - 1.0) <= 1e-9:
-                    return True
-            except (TypeError, ValueError):
-                pass
-
-        if _contains_air_token(material_name):
-            return True
-
-        return _contains_air_token(dielectric_name)
-
     z_min_all = math.inf
     z_max_all = -math.inf
 
@@ -146,7 +155,9 @@ def resolve_dielectric_regions(
         dielectric_name = str(dielectric.get("name", "dielectric"))
         material = str(dielectric["material"])
 
-        is_air_like = _is_air_or_vacuum(material, dielectric_name=dielectric_name)
+        is_air_like = is_air_like_material(
+            stack, material, dielectric_name=dielectric_name
+        )
         if is_air_like and use_airbox:
             continue
 

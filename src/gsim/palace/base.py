@@ -1328,6 +1328,30 @@ class PalaceSimMixin:
             gmsh_verbosity=verbosity,
         )
 
+        # Without an airbox the absorbing boundary is applied straight to the
+        # outer dielectric surface, often microns from the metal, where it acts
+        # as a lossy sheet and fakes large insertion loss and reflection. Warn
+        # here so it surfaces before any run is submitted.
+        from gsim.palace.mesh.geometry import is_air_like_material
+
+        mesh_result = getattr(self, "_mesh_result", None) or getattr(
+            self, "_last_mesh_result", None
+        )
+        groups = getattr(mesh_result, "groups", None) or {}
+        volumes = groups.get("volumes", {})
+        if groups.get("boundary_surfaces", {}).get("absorbing") and not any(
+            is_air_like_material(stack, name) for name in volumes
+        ):
+            logger.warning(
+                "Absorbing boundary is applied to solid dielectric surfaces "
+                "(%s) because the model has no air region, which produces "
+                "large spurious insertion loss and reflection. Add an airbox "
+                "via set_airbox(margin_x=..., margin_y=..., z_above=..., "
+                "z_below=...). Note that get_stack(air_above=...) is "
+                "deprecated and ignored.",
+                ", ".join(sorted(volumes)),
+            )
+
         # Post-mesh summary: nodes, tets, refined / max sizes (in um).
         stats = result.mesh_stats or {}
         node_count = stats.get("nodes")
@@ -1657,6 +1681,9 @@ class PalaceSimMixin:
         import shutil
         import subprocess
 
+        # Will hold the bundled library directory when using palace-toolkit-cpu
+        _bundled_lib_dir: Path | None = None
+
         if self._output_dir is None:
             raise ValueError("Output directory not set. Call set_output_dir() first.")
 
@@ -1773,39 +1800,56 @@ class PalaceSimMixin:
 
         else:
             # Direct Palace execution
-            if palace_executable is None:
-                palace_executable = os.environ.get("PALACE_EXECUTABLE", "palace")
-                if verbose:
-                    logger.info(
-                        "Using Palace executable from environment/default: %s",
-                        palace_executable,
+            resolved_exe: str | Path | None = None
+            lib_dir: Path | None = None
+
+            if palace_executable is not None:
+                # Explicit parameter — resolve to absolute path
+                resolved_exe = Path(palace_executable).expanduser().resolve()
+            else:
+                # Check PALACE_EXECUTABLE env var
+                env_exe = os.environ.get("PALACE_EXECUTABLE", "").strip()
+                if env_exe:
+                    resolved_exe = env_exe
+                    lib_dir = None
+                else:
+                    # Try bundled resolver (palace-toolkit-cpu, PALACE_BIN, PATH)
+                    from gsim.palace.runtime import (
+                        resolve_palace_binary,
+                        resolve_palace_library_dir,
                     )
 
-            exe_candidate = Path(palace_executable).expanduser()
-            is_path_like = (
-                exe_candidate.is_absolute()
-                or exe_candidate.parent != Path()
-                or str(palace_executable).startswith("~")
-            )
+                    bundled = resolve_palace_binary()
+                    if bundled is not None:
+                        resolved_exe = bundled
+                        lib_dir = resolve_palace_library_dir()
+                        if verbose:
+                            logger.info(
+                                "Using Palace binary from runtime resolver: %s",
+                                bundled,
+                            )
+                    else:
+                        # Last resort: "palace" in PATH
+                        resolved_exe = "palace"
 
-            if is_path_like:
-                # Normalize local paths to absolute paths because subprocess
-                # runs with cwd=output_dir.
-                exe_path = exe_candidate.resolve()
-                if not exe_path.exists():
+            if resolved_exe is None:
+                raise FileNotFoundError(
+                    "Palace executable not found. Set PALACE_BIN, "
+                    "PALACE_EXECUTABLE, or install palace-toolkit-cpu "
+                    "(pip install gsim[palace-toolkit-cpu])."
+                )
+
+            exe_path = Path(resolved_exe)
+
+            # Check if executable exists (resolve PATH if needed)
+            if not exe_path.exists():
+                resolved = shutil.which(str(exe_path))
+                if resolved is None:
                     raise FileNotFoundError(
                         f"Palace executable not found: {exe_path}. "
                         "Install Palace directly or provide correct path via "
-                        "palace_executable parameter."
-                    )
-            else:
-                # Resolve command names (e.g. "palace") via PATH.
-                resolved = shutil.which(str(exe_candidate))
-                if resolved is None:
-                    raise FileNotFoundError(
-                        f"Palace executable not found: {exe_candidate}. "
-                        "Install Palace directly or provide correct path via "
-                        "palace_executable parameter."
+                        "palace_executable parameter, or install palace-toolkit-cpu: "
+                        "pip install gsim[palace-toolkit-cpu]"
                     )
                 exe_path = Path(resolved)
 
@@ -1820,6 +1864,21 @@ class PalaceSimMixin:
                 "-np",
                 str(num_processes),
             ]
+            # Propagate bundled lib dir out of the else scope for env setup
+            # (lib_dir is defined only inside this else branch)
+            _bundled_lib_dir = lib_dir
+
+        # Prepare environment with LD_LIBRARY_PATH for bundled Palace binary
+        _run_env = os.environ.copy()
+        if not use_apptainer and _bundled_lib_dir is not None:
+            prior = _run_env.get("LD_LIBRARY_PATH", "")
+            _run_env["LD_LIBRARY_PATH"] = (
+                f"{_bundled_lib_dir}:{prior}" if prior else str(_bundled_lib_dir)
+            )
+            logger.debug(
+                "Injected LD_LIBRARY_PATH for bundled Palace: %s",
+                _run_env["LD_LIBRARY_PATH"],
+            )
 
         if num_threads is not None:
             cmd.extend(["-nt", str(num_threads)])
@@ -1853,6 +1912,7 @@ class PalaceSimMixin:
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,
+                    env=_run_env,
                 ) as process:
                     if process.stdout is not None:
                         for line in process.stdout:
@@ -1877,6 +1937,7 @@ class PalaceSimMixin:
                     check=True,
                     capture_output=True,
                     text=True,
+                    env=_run_env,
                 )
                 if result.stdout:
                     logger.debug(result.stdout)
