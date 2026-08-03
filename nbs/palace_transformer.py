@@ -7,7 +7,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.2
 #   kernelspec:
-#     display_name: .venv (3.12.13)
+#     display_name: .venv (3.12.13.final.0)
 #     language: python
 #     name: python3
 # ---
@@ -308,7 +308,7 @@ sim.add_port(
     "S2", from_layer="metal5", to_layer="topmetal1", geometry="via", excited=True
 )
 
-sim.set_driven(fmin=10e9, fmax=100e9, num_points=60)
+sim.set_driven(fmin=10e9, fmax=150e9, num_points=100)
 print(sim.validate_config())
 
 # %%
@@ -338,6 +338,9 @@ results.plot_interactive()
 
 # %%
 results.plot_interactive(phase=True)
+
+# %%
+results.plot()
 
 # %% [markdown]
 # ### S- and Z-parameters from the Palace simulation
@@ -421,7 +424,7 @@ jax.config.update("jax_enable_x64", True)
 # To understand inductive coupling, let's recall how inductors work. For a simple coil in a vacuum carrying a current $I$, Ampere's law dictates that a magnetic field $B \propto I$ is created. If the current changes, the field varies, and according to Faraday's law, an electric field $E \propto dB/dt$ is generated.
 #
 # The total voltage drop across the terminals of the inductor results from integrating this electric field along the coil, evaluated using Stokes' Theorem:
-# $$\Delta V = \oint \mathbf{E} \cdot d\mathbf{l} = - \frac{d}{dt} \iint \mathbf{B} \cdot d\mathbf{S} = - \frac{d\Phi}{dt}$$
+# $$\Delta V = \int \mathbf{E} \cdot d\mathbf{l} = - \frac{d}{dt} \iint \mathbf{B} \cdot d\mathbf{S} = - \frac{d\Phi}{dt}$$
 # where $\Phi$ is the magnetic flux. Because $\Phi$ is proportional to $I$, we define the proportionality constant as the inductance, $L$. This gives the typical circuit behavior:
 # $$\Delta V = -L \, \frac{dI}{dt}$$
 #
@@ -696,7 +699,7 @@ for i, pi in enumerate(ports):
 ntwk = rf.Network(f=f_sim, s=S, f_unit="hz")
 Z = ntwk.z
 
-# 3. Build the differential projection matrix (Mmix)
+# Build the differential projection matrix (Mmix)
 idx = {name: i for i, name in enumerate(ports)}
 ip1, ip2 = idx["P1"], idx["P2"]
 is1, is2 = idx["S1"], idx["S2"]
@@ -707,8 +710,29 @@ Mmix[0, ip2] = -1  # primary loop
 Mmix[1, is1] = 1
 Mmix[1, is2] = -1  # secondary loop
 
-# Project Single-Ended Z to Differential Z
+# Project 4-Port Single-Ended Z to 2-Port Differential Z
 Z_target = np.einsum("ai,fij,bj->fab", Mmix, Z, Mmix)
+
+
+# Helper functions for domain conversion
+def z2s_2port(Z_mat, z0=50.0):
+    I = np.eye(2)
+    Zn = Z_mat / z0
+    return np.array([np.linalg.solve(Zn[f] + I, Zn[f] - I) for f in range(Zn.shape[0])])
+
+
+def s2z_2port(S_mat, z0=50.0):
+    I = np.eye(2)
+    return np.array(
+        [
+            z0 * np.linalg.solve(I - S_mat[f], I + S_mat[f])
+            for f in range(S_mat.shape[0])
+        ]
+    )
+
+
+S_target_j = jnp.asarray(z2s_2port(Z_target, z0=50.0))
+freqs = jnp.asarray(f_sim)
 
 Z11 = Z_target[:, 0, 0]  # primary self-Z
 Z22 = Z_target[:, 1, 1]  # secondary self-Z
@@ -725,7 +749,7 @@ ax[0].loglog(f_sim / 1e9, np.abs(Z22), label="|Z22| secondary")
 ax[0].loglog(f_sim / 1e9, np.abs(Z12), label="|Z12| mutual")
 ax[0].legend()
 ax[0].set_xlabel("f [GHz]")
-ax[0].set_ylabel("Magnitude |Z| (Ω)")
+ax[0].set_ylabel("Magnitude |Z| (Ohm)")
 ax[0].grid(True, which="both", alpha=0.3)
 
 ax[1].semilogx(f_sim / 1e9, np.angle(Z11, deg=True), label="Phase Z11")
@@ -740,6 +764,8 @@ plt.tight_layout()
 plt.show()
 
 # %%
+from circulax.components.electronic import Capacitor, Resistor
+
 n_lf = 5  # number of lowest-frequency points to average over
 w_lf = w[:n_lf]
 
@@ -758,6 +784,8 @@ f0_2_ini = f_sim[np.argmax(np.abs(Z22))]
 C1_ini = 1 / (L1_ini * (2 * np.pi * f0_1_ini) ** 2)
 C2_ini = 1 / (L2_ini * (2 * np.pi * f0_2_ini) ** 2)
 
+Cm_ini = 20e-15
+
 print(f"L1_ini = {L1_ini * 1e12:.3f} pH")
 print(f"L2_ini = {L2_ini * 1e12:.3f} pH")
 print(f"M_ini  = {M_ini * 1e12:.3f} pH")
@@ -766,9 +794,6 @@ print(f"R1_ini = {R1_ini:.4f} Ohm")
 print(f"R2_ini = {R2_ini:.4f} Ohm")
 print(f"f0_1_ini = {f0_1_ini / 1e9:.3f} GHz -> C1_ini = {C1_ini * 1e15:.4f} fF")
 print(f"f0_2_ini = {f0_2_ini / 1e9:.3f} GHz -> C2_ini = {C2_ini * 1e15:.4f} fF")
-
-# %%
-from circulax.components.electronic import Capacitor, Resistor
 
 net_dict = {
     "instances": {
@@ -787,6 +812,7 @@ net_dict = {
         "C2": {"component": "capacitor", "settings": {"C": C2_ini}},
         "Rp1": {"component": "resistor", "settings": {"R": Rp_ini}},
         "Rp2": {"component": "resistor", "settings": {"R": Rp_ini}},
+        "Cm": {"component": "capacitor", "settings": {"C": Cm_ini}},
     },
     "connections": {
         "R1,p1": "PORT_P1",
@@ -801,6 +827,8 @@ net_dict = {
         "Rp2,p2": "C2,p1",
         "C2,p2": "T1,s2",
         "T1,s2": "GND,p1",
+        "Cm,p1": "T1,p1",
+        "Cm,p2": "T1,s1",
     },
 }
 
@@ -816,15 +844,20 @@ circuit = compile_circuit(net_dict, models)
 groups = circuit.groups
 print("Circuit compiled. System size:", circuit.sys_size)
 print("Port map:", circuit.port_map)
+graph = draw_circuit_graph(netlist=net_dict)
+graph.set_size_inches(6, 6)
+graph.show()
+
 
 port_nodes = [circuit.port_map["PORT_P1"], circuit.port_map["PORT_S1"]]
 print("port_nodes:", port_nodes)
 
 # %%
+import optax
 from circulax.utils import update_params_dict
 
 
-# Fitting setup: 9 params [L1,L2,k,R1,R2,C1,C2,Rp1,Rp2]
+# Fitting setup: 10 params [L1,L2,k,R1,R2,C1,C2,Rp1,Rp2,Cm]
 def positive(x):
     return jax.nn.softplus(x)
 
@@ -843,28 +876,21 @@ def unpack(raw_params):
     C2 = positive(raw_params[6]) * C2_ini
     Rp1 = positive(raw_params[7]) * Rp_ini
     Rp2 = positive(raw_params[8]) * Rp_ini
-    return L1, L2, k, R1, R2, C1, C2, Rp1, Rp2
+    Cm = positive(raw_params[9]) * Cm_ini
+    return L1, L2, k, R1, R2, C1, C2, Rp1, Rp2, Cm
 
 
-def z2s_2port(Z, z0=50.0):
-    I = np.eye(2)
-    Zn = Z / z0
-    return np.array([np.linalg.solve(Zn[f] + I, Zn[f] - I) for f in range(Zn.shape[0])])
-
-
-S_sim_diff = z2s_2port(Z_target, z0=50.0)
-S_target_j = jnp.asarray(S_sim_diff)
-freqs = jnp.asarray(f_sim)
-
-lam_L = 0.001
-lam_k = 0.001
+f0 = 0.5 * (f0_1_ini + f0_2_ini)
+bw = 0.35 * f0
+log_f = jnp.log(freqs)
+log_f0 = jnp.log(f0)
+log_bw = jnp.log(1 + bw / f0)
+resonance_weight = 1.0 + 4.0 * jnp.exp(-0.5 * ((log_f - log_f0) / log_bw) ** 2)
 
 
 def loss_circulax(raw_params):
-    L1, L2, k, R1, R2, C1, C2, Rp1, Rp2 = unpack(raw_params)
+    L1, L2, k, R1, R2, C1, C2, Rp1, Rp2, Cm = unpack(raw_params)
     M = k * jnp.sqrt(L1 * L2)
-
-    # 1. Update circuit parameters
     g = update_params_dict(groups, "transformer", "T1", "L1", L1)
     g = update_params_dict(g, "transformer", "T1", "L2", L2)
     g = update_params_dict(g, "transformer", "T1", "M", M)
@@ -874,30 +900,29 @@ def loss_circulax(raw_params):
     g = update_params_dict(g, "capacitor", "C2", "C", C2)
     g = update_params_dict(g, "resistor", "Rp1", "R", Rp1)
     g = update_params_dict(g, "resistor", "Rp2", "R", Rp2)
+    g = update_params_dict(g, "capacitor", "Cm", "C", Cm)
 
-    # 2. Run simulation
     y_op = circuit.with_groups(g)()
     ac = setup_ac_sweep(groups=g, num_vars=circuit.sys_size, port_nodes=port_nodes)
     S_cx = ac(freqs=freqs, y_dc=y_op)
 
-    # 3. Calculate Complex Error (Replaces log-magnitude and wrapped phase)
     complex_err = S_cx - S_target_j
 
-    # Square the absolute distance: |a + bj|^2 = a^2 + b^2
-    # Splitting real and imag is much safer for JAX gradients than jnp.abs()
     err_sq = jnp.real(complex_err) ** 2 + jnp.imag(complex_err) ** 2
+    w = jnp.array([[2.0, 1.0], [1.0, 2.0]])
+    err_freq = jnp.mean(w[None, :, :] * err_sq, axis=(1, 2))
+    data_loss = jnp.mean(resonance_weight * err_freq)
+    # data_loss = jnp.mean(w[None, :, :] * err_sq)
 
-    # 4. Apply weighting and average
-    w = jnp.array([[2.0, 1.0], [1.0, 2.0]])  # Kept your reflection upweighting
-    data_loss = jnp.mean(w[None, :, :] * err_sq)
-
-    # 5. Regularization
     reg_loss = (
-        lam_L * ((L1 - L1_ini) / L1_ini) ** 2
-        + lam_L * ((L2 - L2_ini) / L2_ini) ** 2
-        + lam_k * (k - k_ini) ** 2
+        0.001 * ((L1 - L1_ini) / L1_ini) ** 2
+        + 0.001 * ((L2 - L2_ini) / L2_ini) ** 2
+        + 0.01 * (k - k_ini) ** 2
+        + 0.05 * ((R1 - R1_ini) / R1_ini) ** 2
+        + 0.05 * ((R2 - R2_ini) / R2_ini) ** 2
+        + 0.02 * ((Rp1 - Rp_ini) / Rp_ini) ** 2
+        + 0.02 * ((Rp2 - Rp_ini) / Rp_ini) ** 2
     )
-
     return data_loss + reg_loss
 
 
@@ -913,6 +938,7 @@ raw_params_ini = jnp.array(
         raw_one,
         raw_one,
         raw_one,
+        raw_one,
     ]
 )
 
@@ -922,7 +948,6 @@ vg_fn = jax.jit(jax.value_and_grad(loss_circulax))
 
 loss0, grads0 = vg_fn(raw_params_ini)
 print("loss0:", float(loss0))
-# print("grad0:", grads0) # Optional: comment out if it clutters the console
 
 optimizer = optax.adam(1e-2)
 raw_params = raw_params_ini
@@ -930,22 +955,21 @@ opt_state = optimizer.init(raw_params_ini)
 
 n_steps = 8000
 for step in range(n_steps):
-    # FIX: Use the updated compiled function
     loss, grads = vg_fn(raw_params)
 
     if step % 1000 == 0:
-        L1_, L2_, k_, R1_, R2_, C1_, C2_, Rp1_, Rp2_ = unpack(raw_params)
+        L1_, L2_, k_, R1_, R2_, C1_, C2_, Rp1_, Rp2_, Cm_ = unpack(raw_params)
         print(
             f"step {step:5d}: L1={float(L1_) * 1e12:.2f}pH L2={float(L2_) * 1e12:.2f}pH "
             f"k={float(k_):.4f} R1={float(R1_):.3f} R2={float(R2_):.3f} "
             f"C1={float(C1_) * 1e15:.2f}fF C2={float(C2_) * 1e15:.2f}fF "
-            f"Rp1={float(Rp1_):.1f} Rp2={float(Rp2_):.1f} loss={float(loss):.4e}"
+            f"Rp1={float(Rp1_):.1f} Rp2={float(Rp2_):.1f} Cm={float(Cm_) * 1e15:.3f}fF loss={float(loss):.4e}"
         )
 
     updates, opt_state = optimizer.update(grads, opt_state)
     raw_params = optax.apply_updates(raw_params, updates)
 
-L1_fit, L2_fit, k_fit, R1_fit, R2_fit, C1_fit, C2_fit, Rp1_fit, Rp2_fit = [
+L1_fit, L2_fit, k_fit, R1_fit, R2_fit, C1_fit, C2_fit, Rp1_fit, Rp2_fit, Cm_fit = [
     float(x) for x in unpack(raw_params)
 ]
 
@@ -954,7 +978,7 @@ print(f"L1={L1_fit * 1e12:.3f}pH L2={L2_fit * 1e12:.3f}pH k={k_fit:.4f}")
 print(
     f"R1={R1_fit:.4f} R2={R2_fit:.4f} C1={C1_fit * 1e15:.4f}fF C2={C2_fit * 1e15:.4f}fF"
 )
-print(f"Rp1={Rp1_fit:.2f} Rp2={Rp2_fit:.2f}")
+print(f"Rp1={Rp1_fit:.2f} Rp2={Rp2_fit:.2f} Cm={float(Cm_fit) * 1e15:.3f}fF")
 
 # %% [markdown]
 # ### Z parameters
@@ -971,22 +995,13 @@ g_final = update_params_dict(g_final, "capacitor", "C1", "C", C1_fit)
 g_final = update_params_dict(g_final, "capacitor", "C2", "C", C2_fit)
 g_final = update_params_dict(g_final, "resistor", "Rp1", "R", Rp1_fit)
 g_final = update_params_dict(g_final, "resistor", "Rp2", "R", Rp2_fit)
+g_final = update_params_dict(g_final, "capacitor", "Cm", "C", Cm_fit)
 
 y_final = circuit.with_groups(g_final)()
 ac_final = setup_ac_sweep(
     groups=g_final, num_vars=circuit.sys_size, port_nodes=port_nodes
 )
 S_final = ac_final(freqs=freqs, y_dc=y_final)
-
-
-def s2z_2port(S, z0=50.0):
-    I = np.eye(2)
-    # S has shape (N_freqs, 2, 2)
-    return np.array(
-        [z0 * np.linalg.solve(I - S[f], I + S[f]) for f in range(S.shape[0])]
-    )
-
-
 Z_final = s2z_2port(S_final)
 Z_fit_np = np.array(Z_final)
 
@@ -1028,11 +1043,8 @@ plt.show()
 # ### S parameters
 
 # %%
-# S_final IS the differential S-parameters already — use it directly, no conversion
 S_fit_np = np.array(S_final)
-S_sim_np = np.array(
-    S_target_j
-)  # this is the true differential S from EM sim, already computed earlier
+S_sim_np = np.array(S_target_j)
 
 fig, axes = plt.subplots(2, 2, figsize=(10, 6), sharex=True)
 params = [(0, 0, "S11"), (0, 1, "S12"), (1, 0, "S21"), (1, 1, "S22")]
@@ -1055,10 +1067,3 @@ for ax in axes[1]:
     ax.set_xlabel("f [GHz]")
 plt.tight_layout()
 plt.show()
-
-err_db = 20 * np.log10(np.abs(S_fit_np)) - 20 * np.log10(np.abs(S_sim_np))
-print(f"{'Param':6s} {'RMSE (dB)':>12s} {'Max err (dB)':>14s}")
-for i, j, label in params:
-    rmse = np.sqrt(np.mean(err_db[:, i, j] ** 2))
-    max_err = np.max(np.abs(err_db[:, i, j]))
-    print(f"{label:6s} {rmse:12.3f} {max_err:14.3f}")
