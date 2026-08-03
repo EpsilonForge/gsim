@@ -114,6 +114,7 @@ from gsim.palace.models import (
     ValidationResult,
     WavePortConfig,
 )
+from gsim.palace.plane_section import plot_plane_section
 
 # Port utilities
 from gsim.palace.ports import (
@@ -206,6 +207,7 @@ __all__ = [
     "plot_cross_section",
     "plot_fields_2d",
     "plot_mesh",
+    "plot_plane_section",
     "plot_stack",
     "plot_volume_contours",
     "plot_volume_slice",
@@ -214,10 +216,10 @@ __all__ = [
     "print_stack_table",
     "resolve_boundary_type_attributes",
     "resolve_entity_attributes",
-    "resolve_physical_groups",
     "resolve_palace_binary",
     "resolve_palace_library_dir",
     "resolve_palace_materials_at_frequency",
+    "resolve_physical_groups",
     "resolve_scalar_field",
     "run_simulation",
 ]

@@ -11,15 +11,16 @@ aligned 2D slices from 3D layer extrusions.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
-logger = logging.getLogger(__name__)
+from gsim.common.stack import Layer, LayerStack, get_stack, make_doped_materials
 
 if TYPE_CHECKING:
     import gdsfactory as gf
 
-    from gsim.common.stack import LayerStack
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -211,6 +212,137 @@ def extract_plane_section(
         z_cut=value,
         eps=eps,
     )
+
+
+def build_doped_cross_section(
+    component: gf.Component,
+    *,
+    axis: Literal["x", "y", "z"],
+    value: float,
+    substrate_thickness: float,
+    include_substrate: bool = False,
+    doping: Mapping[str, Mapping[str, Any]] | None = None,
+    metal1: tuple[float, float] | None = None,
+    rib_layers: Iterable[tuple[str, tuple[int, int], float]] = (),
+    rib_height: float = 0.22,
+    permittivity: float = 11.9,
+    fmax: float = 200e9,
+    verbose: bool = True,
+) -> tuple[LayerStack, list[Rect2D] | list[RectYZ2D] | list[PolygonXY2D]]:
+    """Assemble a doped ``LayerStack`` and extract a 2D plane section from it.
+
+    Builds the base PDK stack, optionally overrides the ``metal1`` electrodes,
+    registers the gradient-doping layers/materials produced by
+    :func:`gsim.common.stack.doping.make_doping_profile` plus any additional rib
+    doping layers (e.g. a PN junction), and slices the component at the requested
+    plane.
+
+    Args:
+        component: gdsfactory component the cross-section is extracted from.
+        axis: Cross-section normal axis.
+        value: Plane coordinate in um.
+        substrate_thickness: Thickness below z=0 in um.
+        include_substrate: Include the lossy silicon substrate.
+        doping: Output of ``make_doping_profile`` (keys ``layer_specs`` and
+            ``materials``), or ``None`` to skip gradient doping.
+        metal1: ``(zmin, thickness)`` override for the ``metal1`` layer, or
+            ``None`` to keep the PDK value.
+        rib_layers: Sequence of ``(name, gds_layer, sigma)`` for extra rib doping
+            regions (e.g. PN junction) added on top of the gradient profile.
+        rib_height: Z-extent (z=0..rib_height) of the rib doping regions (um).
+        permittivity: Relative permittivity of the doping materials.
+        fmax: Upper frequency of the doping dispersion-model validity (Hz).
+        verbose: Print the assembled stack and the extracted section.
+
+    Returns:
+        ``(stack, section)`` with the populated ``LayerStack`` and the list of
+        ``Rect2D`` / ``RectYZ2D`` / ``PolygonXY2D`` regions at the plane.
+    """
+    stack = get_stack(
+        substrate_thickness=substrate_thickness,
+        include_substrate=include_substrate,
+    )
+
+    if metal1 is not None:
+        metal1_zmin, metal1_thickness = metal1
+        m1 = stack.layers.get("metal1")
+        if m1:
+            m1.zmin = metal1_zmin
+            m1.zmax = metal1_zmin + metal1_thickness
+            m1.thickness = metal1_thickness
+            if verbose:
+                logger.info(
+                    "M1 updated: zmin=%s, zmax=%s, thickness=%s",
+                    m1.zmin,
+                    m1.zmax,
+                    m1.thickness,
+                )
+
+    layer_specs: dict[str, Any] = {}
+    materials: dict[str, Any] = {}
+    if doping:
+        layer_specs.update(doping.get("layer_specs", {}))
+        materials.update(doping.get("materials", {}))
+
+    rib_materials = make_doped_materials(
+        [(name, sigma) for name, _gds, sigma in rib_layers],
+        permittivity=permittivity,
+        fmax=fmax,
+    )
+    materials.update(rib_materials)
+    for name, gds_layer, _sigma in rib_layers:
+        layer_specs[name] = Layer(
+            name=name,
+            gds_layer=gds_layer,
+            zmin=0.0,
+            zmax=rib_height,
+            thickness=rib_height,
+            material=name,
+            layer_type="dielectric",
+            mesh_resolution="fine",
+        )
+
+    for name, layer in layer_specs.items():
+        stack.layers[name] = layer
+
+    section = extract_plane_section(
+        component.copy(),
+        stack,
+        axis=axis,
+        value=value,
+    )
+
+    if verbose:
+        logger.info("Stack: %s", stack.pdk_name)
+        logger.info("Layers: %s", sorted(stack.layers.keys()))
+        logger.info("Cross materials: %s", sorted(materials.keys()))
+        logger.info("Dielectrics: %s", stack.dielectrics)
+        logger.info("")
+        logger.info(
+            "Cross-section %s=%s intersects %s layer regions:",
+            axis,
+            value,
+            len(section),
+        )
+        for r in section:
+            lo = getattr(r, "y0", getattr(r, "x0", None))
+            hi = getattr(r, "y1", getattr(r, "x1", None))
+            zlo = getattr(r, "zmin", None)
+            zhi = getattr(r, "zmax", None)
+            if zlo is None:
+                logger.info("  %-12s material=%-10s", r.layer_name, r.material)
+            else:
+                logger.info(
+                    "  %-12s material=%-10s y=[%8.3f, %8.3f]  z=[%6.3f, %6.3f]",
+                    r.layer_name,
+                    r.material,
+                    lo,
+                    hi,
+                    zlo,
+                    zhi,
+                )
+
+    return stack, section
 
 
 @overload
@@ -436,6 +568,7 @@ __all__ = [
     "PolygonXY2D",
     "Rect2D",
     "RectYZ2D",
+    "build_doped_cross_section",
     "extract_plane_section",
     "extract_xy_polygons",
     "extract_xz_rectangles",

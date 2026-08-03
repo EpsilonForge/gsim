@@ -17,6 +17,7 @@ from gsim.palace.models import (
     CPWPortConfig,
     DrivenConfig,
     EigenmodeConfig,
+    ImpedanceBoundaryConfig,
     MaterialConfig,
     MeshConfig,
     NumericalConfig,
@@ -85,6 +86,7 @@ class PalaceSimMixin:
     _stack_kwargs: dict[str, Any]
     _pec_blocks: list
     _hints: dict[str, Any]
+    _impedance_boundaries: list[ImpedanceBoundaryConfig]
     absorbing_boundary: bool
     _airbox_config: dict[str, float]
 
@@ -282,6 +284,45 @@ class PalaceSimMixin:
             margin_y=margin_y if margin_y is not None else current.get("margin_y"),
             z_above=z_above if z_above is not None else current.get("z_above"),
             z_below=z_below if z_below is not None else current.get("z_below"),
+        )
+
+    # -------------------------------------------------------------------------
+    # Impedance boundaries
+    # -------------------------------------------------------------------------
+
+    def add_impedance_boundary(
+        self,
+        layer_a: str,
+        layer_b: str,
+        *,
+        capacitance: float | None = None,
+        resistance: float | None = None,
+        inductance: float | None = None,
+        name: str | None = None,
+    ) -> None:
+        """Add an Impedance boundary on the interface between two dielectric layers.
+
+        The capacitance, resistance, and inductance values are absolute and
+        are divided by the interface curve length internally to produce the
+        per-unit-length ``Cs``, ``Rs``, ``Ls`` values expected by Palace.
+
+        Args:
+            layer_a: First dielectric layer name.
+            layer_b: Second dielectric layer name.
+            capacitance: Absolute capacitance [F].
+            resistance: Absolute resistance [Ohm].
+            inductance: Absolute inductance [H].
+            name: Optional display name.
+        """
+        self._impedance_boundaries.append(
+            ImpedanceBoundaryConfig(
+                layer_a=layer_a,
+                layer_b=layer_b,
+                capacitance=capacitance,
+                resistance=resistance,
+                inductance=inductance,
+                name=name,
+            )
         )
 
     # -------------------------------------------------------------------------
@@ -1019,6 +1060,51 @@ class PalaceSimMixin:
             mesh_stats=mesh_result.mesh_stats,
         )
 
+    def print_mesh_stats(self) -> None:
+        """Print mesh statistics from the last mesh generation.
+
+        Reports node/element counts and estimates solver DOFs based on
+        the solver polynomial order (default 2 for 2D, 1 for 3D).
+        """
+        mr = self._last_mesh_result
+        if mr is None:
+            print("No mesh result. Call mesh() first.")  # noqa: T201
+            return
+
+        stats = mr.mesh_stats or {}
+        groups = mr.groups or {}
+
+        nodes = stats.get("nodes", 0)
+        elements = stats.get("elements", 0)
+        tets = stats.get("tetrahedra", 0)
+
+        bbox = stats.get("bbox", {})
+        if bbox:
+            dx = bbox.get("xmax", 0) - bbox.get("xmin", 0)
+            dy = bbox.get("ymax", 0) - bbox.get("ymin", 0)
+            dz = bbox.get("zmax", 0) - bbox.get("zmin", 0)
+            print(f"  Bounding box: {dx:.3f} x {dy:.3f} x {dz:.3f} um")  # noqa: T201
+
+        print(f"  Nodes:     {nodes:,}")  # noqa: T201
+        print(f"  Elements:  {elements:,}")  # noqa: T201
+        if tets:
+            print(f"  Tetrahedra: {tets:,}")  # noqa: T201
+
+        dom_volumes = groups.get("volumes", {})
+        bdr_conductors = groups.get("conductor_surfaces", {})
+        bdr_interfaces = groups.get("interface_surfaces", {})
+        print(f"  Domain groups:     {len(dom_volumes)}")  # noqa: T201
+        print(f"  Conductor surfaces:{len(bdr_conductors)}")  # noqa: T201
+        print(f"  Interface surfaces:{len(bdr_interfaces)}")  # noqa: T201
+
+        if elements and not tets:
+            p = 2
+            nd_dofs_est = elements * p * (p + 1)
+            h1_dofs_est = elements * (p + 1) * (p + 2) // 2
+            print(f"  Est. ND-space DOFs (order {p}):  ~{nd_dofs_est:,}")  # noqa: T201
+            print(f"  Est. H1-space DOFs (order {p}):  ~{h1_dofs_est:,}")  # noqa: T201
+            print(f"  Est. total DOFs:                  ~{nd_dofs_est + h1_dofs_est:,}")  # noqa: T201
+
     def _get_ports_for_preview(self, stack: LayerStack) -> list:
         """Get ports for preview."""
         from gsim.palace.ports import extract_ports
@@ -1445,6 +1531,12 @@ class PalaceSimMixin:
         stack = self._resolve_stack()
         electrostatic_config = getattr(self, "electrostatic", None)
         terminals = getattr(self, "terminals", None)
+
+        # Thread impedance boundary configs through hints
+        hints = dict(self._hints)
+        if self._impedance_boundaries:
+            hints["_impedance_boundaries"] = self._impedance_boundaries
+
         config_path = gen_write_config(
             mesh_result=self._last_mesh_result,
             stack=stack,
@@ -1455,7 +1547,7 @@ class PalaceSimMixin:
             numerical_config=self.numerical,
             boundary_mode_config=getattr(self, "boundary_mode", None),
             absorbing_boundary=self.absorbing_boundary,
-            hints=self._hints,
+            hints=hints,
             electrostatic_config=electrostatic_config,
             terminals=terminals or [],
         )
@@ -1847,19 +1939,29 @@ class PalaceSimMixin:
                         resolved_exe = bundled
                         lib_dir = resolve_palace_library_dir()
                         if verbose:
-                            from gsim.palace.runtime import _palace_cpu_available as _cpu_avail
+                            from gsim.palace.runtime import (
+                                _palace_cpu_available as _cpu_avail,
+                            )
 
-                            source = "palace-toolkit-cpu" if _cpu_avail() else "PALACE_BIN / PATH"
+                            source = (
+                                "palace-toolkit-cpu"
+                                if _cpu_avail()
+                                else "PALACE_BIN / PATH"
+                            )
                             logger.info(
                                 "Palace binary: %s  (source: %s)",
-                                bundled, source,
+                                bundled,
+                                source,
                             )
                             try:
                                 import subprocess as _sp
 
-                                ver = _sp.run(
+                                ver = _sp.run(  # noqa: S603
                                     [str(bundled), "--version"],
-                                    capture_output=True, text=True, timeout=10, check=False,
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=10,
+                                    check=False,
                                 )
                                 if ver.returncode == 0:
                                     logger.info(ver.stdout.strip())

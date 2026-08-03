@@ -11,11 +11,13 @@ from gsim.common.cross_section import (
     PolygonXY2D,
     Rect2D,
     RectYZ2D,
+    build_doped_cross_section,
     extract_plane_section,
     extract_xy_polygons,
     extract_xz_rectangles,
     extract_yz_rectangles,
 )
+from gsim.common.stack.doping import make_doping_profile
 
 
 def _layer(
@@ -307,3 +309,106 @@ class TestGeneralizedPlaneExtraction:
 
         assert len(z_polys) == 1
         assert isinstance(z_polys[0], PolygonXY2D)
+
+
+def _centered_rect(wx: float, wy: float, layer: tuple[int, int]):
+    import gdsfactory as gf
+
+    r = gf.Component()
+    r << gf.c.rectangle((wx, wy), centered=True, layer=layer)
+    return r
+
+
+class TestBuildDopedCrossSection:
+    """Tests for build_doped_cross_section() using the active PDK stack."""
+
+    def _build_component(self):
+        import gdsfactory as gf
+
+        LAYER = gf.gpdk.LAYER
+        comp = gf.Component()
+        wg = comp << _centered_rect(10.0, 0.4, LAYER.WG)
+        wg.y = -20.0
+        return comp, LAYER
+
+    def _doping_result(self, comp, rib_center_y=-20.0):
+        return make_doping_profile(
+            comp,
+            length=10.0,
+            rib_center_y=rib_center_y,
+            rib_width=0.4,
+            profile={"upper": [(2.0, 2e4)], "lower": [(2.0, 2e4)]},
+            sides={
+                "upper": {"base_layer": (23, 0), "name_prefix": "pp_slab_", "sign": 1},
+                "lower": {
+                    "base_layer": (24, 0),
+                    "name_prefix": "npp_slab_",
+                    "sign": -1,
+                },
+            },
+            zmin=0.0,
+            zmax=0.09,
+        )
+
+    def test_builds_stack_with_doping_and_rib_layers(self):
+        comp, LAYER = self._build_component()
+        doping = self._doping_result(comp)
+
+        stack, section = build_doped_cross_section(
+            comp,
+            axis="x",
+            value=0.0,
+            substrate_thickness=2.0,
+            include_substrate=False,
+            doping=doping,
+            metal1=(1.1, 1.0),
+            rib_layers=[
+                ("p_rib", LAYER.P, 1.6e3),
+                ("n_rib", LAYER.N, 1.6e3),
+            ],
+            permittivity=11.9,
+            fmax=200e9,
+            verbose=False,
+        )
+
+        assert "pp_slab_0" in stack.layers
+        assert "npp_slab_0" in stack.layers
+        assert "p_rib" in stack.layers
+        assert "n_rib" in stack.layers
+
+        p_rib = stack.layers["p_rib"]
+        assert p_rib.gds_layer == tuple(LAYER.P)
+        assert p_rib.zmax == pytest.approx(0.22)
+        assert p_rib.thickness == pytest.approx(0.22)
+        assert p_rib.material == "p_rib"
+
+        layers = {r.layer_name for r in section}
+        assert {"core", "pp_slab_0", "npp_slab_0"} <= layers
+
+    def test_metal1_override_applied(self):
+        comp, _LAYER = self._build_component()
+        stack, _ = build_doped_cross_section(
+            comp,
+            axis="x",
+            value=0.0,
+            substrate_thickness=2.0,
+            metal1=(1.1, 1.0),
+            verbose=False,
+        )
+        m1 = stack.layers["metal1"]
+        assert m1.zmin == pytest.approx(1.1)
+        assert m1.zmax == pytest.approx(2.1)
+        assert m1.thickness == pytest.approx(1.0)
+
+    def test_no_doping_no_rib_layers(self):
+        comp, _LAYER = self._build_component()
+        stack, _ = build_doped_cross_section(
+            comp,
+            axis="x",
+            value=0.0,
+            substrate_thickness=2.0,
+            verbose=False,
+        )
+        assert "p_rib" not in stack.layers
+        assert "pp_slab_0" not in stack.layers
+        assert "core" in stack.layers

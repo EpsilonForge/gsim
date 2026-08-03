@@ -24,7 +24,8 @@ from __future__ import annotations
 
 import math
 import warnings
-from typing import Literal
+from collections.abc import Iterable
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 from scipy.constants import c as C0  # noqa: N812
@@ -574,6 +575,119 @@ class MaterialProperties(BaseModel):
     ) -> MaterialProperties:
         """Create a dielectric material with permittivity and loss tangent."""
         return cls(permittivity=permittivity, loss_tangent=loss_tangent)
+
+
+def make_doped_material(
+    name: str,
+    conductivity: float,
+    *,
+    permittivity: float = 11.9,
+    fmax: float = 200e9,
+    source: str | None = None,
+) -> MaterialProperties:
+    """Create ``MaterialProperties`` for a doped semiconductor.
+
+    Doped silicon (and similar semiconductors) are modelled with a finite
+    Drude conductivity ``sigma`` and a constant relative permittivity that
+    is valid up to ``fmax`` (in Hz).  This is the building block used by
+    :func:`make_doped_materials` and the doping-profile helpers.
+
+    Args:
+        name: Material name (used to label the dispersion-model source).
+        conductivity: DC conductivity in S/m (e.g. from ``sigma = q*mu*N``).
+        permittivity: Relative permittivity (default: 11.9 for silicon).
+        fmax: Upper frequency of the validity range in Hz.
+        source: Optional citation/source string.  Defaults to
+            ``"doped Si ({name}) -- Drude sigma"``.
+
+    Returns:
+        A ``MaterialProperties`` instance with a constant dispersion model.
+    """
+    source = source or f"doped Si ({name}) -- Drude sigma"
+    return MaterialProperties(
+        permittivity=permittivity,
+        conductivity=conductivity,
+        dispersion_models=[
+            DispersionModel(
+                type="constant",
+                permittivity=permittivity,
+                validity=ValidityRange(valid_frequency=(0, fmax)),
+                source=source,
+            )
+        ],
+    )
+
+
+def make_doped_materials(
+    entries: (
+        dict[str, float]
+        | Iterable[tuple[str, float]]
+        | Iterable[tuple[str, float, float, str]]
+    ),
+    *,
+    permittivity: float = 11.9,
+    fmax: float = 200e9,
+    source_prefix: str = "doped Si",
+) -> dict[str, MaterialProperties]:
+    """Create a dict of doped-material ``MaterialProperties``.
+
+    Each entry describes one doping region and is either a ``(name, sigma)``
+    pair (using the shared *permittivity* / *fmax*) or a 4-tuple
+    ``(name, permittivity, sigma, source)`` for full control.
+
+    Args:
+        entries: ``{name: sigma}`` dict, ``[(name, sigma), ...]`` list, or
+            ``[(name, permittivity, sigma, source), ...]`` list.
+        permittivity: Relative permittivity for 2-tuple entries.
+        fmax: Upper validity frequency in Hz for 2-tuple entries.
+        source_prefix: Source label prefix for 2-tuple entries.
+
+    Returns:
+        Dict mapping each name to a ``MaterialProperties`` instance.
+
+    Examples:
+        >>> make_doped_materials({"pp_slab_0": 2e4, "pp_slab_1": 8e4})
+        >>> make_doped_materials([("p_rib", 11.9, 1.6e3, "junction")])
+    """
+    items: list[tuple[str, float, float, str]] = []
+
+    if isinstance(entries, dict):
+        for name, sigma in cast(dict[str, float], entries).items():
+            items.append(
+                (name, permittivity, sigma, f"{source_prefix} ({name}) -- Drude sigma")
+            )
+    else:
+        for entry in entries:
+            if len(entry) == 2:
+                name, sigma = cast(tuple[str, float], entry)  # type: ignore[redundant-cast]
+                items.append(
+                    (
+                        name,
+                        permittivity,
+                        sigma,
+                        f"{source_prefix} ({name}) -- Drude sigma",
+                    )
+                )
+            elif len(entry) == 4:
+                items.append(cast(tuple[str, float, float, str], entry))  # type: ignore[redundant-cast]
+            else:
+                msg = (
+                    "Entries must be (name, sigma) or (name, permittivity, "
+                    f"sigma, source) tuples, got {entry!r}"
+                )
+                raise ValueError(msg)
+
+    materials: dict[str, MaterialProperties] = {}
+    for name, eps, sigma, source in items:
+        materials[name] = make_doped_material(
+            name,
+            sigma,
+            permittivity=eps,
+            fmax=fmax,
+            source=source,
+        )
+
+    return materials
 
 
 MATERIALS_DB: dict[str, MaterialProperties] = {

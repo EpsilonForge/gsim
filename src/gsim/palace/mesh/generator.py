@@ -364,6 +364,7 @@ def _generate_native_boundarymode_groups(
         "conductor_surfaces": {},
         "pec_surfaces": {},
         "port_surfaces": {},
+        "interface_surfaces": {},
         "boundary_surfaces": {},
         "refinement_lines": {},
     }
@@ -499,33 +500,44 @@ def _generate_native_boundarymode_groups(
 
     assigned: set[int] = set()
 
+    # First pass: assign volume physical groups to dielectrics.
+    dielectrics: dict[str, list[int]] = {}
+    metals: dict[str, list[int]] = {}
     for layer_name, surface_tags in sorted(layer_surfaces.items()):
         sorted_tags = sorted(surface_tags)
         layer = stack.layers.get(layer_name)
         is_metal_like = layer is not None and layer.layer_type in {"conductor", "via"}
-
-        # Always consume the conductor interior from air assignment, but do
-        # not export it as a 2D domain material.
         assigned.update(sorted_tags)
+        if is_metal_like:
+            metals[layer_name] = sorted_tags
+        else:
+            dielectrics[layer_name] = sorted_tags
 
-        if not is_metal_like:
-            pg = gmsh.model.addPhysicalGroup(2, sorted_tags)
-            gmsh.model.setPhysicalName(2, pg, layer_name)
+    for layer_name, sorted_tags in dielectrics.items():
+        layer = stack.layers.get(layer_name)
+        pg = gmsh.model.addPhysicalGroup(2, sorted_tags)
+        gmsh.model.setPhysicalName(2, pg, layer_name)
+        entry: dict[str, object] = {
+            "phys_group": pg,
+            "tags": sorted_tags,
+        }
+        if layer is not None and layer.layer_type == "dielectric":
+            entry["is_shaped_dielectric"] = True
+        if layer is not None and layer.layer_type == "via":
+            entry["is_via"] = True
+        groups["volumes"][layer_name] = entry
 
-            entry: dict[str, object] = {
-                "phys_group": pg,
-                "tags": sorted_tags,
-            }
-            # Only layer-backed dielectric polygons are shaped dielectrics.
-            # Background dielectric slabs (e.g. sio2/sin material regions)
-            # should be treated as regular material domains.
-            if layer is not None and layer.layer_type == "dielectric":
-                entry["is_shaped_dielectric"] = True
-            if layer is not None and layer.layer_type == "via":
-                entry["is_via"] = True
-            groups["volumes"][layer_name] = entry
-            continue
+    # Build the set of all surface tags that have a volume physical group
+    # (all dielectrics are now assigned).
+    vol_pg_surfaces: set[int] = set()
+    for pg_dim, pg_tag in gmsh.model.getPhysicalGroups():
+        if pg_dim == 2:
+            ents = gmsh.model.getEntitiesForPhysicalGroup(2, pg_tag)
+            vol_pg_surfaces.update(int(e) for e in ents)
 
+    # Second pass: process conductor/via boundary curves (all dielectrics now
+    # have PGs, so the adjacency filter correctly preserves shared edges).
+    for layer_name, sorted_tags in metals.items():
         pec_curves: set[int] = set()
         for stag in sorted_tags:
             try:
@@ -549,12 +561,6 @@ def _generate_native_boundarymode_groups(
             # segfault in MFEM's GetBdrElementFace.  Filter them out by
             # checking gmsh adjacencies: keep a curve only if at least one
             # adjacent surface actually has a volume physical group.
-            # Build a set of all surface tags that have a volume PG.
-            vol_pg_surfaces: set[int] = set()
-            for pg_dim, pg_tag in gmsh.model.getPhysicalGroups():
-                if pg_dim == 2:
-                    ents = gmsh.model.getEntitiesForPhysicalGroup(2, pg_tag)
-                    vol_pg_surfaces.update(int(e) for e in ents)
             filtered_curves: set[int] = set()
             n_internal = 0
             for ctag in pec_curves:
@@ -563,12 +569,10 @@ def _generate_native_boundarymode_groups(
                 except Exception:
                     filtered_curves.add(ctag)
                     continue
-                # adj[1] = dim-2 entities (surfaces) adjacent to this curve
                 adj_surfaces = set(adj[1]) if len(adj) > 1 else set()
                 if not adj_surfaces:
                     filtered_curves.add(ctag)
                     continue
-                # Keep the curve if at least one adjacent surface has a PG
                 if adj_surfaces & vol_pg_surfaces:
                     filtered_curves.add(ctag)
                 else:
@@ -631,6 +635,56 @@ def _generate_native_boundarymode_groups(
         groups["refinement_lines"]["native_internal_curves"] = {
             "tags": sorted(refinement_curves)
         }
+
+    # --- Dielectric-dielectric interface curves -------------------------------
+    # Build per-volume boundary curves, then find shared curves between pairs
+    # of dielectric volumes. Each shared curve is assigned a physical group
+    # named "interface_<layer_A>_<layer_B>" and stored under
+    # groups["interface_surfaces"].
+    vol_boundary_curves: dict[str, set[int]] = {}
+    for layer_name, vol_info in groups["volumes"].items():
+        curves: set[int] = set()
+        for stag in vol_info.get("tags", []):
+            try:
+                bounds = gmsh.model.getBoundary(
+                    [(2, int(stag))],
+                    combined=False,
+                    oriented=False,
+                    recursive=False,
+                )
+            except Exception:
+                continue
+            for dim, ctag in bounds:
+                if dim == 1:
+                    curves.add(int(ctag))
+        if curves:
+            vol_boundary_curves[layer_name] = curves
+
+    vol_names = list(vol_boundary_curves.keys())
+    for i, l1 in enumerate(vol_names):
+        for l2 in vol_names[i + 1 :]:
+            shared = vol_boundary_curves[l1] & vol_boundary_curves[l2]
+            if shared:
+                name = f"interface_{l1}_{l2}"
+                pg = gmsh.model.addPhysicalGroup(1, sorted(shared))
+                gmsh.model.setPhysicalName(1, pg, name)
+
+                # Compute approximate total curve length from bounding boxes
+                total_length = 0.0
+                for ctag in shared:
+                    try:
+                        bb = gmsh.model.getBoundingBox(1, int(ctag))
+                        dx = bb[3] - bb[0]
+                        dy = bb[4] - bb[1]
+                        total_length += math.sqrt(dx * dx + dy * dy)
+                    except Exception:
+                        pass
+
+                groups.setdefault("interface_surfaces", {})[name] = {
+                    "phys_group": pg,
+                    "tags": sorted(shared),
+                    "length_um": total_length,
+                }
 
     outer_curves: set[int] = set()
     for stag in outer_parts:
@@ -1054,7 +1108,7 @@ def generate_mesh(
                     refinement_lines,
                     aggressive_size,
                     max_mesh_size,
-                    sampling=400,
+                    sampling=200,
                     dist_max=max_mesh_size * 0.5,
                 )
                 gmsh_utils.finalize_mesh_fields([field_id])
