@@ -11,6 +11,11 @@ nav = [
     { "2D Grating Coupler" = "nbs/meep_2d_xz_gc.md" },
     { "2D Grating Coupler: Wavelength Sweep" = "nbs/meep_2d_xz_gc_wavelength_sweep.md" }
   ] },
+  { "Eigenmode Analysis" = [
+    { "Rib Waveguide" = "nbs/meep_mode_solver_rib.md" },
+    { "SOI Slab" = "nbs/meep_mode_solver_soi.md" },
+    { "TFLN Ridge" = "nbs/meep_mode_solver_tfln.md" }
+  ] },
   { "FEM for RF" = [
     { "CPW (Lumped Ports)" = "nbs/palace_cpw_lumped.md" },
     { "CPW (Wave Ports)" = "nbs/palace_cpw_waveport.md" },
