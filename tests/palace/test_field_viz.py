@@ -31,18 +31,16 @@ def planar_vector_dataset() -> pv.DataSet:
 
 
 def test_plot_fields_2d_dataset_smoke(planar_vector_dataset: pv.DataSet) -> None:
-    """Matplotlib plotting utility should render from a dataset source."""
-    fig, ax, out = field_viz.plot_fields_2d(
+    """PyVista plotting utility should render from a dataset source."""
+    plotter = field_viz.plot_fields_2d(
         planar_vector_dataset,
         normal="z",
         origin=0.0,
         show=False,
     )
 
-    assert fig is not None
-    assert ax is not None
-    assert out.u.shape == out.v.shape
-    fig.clf()
+    assert isinstance(plotter, pv.Plotter)
+    plotter.close()
 
 
 def test_plot_fields_2d_loads_from_source(
@@ -67,7 +65,7 @@ def test_plot_fields_2d_loads_from_source(
 
     monkeypatch.setattr(field_viz, "load_fields", _fake_load_fields)
 
-    fig, _, _ = field_viz.plot_fields_2d(
+    plotter = field_viz.plot_fields_2d(
         "dummy-output-dir",
         excitation=3,
         cycle=7,
@@ -83,7 +81,7 @@ def test_plot_fields_2d_loads_from_source(
         "cycle": 7,
         "boundary": True,
     }
-    fig.clf()
+    plotter.close()
 
 
 def test_plot_fields_2d_missing_field_raises(planar_vector_dataset: pv.DataSet) -> None:

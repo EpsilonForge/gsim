@@ -659,7 +659,7 @@ def make_doped_materials(
     else:
         for entry in entries:
             if len(entry) == 2:
-                name, sigma = cast(tuple[str, float], entry)  # type: ignore[redundant-cast]
+                name, sigma = entry  # type: ignore[arg-type]
                 items.append(
                     (
                         name,
@@ -669,7 +669,7 @@ def make_doped_materials(
                     )
                 )
             elif len(entry) == 4:
-                items.append(cast(tuple[str, float, float, str], entry))  # type: ignore[redundant-cast]
+                items.append(entry)  # type: ignore[arg-type]
             else:
                 msg = (
                     "Entries must be (name, sigma) or (name, permittivity, "

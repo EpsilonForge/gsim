@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Sequence, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import pyvista as pv
+from pyvista.plotting._typing import ColormapOptions
 
 from gsim.palace.results import load_fields
 
@@ -51,16 +53,13 @@ def resolve_physical_groups(
     requested = set(group_names)
     found: list[int] = []
     missing = set(requested)
-    for name, (tag, dim) in m.field_data.items():
+    for name, (tag, _dim) in m.field_data.items():
         if name in requested:
             found.append(int(tag))
             missing.discard(name)
     if missing:
         available = sorted(m.field_data.keys())
-        msg = (
-            f"Physical group(s) not found: {sorted(missing)}. "
-            f"Available: {available}"
-        )
+        msg = f"Physical group(s) not found: {sorted(missing)}. Available: {available}"
         raise ValueError(msg)
     return found
 
@@ -287,13 +286,14 @@ def plot_fields_2d(
     cycle: int | None = None,
     boundary: bool = False,
     physical_groups: Sequence[str] | None = None,
-    cmap: str = "hot",
+    cmap: ColormapOptions = "hot",
     clim: tuple[float, float] | None = None,
     title: str = "|E|",
     show_edges: bool = False,
     opacity: float = 1.0,
     show: bool = True,
     screenshot: str | Path | None = None,
+    mode: Literal["auto", "live", "static"] = "auto",
 ) -> Any:
     """Plot 2D field using PyVista, rendering directly on the mesh.
 
@@ -321,18 +321,26 @@ def plot_fields_2d(
         show_edges: Toggle mesh edges on/off.
         opacity: Opacity of the mesh (0-1).
         show: If True, show the interactive PyVista window.
+            If a live view is already open in this process (or *mode* is
+            ``"static"``), the plot is rendered to a PNG and displayed inline
+            instead of opening a second live window.
         screenshot: If given, save a screenshot to this path.
+        mode: Rendering mode: ``"auto"`` (default), ``"live"`` or
+            ``"static"``.  Overrides ``GSIM_VIZ_MODE`` for this call.
 
     Returns:
         The ``pv.Plotter`` instance.
     """
-    from gsim.viz import _ensure_pyvista
+    from gsim.viz import _ensure_pyvista, _show_or_screenshot
 
     _ensure_pyvista()
     import pyvista as pv
 
     dataset = _source_to_dataset(
-        source, excitation=excitation, cycle=cycle, boundary=boundary,
+        source,
+        excitation=excitation,
+        cycle=cycle,
+        boundary=boundary,
     )
 
     if physical_groups is not None:
@@ -344,22 +352,32 @@ def plot_fields_2d(
         attribute_values = resolve_physical_groups(output_dir, physical_groups)
 
         if "attribute" not in dataset.cell_data:
-            msg = "Dataset has no cell_data['attribute'] — cannot filter by physical group"
+            msg = (
+                "Dataset has no cell_data['attribute'] "
+                "— cannot filter by physical group"
+            )
             raise ValueError(msg)
         attrs = np.asarray(dataset.cell_data["attribute"])
         keep = np.where(np.isin(attrs, np.asarray(attribute_values)))[0]
         if keep.size == 0:
-            msg = f"No cells found for physical_groups={physical_groups} (attrs={attribute_values})"
+            msg = (
+                f"No cells found for physical_groups={physical_groups} "
+                f"(attrs={attribute_values})"
+            )
             raise ValueError(msg)
         logger.info(
             "Selected %d / %d cells for physical_groups=%s",
-            len(keep), dataset.n_cells, physical_groups,
+            len(keep),
+            dataset.n_cells,
+            physical_groups,
         )
         dataset = dataset.extract_cells(keep)
 
     # Slice to the cross-section plane.
-    sliced, used_normal, axis_idx, axes = _slice_plane(
-        dataset, normal=normal, origin=origin,
+    sliced, _used_normal, _axis_idx, axes = _slice_plane(
+        dataset,
+        normal=normal,
+        origin=origin,
     )
 
     if field not in sliced.point_data:
@@ -384,10 +402,7 @@ def plot_fields_2d(
         finite = s[np.isfinite(s)]
         if finite.size > 0:
             vmax = float(np.percentile(finite, 98))
-            if vmax > 0:
-                _clim = (0.0, vmax)
-            else:
-                _clim = None
+            _clim = (0.0, vmax) if vmax > 0 else None
         else:
             _clim = None
 
@@ -407,18 +422,20 @@ def plot_fields_2d(
     pts = sliced.points
     h_vals = pts[:, axes[0]]
     v_vals = pts[:, axes[1]]
-    center = ((h_vals.min() + h_vals.max()) / 2,
-              (v_vals.min() + v_vals.max()) / 2)
-    span = (h_vals.max() - h_vals.min(),
-            v_vals.max() - v_vals.min())
+    center = ((h_vals.min() + h_vals.max()) / 2, (v_vals.min() + v_vals.max()) / 2)
+    span = (h_vals.max() - h_vals.min(), v_vals.max() - v_vals.min())
     dist = max(span) * 2.5 if max(span) > 0 else 1.0
     pl.camera.focal_point = (center[0], center[1], 0.0)
     pl.camera.position = (center[0], center[1], dist)
 
-    if show and screenshot is None:
-        pl.show()
     if screenshot is not None:
         pl.screenshot(str(screenshot))
+        pl.close()
+        return pl
+
+    if show:
+        _show_or_screenshot(pl, interactive=True, mode=mode)
+    else:
         pl.close()
     return pl
 

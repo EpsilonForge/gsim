@@ -1108,7 +1108,7 @@ def generate_mesh(
                     refinement_lines,
                     aggressive_size,
                     max_mesh_size,
-                    sampling=200,
+                    sampling=400,
                     dist_max=max_mesh_size * 0.5,
                 )
                 gmsh_utils.finalize_mesh_fields([field_id])

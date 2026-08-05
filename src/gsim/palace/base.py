@@ -58,6 +58,91 @@ def _count_physical_cpus() -> int:
     return os.cpu_count() or 1
 
 
+# Minimum estimated unknowns per MPI rank for SuperLU_DIST to factor
+# efficiently. Below this, the 2D block-cyclic processor grid is dominated by
+# communication/fill overhead and the factorization degrades dramatically
+# (an effective hang on small 2D meshes at 8-16 ranks).
+_MIN_DOFS_PER_RANK = 50_000
+# Absolute ceiling on MPI ranks for 3D problems that use a sparse direct
+# solver. 2D (BoundaryMode) problems never use MPI: see _recommend_parallel.
+_MAX_DIRECT_SOLVE_RANKS = 4
+
+
+def _estimate_dofs(mesh_stats: dict) -> int | None:
+    """Estimate total unknowns from mesh statistics.
+
+    Uses the same element-count * polynomial-order heuristic as
+    :meth:`PalaceSimMixin.print_mesh_stats` (order 2 for 2D, 1 for 3D).
+    """
+    if not mesh_stats:
+        return None
+    elements = mesh_stats.get("elements") or 0
+    if not elements:
+        return None
+    is_3d = bool(mesh_stats.get("tetrahedra"))
+    p = 1 if is_3d else 2
+    nd_dofs = elements * p * (p + 1)
+    h1_dofs = elements * (p + 1) * (p + 2) // 2
+    return nd_dofs + h1_dofs
+
+
+def _recommend_parallel(
+    mesh_stats: dict,
+    simulation_type: str,
+    num_processes: int | None,
+    num_threads: int | None,
+    physical_cpus: int | None = None,
+) -> tuple[int, int | None]:
+    """Recommend MPI/OpenMP settings that avoid pathological direct solves.
+
+    SuperLU_DIST factors the MPI rank count into a 2D processor grid. For
+    small problems (especially 2D mode analysis), using every physical core
+    produces a grid (e.g. 4x4 at 16 ranks) whose factorization is
+    communication-bound and effectively hangs. This returns a safe default:
+
+    - 2D (``boundarymode`` or a planar mesh): a single MPI rank with OpenMP
+      threads. MPI for a 2D problem is overkill and the sparse-direct grid
+      does not scale.
+    - 3D: at most ``_MAX_DIRECT_SOLVE_RANKS`` ranks, and never more than
+      ``est_dofs // _MIN_DOFS_PER_RANK`` so each rank has enough unknowns.
+
+    Explicit caller-supplied values are always respected; when they exceed
+    the recommendation the caller should log a warning.
+
+    Returns:
+        ``(num_processes, num_threads)``. ``num_threads`` stays ``None``
+        unless it should be auto-defaulted to the physical core count.
+    """
+    if physical_cpus is None:
+        physical_cpus = _count_physical_cpus()
+
+    if num_processes is not None:
+        # Explicit request: keep it, default threads only for serial runs.
+        if num_processes == 1 and num_threads is None:
+            return num_processes, physical_cpus
+        return num_processes, num_threads
+
+    is_2d = simulation_type == "boundarymode"
+    if not is_2d and mesh_stats:
+        bbox = mesh_stats.get("bbox") or {}
+        dz = bbox.get("zmax", bbox.get("zmin", 0.0)) - bbox.get(
+            "zmin", bbox.get("zmax", 0.0)
+        )
+        if not mesh_stats.get("tetrahedra") and dz <= 1e-6:
+            is_2d = True
+
+    if is_2d:
+        return 1, (num_threads if num_threads is not None else physical_cpus)
+
+    # 3D: size-aware cap for sparse-direct solves.
+    est_dofs = _estimate_dofs(mesh_stats)
+    size_cap = physical_cpus
+    if est_dofs is not None:
+        size_cap = max(1, est_dofs // _MIN_DOFS_PER_RANK)
+    recommended = min(physical_cpus, _MAX_DIRECT_SOLVE_RANKS, size_cap)
+    return max(1, recommended), num_threads
+
+
 class PalaceSimMixin:
     """Mixin providing common methods for all Palace simulation classes.
 
@@ -1753,10 +1838,16 @@ class PalaceSimMixin:
             use_apptainer: If True (default), run via Apptainer using SIF file.
                 If False, run Palace executable directly.
                 Ignored when ``palace_executable`` is explicitly provided.
-            num_processes: Number of MPI processes. If None (default),
-                uses all available CPUs.
-            num_threads: Number of OpenMP threads to use for OpenMP builds, default is 1
-                or the value of OMP_NUM_THREADS in the environment
+            num_processes: Number of MPI processes. If None (default), a
+                problem-size-aware default is chosen: 2D mode-analysis runs
+                use a single MPI rank (SuperLU_DIST's 2D processor grid does
+                not scale on small 2D problems and can effectively hang at
+                8-16 ranks), while 3D runs are capped to a few ranks by the
+                estimated unknown count. An explicit value is always respected.
+            num_threads: Number of OpenMP threads to use for OpenMP builds.
+                When running with a single MPI rank and ``num_threads`` is
+                omitted, defaults to the number of physical CPU cores so
+                shared-memory parallelism is used.
             verbose: Print progress messages and stream Palace output in real time
 
         Returns:
@@ -1806,9 +1897,48 @@ class PalaceSimMixin:
         config_path = output_dir / "config.json"
         mesh_path = output_dir / "palace.msh"
 
-        # Default to all available CPUs when caller does not specify -np.
+        # Choose safe parallel defaults. SuperLU_DIST's 2D processor grid does
+        # not scale on small problems (2D mode analysis at 8-16 ranks hangs),
+        # so 2D runs use a single MPI rank + OpenMP threads, and 3D direct
+        # solves are capped by problem size.
+        mesh_stats = {}
+        if self._last_mesh_result is not None:
+            mesh_stats = self._last_mesh_result.mesh_stats or {}
+
         if num_processes is None:
-            num_processes = _count_physical_cpus()
+            num_processes, num_threads = _recommend_parallel(
+                mesh_stats,
+                self.simulation_type,
+                None,
+                num_threads,
+            )
+            if verbose:
+                logger.info(
+                    "Parallel config: %d MPI rank(s)%s",
+                    num_processes,
+                    f", {num_threads} OpenMP thread(s)" if num_threads else "",
+                )
+        else:
+            # Explicit request: keep it, but warn when it exceeds what the
+            # sparse-direct solver can use efficiently on this problem.
+            rec_processes, _rec_threads = _recommend_parallel(
+                mesh_stats,
+                self.simulation_type,
+                None,
+                None,
+            )
+            if num_processes > rec_processes:
+                logger.warning(
+                    "Requested %d MPI ranks but SuperLU_DIST direct solve "
+                    "does not scale beyond %d rank(s) on this problem size; "
+                    "the factorization may be pathologically slow. Pass "
+                    "num_processes=%d or use OpenMP threads instead.",
+                    num_processes,
+                    rec_processes,
+                    rec_processes,
+                )
+            if num_processes == 1 and num_threads is None:
+                num_threads = _count_physical_cpus()
 
         # Check required files exist
         if not config_path.exists():

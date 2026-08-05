@@ -9,6 +9,7 @@ __all__ = ["plot_cross_section", "plot_mesh", "plot_topview", "sample_topview_fi
 
 import hashlib
 import logging
+import os
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -17,25 +18,65 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+#: Rendering modes for ``plot_mesh`` / ``plot_fields_2d``.
+RenderMode = Literal["auto", "live", "static"]
+
+#: Global rendering mode, overridable per call.  ``auto`` keeps the current
+#: live PyVista view interactive and renders any additional views in the same
+#: process as static inline images (avoids concurrent live trame servers).
+_VIZ_MODE = os.environ.get("GSIM_VIZ_MODE", "auto").strip().lower() or "auto"
+
 
 # -- Headless-safe PyVista initialisation ------------------------------------
-def _ensure_pyvista():
-    """Import PyVista with off-screen rendering (headless-safe)."""
-    import os
-    import warnings
+def _is_headless() -> bool:
+    """Return ``True`` when no usable X display is available.
 
-    os.environ.pop("DISPLAY", None)
-    os.environ.setdefault("VTK_DEFAULT_RENDER_WINDOW_OFFSCREEN", "1")
+    An explicit ``GSIM_FORCE_OFFSCREEN=1`` always forces off-screen
+    rendering, which is useful in CI where a display may be present but X
+    forwarding is undesirable.
+    """
+    if os.environ.get("GSIM_FORCE_OFFSCREEN") == "1":
+        return True
+    return not os.environ.get("DISPLAY")
+
+
+def _start_xvfb() -> None:
+    """Start a virtual frame buffer when ``pyvirtualdisplay`` is available."""
+    try:
+        from pyvirtualdisplay import Display  # pyright: ignore[reportMissingImports]
+
+        display = Display(visible=False, size=(1440, 900))
+        display.start()
+    except Exception:  # optional dependency / headless host
+        logger.warning("pyvirtualdisplay not available; continuing without Xvfb")
+
+
+def _ensure_pyvista():
+    """Import PyVista, forcing off-screen rendering only when headless.
+
+    When a usable ``DISPLAY`` is present normal rendering is left untouched
+    so interactive windows work.  In headless contexts PyVista runs
+    off-screen (optionally backed by a virtual frame buffer), which is what
+    tests and CI rely on.  ``GSIM_FORCE_OFFSCREEN=1`` always forces
+    off-screen rendering.
+    """
+    headless = _is_headless() or _VIZ_MODE == "static"
+    if headless:
+        os.environ.pop("DISPLAY", None)
+        os.environ.setdefault("VTK_DEFAULT_RENDER_WINDOW_OFFSCREEN", "1")
+
+    import warnings
 
     import pyvista as pv
 
-    pv.OFF_SCREEN = True
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            pv.start_xvfb()
-    except Exception:
-        pass
+    if headless:
+        pv.OFF_SCREEN = True
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                _start_xvfb()
+        except Exception:
+            pass
     return pv
 
 
@@ -54,6 +95,7 @@ def plot_mesh(
     interactive: bool = True,
     style: Literal["wireframe", "solid"] = "wireframe",
     transparent_groups: list[str] | None = None,
+    mode: RenderMode = "auto",
 ) -> None:
     """Plot a ``.msh`` mesh using PyVista.
 
@@ -67,14 +109,17 @@ def plot_mesh(
 
     Args:
         msh_path: Path to ``.msh`` file.
-        output: Output PNG path (only used when ``interactive=False``).
+        output: Output PNG path (only used when rendering statically).
         show_groups: Group-name patterns to display (``None`` -> all).
             Example: ``["metal", "P"]`` to show metal layers and ports.
-        interactive: If ``True``, open an interactive 3-D viewer.
-            If ``False``, save a static PNG to *output*.
+        interactive: If ``True``, request an interactive 3-D view.  If a live
+            view is already open in this process (or *mode* is ``"static"``)
+            the plot is rendered to a PNG instead.
         style: ``"wireframe"`` or ``"solid"``.
         transparent_groups: Group names rendered at low opacity in
             *solid* mode.  Ignored in *wireframe* mode.
+        mode: Rendering mode: ``"auto"`` (default), ``"live"`` or ``"static"``.
+            Overrides ``GSIM_VIZ_MODE`` for this call.
 
     Example:
         >>> pa.plot_mesh("./sim/palace.msh", show_groups=["metal", "P"])
@@ -90,6 +135,7 @@ def plot_mesh(
             output=output,
             interactive=interactive,
             transparent_groups=transparent_groups or [],
+            mode=mode,
         )
     else:
         _plot_wireframe(
@@ -97,6 +143,7 @@ def plot_mesh(
             output=output,
             show_groups=show_groups,
             interactive=interactive,
+            mode=mode,
         )
 
 
@@ -111,13 +158,14 @@ def _plot_wireframe(
     output: str | Path | None,
     show_groups: list[str] | None,
     interactive: bool,
+    mode: RenderMode = "auto",
 ) -> None:
     """Wireframe renderer — one colour per matched group."""
     mio = meshio.read(msh_path)
     group_map: dict[int, str] = {tag: name for name, (tag, _) in mio.field_data.items()}
 
     mesh = cast(pv.DataSet, pv.read(msh_path))  # ty: ignore[redundant-cast]
-    plotter = cast(Any, _make_plotter(interactive))  # ty: ignore[redundant-cast]
+    plotter = cast(Any, _make_plotter(interactive, mode=mode))  # ty: ignore[redundant-cast]
 
     if show_groups:
         ids = [
@@ -141,7 +189,7 @@ def _plot_wireframe(
     else:
         plotter.add_mesh(mesh, style="wireframe", color="black", line_width=1)
 
-    _finish(plotter, msh_path, output=output, interactive=interactive)
+    _finish(plotter, msh_path, output=output, interactive=interactive, mode=mode)
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +277,7 @@ def _plot_solid(
     output: str | Path | None,
     interactive: bool,
     transparent_groups: list[str],
+    mode: RenderMode = "auto",
 ) -> None:
     """Solid renderer — coloured surfaces per physical group."""
     mio = meshio.read(msh_path)
@@ -305,7 +354,7 @@ def _plot_solid(
     transparent_mask = np.isin(plain_names, transparent_groups)
     opaque_mask = ~transparent_mask
 
-    plotter = cast(Any, _make_plotter(interactive))  # ty: ignore[redundant-cast]
+    plotter = cast(Any, _make_plotter(interactive, mode=mode))  # ty: ignore[redundant-cast]
 
     # Opaque surfaces with categorical colour map -------------------------
     if np.any(opaque_mask):
@@ -354,7 +403,7 @@ def _plot_solid(
     if transparent_legend_entries:
         plotter.add_legend(transparent_legend_entries, bcolor="white", border=True)
 
-    _finish(plotter, msh_path, output=output, interactive=interactive)
+    _finish(plotter, msh_path, output=output, interactive=interactive, mode=mode)
 
 
 # ---------------------------------------------------------------------------
@@ -362,40 +411,121 @@ def _plot_solid(
 # ---------------------------------------------------------------------------
 
 
-def _make_plotter(interactive: bool) -> Any:
+# Tracks whether a live (interactive) PyVista view is open.  Once a view has
+# been shown live, subsequent interactive plots render statically unless
+# explicitly forced with ``mode="live"`` (or ``GSIM_VIZ_MODE=live``).
+_LIVE_PLOTTER_OPEN = False
+
+
+def _mode_for(mode: RenderMode) -> RenderMode:
+    """Resolve the effective rendering mode for a plot.
+
+    ``auto`` preserves the interactive PyVista window for the first view;
+    additional views in the same process fall back to static rendering via
+    the live-view guard in :func:`_show_or_screenshot`.  ``GSIM_VIZ_MODE``
+    can force ``"live"`` or ``"static"`` globally.
+    """
+    if mode != "auto":
+        return mode
+    return "live" if _VIZ_MODE not in ("static", "none", "off") else "static"
+
+
+def _make_plotter(interactive: bool, *, mode: RenderMode = "auto") -> Any:
     """Create a PyVista plotter with standard window settings."""
     pv = _ensure_pyvista()
-    if interactive:
-        plotter = pv.Plotter(window_size=[1200, 900])
+    off_screen = (
+        not interactive
+        or _mode_for(mode) == "static"
+        or (_LIVE_PLOTTER_OPEN and mode != "live")
+    )
+    density = {"window_size": [1200, 900]}
+    if off_screen:
+        plotter = pv.Plotter(off_screen=True, **density)
     else:
-        plotter = pv.Plotter(off_screen=True, window_size=[1200, 900])
+        plotter = pv.Plotter(**density)
     plotter.set_background("white")
     return plotter
+
+
+def _show_or_screenshot(
+    plotter: Any,
+    *,
+    msh_path: Path | None = None,
+    output: str | Path | None = None,
+    interactive: bool,
+    mode: RenderMode = "auto",
+    suffix: str = ".png",
+) -> None:
+    """Show a plotter live, or screenshot it, and clean up.
+
+    Only one live PyVista view is kept open per process.  When *interactive*
+    is set but a live view is already open (common in notebooks that render
+    several plots in one kernel), the plot is rendered to a temporary PNG and
+    displayed inline instead of spawning a second concurrent live trame
+    server, which otherwise causes blank windows / cache ``KeyError`` errors.
+    Passing ``mode="live"`` lets a caller force a second live view; passing
+    ``mode="static"`` (or setting ``GSIM_VIZ_MODE=static``) renders statically.
+    """
+    global _LIVE_PLOTTER_OPEN  # noqa: PLW0603
+
+    plotter.camera_position = "iso"
+    plotter.show_axes()
+
+    resolved = _mode_for(mode)
+    if (
+        interactive
+        and resolved == "live"
+        and (mode == "live" or not _LIVE_PLOTTER_OPEN)
+    ):
+        _LIVE_PLOTTER_OPEN = True
+        plotter.show()
+        return
+
+    # Static screenshot: either interactive=False, forced static, or a live
+    # view is already open elsewhere in this process.
+    dest = output if output is not None else _default_output(msh_path, suffix)
+    plotter.screenshot(str(dest))
+    plotter.close()
+    _disp_img(Path(dest))
+
+
+def _default_output(msh_path: Path | None, suffix: str) -> Path:
+    """Return the default screenshot path for a plot.
+
+    Uses the mesh path with a new suffix, or a fresh temporary file when no
+    mesh path is available.
+    """
+    if msh_path is not None:
+        return msh_path.with_suffix(suffix)
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        name = tmp.name
+    return Path(name)
+
+
+def _disp_img(path: Path) -> None:
+    """Display a saved image inline when running inside IPython."""
+    try:
+        from IPython.display import Image, display
+
+        display(Image(str(path)))
+    except ImportError:
+        logger.info("Saved plot to %s", path)
 
 
 def _finish(
     plotter: Any,
     msh_path: Path,
     *,
-    output: str | Path | None,
+    output: str | Path | None = None,
     interactive: bool,
+    mode: RenderMode = "auto",
 ) -> None:
     """Show or screenshot the plotter and clean up."""
-    plotter.camera_position = "iso"
-    plotter.show_axes()
-    if interactive:
-        plotter.show()
-    else:
-        if output is None:
-            output = msh_path.with_suffix(".png")
-        plotter.screenshot(str(output))
-        plotter.close()
-        try:
-            from IPython.display import Image, display
-
-            display(Image(str(output)))
-        except ImportError:
-            logger.info("Saved mesh plot to %s", output)
+    _show_or_screenshot(
+        plotter, msh_path=msh_path, output=output, interactive=interactive, mode=mode
+    )
 
 
 def _color_for_group(name: str) -> str:

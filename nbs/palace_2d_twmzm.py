@@ -340,6 +340,9 @@ print("Config written to:", sim.output_dir)
 
 # %%
 # -- RF simulation (50 GHz) ------------------------------------------------
+# 2D mode analysis defaults to a single MPI rank + OpenMP threads: Palace's
+# SuperLU_DIST direct solve does not scale on small 2D problems (16 MPI
+# ranks can effectively hang), so MPI is unnecessary here.
 results = sim.run_local(verbose=True)
 results.print()
 
@@ -461,8 +464,10 @@ opt_results.print()
 #
 # **Next steps (user action):**
 # 1. Verify the zoomed cross-section plot shows the rib (centred at y=-20), PN junction, graded doping, and vias.
-# 2. Run `sim.run_local(num_processes=4, verbose=True)` with a Palace CPU runner installed (`pip install gsim[palace-toolkit-cpu]`).
-# 3. Run `sim_opt.run_local(num_processes=4, verbose=True)` for the optical mode.
+# 2. Run `sim.run_local(verbose=True)` with a Palace CPU runner installed (`pip install gsim[palace-toolkit-cpu]`). 2D
+#    mode analysis defaults to a single MPI rank + OpenMP threads; pass `num_processes=1` explicitly if you want
+#    to be explicit about it.
+# 3. Run `sim_opt.run_local(verbose=True)` for the optical mode.
 # 4. Use `gsim.palace.plot_fields_2d()` to visualise mode profiles, and `gsim.palace.plot_plane_section()` for cross-section physical groups.
 #
 

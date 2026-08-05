@@ -209,3 +209,79 @@ def test_plot_solid_skips_unsupported_blocks(tmp_path: Path) -> None:
     viz.plot_mesh(msh, output=out, interactive=False, style="solid")
 
     assert out.exists()
+
+
+class _FakePlotter:
+    """Minimal stand-in for a PyVista plotter in mode-resolution tests."""
+
+    camera_position = None
+
+    def __init__(self) -> None:
+        self.shown = 0
+        self.screenshotted = 0
+        self.closed = 0
+
+    def show_axes(self) -> None:
+        return None
+
+    def show(self) -> None:
+        self.shown += 1
+
+    def screenshot(self, _path: object) -> None:
+        self.screenshotted += 1
+
+    def close(self) -> None:
+        self.closed += 1
+
+
+def test_show_or_screenshot_first_live_then_static(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Auto mode keeps the first interactive view, renders later ones as static PNGs."""
+    monkeypatch.setattr(viz, "_LIVE_PLOTTER_OPEN", False)
+
+    first = _FakePlotter()
+    viz._show_or_screenshot(first, interactive=True, mode="auto")
+    assert first.shown == 1
+    assert first.screenshotted == 0
+    assert viz._LIVE_PLOTTER_OPEN
+
+    second = _FakePlotter()
+    viz._show_or_screenshot(second, interactive=True, mode="auto")
+    assert second.shown == 0
+    assert second.screenshotted == 1
+    assert second.closed == 1
+
+    monkeypatch.setattr(viz, "_LIVE_PLOTTER_OPEN", False)
+
+
+def test_mode_live_forces_show(monkeypatch: pytest.MonkeyPatch) -> None:
+    """mode='live' forces a live view even when one is already open."""
+    monkeypatch.setattr(viz, "_LIVE_PLOTTER_OPEN", True)
+
+    forced = _FakePlotter()
+    viz._show_or_screenshot(forced, interactive=True, mode="live")
+    assert forced.shown == 1
+
+    monkeypatch.setattr(viz, "_LIVE_PLOTTER_OPEN", False)
+
+
+def test_mode_static_always_screenshots(monkeypatch: pytest.MonkeyPatch) -> None:
+    """mode='static' renders a screenshot even before any live view."""
+    monkeypatch.setattr(viz, "_LIVE_PLOTTER_OPEN", False)
+
+    static = _FakePlotter()
+    viz._show_or_screenshot(static, interactive=True, mode="static")
+    assert static.shown == 0
+    assert static.screenshotted == 1
+
+    monkeypatch.setattr(viz, "_LIVE_PLOTTER_OPEN", False)
+
+
+def test_mode_for_respects_global_static(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GSIM_VIZ_MODE=static makes 'auto' resolve to static."""
+    monkeypatch.setattr(viz, "_VIZ_MODE", "static")
+    assert viz._mode_for("auto") == "static"
+    assert viz._mode_for("live") == "live"
+    monkeypatch.setattr(viz, "_VIZ_MODE", "auto")
+    assert viz._mode_for("auto") == "live"
