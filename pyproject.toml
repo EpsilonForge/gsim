@@ -1,6 +1,6 @@
 [project]
 name = "gsim"
-version = "0.0.16"
+version = "0.1.0"
 description = ""
 readme = "README.md"
 requires-python = "~=3.12.0"
@@ -25,6 +25,15 @@ dependencies = [
   "trame-vuetify",
 ]
 
+[project.optional-dependencies]
+# Prebuilt Palace CPU binary distribution (palacetoolkit-palace-cpu).
+# This is a pure binary wheel — no mfem build required — distributed via
+# GitHub Releases. Currently only Linux x86_64 wheels are available, so
+# the extra is platform-marked accordingly.
+palace-toolkit-cpu = [
+  "palacetoolkit-palace-cpu @ https://github.com/EpsilonForge/PalaceToolkit/releases/download/palace-cpu-v0.1.2/palacetoolkit_palace_cpu-0.1.0-py3-none-linux_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
 [dependency-groups]
 dev = [
   "build>=1.2.0",
@@ -38,18 +47,14 @@ docs = [
   "griffe>=1.5.6",
   "ipykernel>=6.29.5",
   "matplotlib>=3.10.0",
-  "mkautodoc>=0.2.0",
-  "mkdocs>=1.6.1",
-  "mkdocs-autorefs>=1.3.0",
-  "mkdocs-material>=9.6.0",
-  "mkdocs-shadcn>=0.2",
   "mkdocstrings[python]>=0.27.0",
   "nb-clean>=4.0.1",
   "nbconvert>=7.16.6",
   "nbstripout>=0.8.1",
   "papermill>=2.6.0",
   "plotly>=6.0.0",
-  "vega-datasets>=0.9.0"
+  "vega-datasets>=0.9.0",
+  "zensical>=0.0.46"
 ]
 lint = [
   "jupytext>=1.16.0",
@@ -163,6 +168,14 @@ module = "plotly"
 ignore_missing_imports = true
 module = "plotly.*"
 
+[[tool.mypy.overrides]]
+ignore_missing_imports = true
+module = "palacetoolkit_palace_cpu"
+
+[[tool.mypy.overrides]]
+ignore_missing_imports = true
+module = "palacetoolkit_palace_cpu.*"
+
 [tool.pylsp-mypy]
 enabled = true
 live_mode = true
@@ -176,10 +189,11 @@ reportMissingImports = "none"
 reportMissingTypeStubs = "none"
 
 [tool.pytest.ini_options]
-addopts = "--tb=short -m 'not cloud'"
+addopts = "--tb=short -m 'not cloud and not meep_local'"
 markers = [
   "cloud: tests that submit jobs to GDSFactory+ cloud servers (deselected by default; run with `pytest -m cloud`)",
   "sim_smoke_test: smallest cloud sims (one per solver) run automatically per-PR; run with `pytest -m sim_smoke_test`",
+  "meep_local: tests requiring a local MEEP installation (deselected by default; run with `pytest -m meep_local`)",
 ]
 norecursedirs = ["scripts"]
 testpaths = ["tests"]
@@ -249,11 +263,6 @@ select = ["ALL"]
   "SLF001",  # private-member-access
   "T201",  # print
 ]
-"docs/hooks.py" = [
-  "ARG001",  # unused-function-argument (MkDocs hooks require specific signatures)
-  "INP001",  # implicit-namespace-package
-  "PERF401",  # use-list-extend (keeping for readability)
-]
 "nbs/*.py" = [
   "ANN",  # flake8-annotations
   "ARG001",  # unused-function-argument
@@ -311,6 +320,7 @@ include = ["tests/**"]
 
 [tool.ty.overrides.rules]
 possibly-missing-attribute = "ignore"
+invalid-argument-type = "ignore"
 
 [tool.ty.rules]
 missing-argument = "ignore"

@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from gdsfactory.component import Component
 
     from gsim.common import Geometry, LayerStack
-    from gsim.palace.results import SParams
+    from gsim.palace.results import PalaceTextResults, SParams
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class PalaceSimMixin:
     cpw_ports: list[CPWPortConfig]
     wave_ports: list[WavePortConfig]
     terminals: list[TerminalConfig]
-    simulation_type: Literal["driven", "eigenmode", "electrostatic"]
+    simulation_type: Literal["driven", "eigenmode", "electrostatic", "boundarymode"]
     _output_dir: Path | None
     _stack_kwargs: dict[str, Any]
     _pec_blocks: list
@@ -887,7 +887,7 @@ class PalaceSimMixin:
                 offset=cpw_config.offset,
             )
         # Configure wave ports
-        for port_config in self.wave_ports:
+        for port_config in self.wave_ports or []:
             if port_config.name is None:
                 continue
 
@@ -964,7 +964,8 @@ class PalaceSimMixin:
             simulation_type=self.simulation_type,
             driven_config=driven_config,
             eigenmode_config=self.eigenmode,
-            numerical_config=self.numerical,
+            boundary_mode_config=getattr(self, "boundary_mode", None),
+            cross_section=getattr(self, "cross_section", None),
             write_config=write_config,
             planar_conductors=mesh_config.planar_conductors,
             pec_blocks=self._pec_blocks or None,
@@ -1145,6 +1146,7 @@ class PalaceSimMixin:
                 driven_config=self.driven,
                 eigenmode_config=self.eigenmode,
                 numerical_config=self.numerical,
+                boundary_mode_config=getattr(self, "boundary_mode", None),
                 planar_conductors=mesh_config.planar_conductors,
                 pec_blocks=self._pec_blocks or None,
                 absorbing_boundary=self.absorbing_boundary,
@@ -1304,10 +1306,13 @@ class PalaceSimMixin:
 
         # Resolve stack and configure ports
         stack = self._resolve_stack()
-        self._configure_ports_on_component(stack)
+        if self.simulation_type == "boundarymode":
+            palace_ports = []
+        else:
+            self._configure_ports_on_component(stack)
 
-        # Extract ports
-        palace_ports = extract_ports(component, stack)
+            # Extract ports
+            palace_ports = extract_ports(component, stack)
 
         # Generate mesh (config is written separately by simulate() or write_config())
         result = self._generate_mesh_internal(
@@ -1322,6 +1327,30 @@ class PalaceSimMixin:
             decimate_tolerance=decimate_tolerance,
             gmsh_verbosity=verbosity,
         )
+
+        # Without an airbox the absorbing boundary is applied straight to the
+        # outer dielectric surface, often microns from the metal, where it acts
+        # as a lossy sheet and fakes large insertion loss and reflection. Warn
+        # here so it surfaces before any run is submitted.
+        from gsim.palace.mesh.geometry import is_air_like_material
+
+        mesh_result = getattr(self, "_mesh_result", None) or getattr(
+            self, "_last_mesh_result", None
+        )
+        groups = getattr(mesh_result, "groups", None) or {}
+        volumes = groups.get("volumes", {})
+        if groups.get("boundary_surfaces", {}).get("absorbing") and not any(
+            is_air_like_material(stack, name) for name in volumes
+        ):
+            logger.warning(
+                "Absorbing boundary is applied to solid dielectric surfaces "
+                "(%s) because the model has no air region, which produces "
+                "large spurious insertion loss and reflection. Add an airbox "
+                "via set_airbox(margin_x=..., margin_y=..., z_above=..., "
+                "z_below=...). Note that get_stack(air_above=...) is "
+                "deprecated and ignored.",
+                ", ".join(sorted(volumes)),
+            )
 
         # Post-mesh summary: nodes, tets, refined / max sizes (in um).
         stats = result.mesh_stats or {}
@@ -1401,6 +1430,7 @@ class PalaceSimMixin:
             eigenmode_config=self.eigenmode,
             driven_config=self.driven,
             numerical_config=self.numerical,
+            boundary_mode_config=getattr(self, "boundary_mode", None),
             absorbing_boundary=self.absorbing_boundary,
             hints=self._hints,
             electrostatic_config=electrostatic_config,
@@ -1587,7 +1617,7 @@ class PalaceSimMixin:
         num_processes: int | None = None,
         num_threads: int | None = None,
         verbose: bool = True,
-    ) -> SParams | dict[str, Path]:
+    ) -> SParams | PalaceTextResults | dict[str, Path]:
         """Run simulation locally using Palace.
 
         Requires mesh() and write_config() to be called first.
@@ -1595,13 +1625,19 @@ class PalaceSimMixin:
 
         Args:
             palace_sif_path: Path to Palace Apptainer SIF file.
-                Only used when ``use_apptainer=True``.
-                If None, uses PALACE_SIF environment variable.
+                Only used when ``use_apptainer=True`` and no executable is
+                selected.
+                If None, tries PALACE_SIF, then local defaults:
+                ``./Palace.sif``, ``./palace.sif``,
+                ``./bin/Palace.sif``, ``./bin/palace.sif``.
             palace_executable: Path to Palace executable.
-                Only used when ``use_apptainer=False``.
-                If None, uses PALACE_EXECUTABLE environment variable or "palace".
+                If provided, runs Palace directly and overrides
+                ``use_apptainer``.
+                If None, tries PALACE_EXECUTABLE, then ``./bin/palace``,
+                then ``palace`` on PATH.
             use_apptainer: If True (default), run via Apptainer using SIF file.
                 If False, run Palace executable directly.
+                Ignored when ``palace_executable`` is explicitly provided.
             num_processes: Number of MPI processes. If None (default),
                 uses all available CPUs.
             num_threads: Number of OpenMP threads to use for OpenMP builds, default is 1
@@ -1610,9 +1646,10 @@ class PalaceSimMixin:
 
         Returns:
             Parsed Palace result object (``SParams``) when ``port-S.csv`` is
-            present, matching :meth:`run` behavior. Falls back to a
-            ``dict[str, Path]`` mapping filenames to local paths when S-params
-            are unavailable.
+            present, matching :meth:`run` behavior. Falls back to parsed
+            ``PalaceTextResults`` for text-only outputs (for example,
+            BoundaryMode), then to a ``dict[str, Path]`` mapping filenames to
+            local paths when no parser applies.
 
         Raises:
             ValueError: If output_dir not set or Palace not configured
@@ -1628,19 +1665,24 @@ class PalaceSimMixin:
             >>> # Using Apptainer with explicit path
             >>> results = sim.run_local(palace_sif_path="/path/to/Palace.sif")
             >>>
-            >>> # Using direct Palace installation
-            >>> results = sim.run_local(use_apptainer=False)
+            >>> # Auto-discovery with no options:
+            >>> # prefers local ./bin/palace if present,
+            >>> # otherwise falls back to local SIF or PATH executable
+            >>> results = sim.run_local()
             >>>
             >>> # Using direct Palace with custom executable path
-            >>> results = sim.run_local(
-            ...     use_apptainer=False, palace_executable="/usr/local/bin/palace"
-            ... )
+            >>> results = sim.run_local(palace_executable="/usr/local/bin/palace")
+            >>> # Using a locally built Palace binary
+            >>> results = sim.run_local(palace_executable="./bin/palace")
             >>> # For DrivenSim: `results` is SParams -> results.s21.db
             >>> # For eigen / electrostatic: `results` is dict[str, Path]
         """
         import os
         import shutil
         import subprocess
+
+        # Will hold the bundled library directory when using palace-toolkit-cpu
+        _bundled_lib_dir: Path | None = None
 
         if self._output_dir is None:
             raise ValueError("Output directory not set. Call set_output_dir() first.")
@@ -1664,20 +1706,73 @@ class PalaceSimMixin:
                 f"Mesh file not found: {mesh_path}. Call mesh() first."
             )
 
-        # Determine Palace command based on use_apptainer flag
-        if use_apptainer:
+        # Auto-discovery when arguments are omitted.
+        search_roots = [Path.cwd(), output_dir, output_dir.parent]
+        dedup_roots: list[Path] = []
+        for root in search_roots:
+            resolved = root.expanduser().resolve()
+            if resolved not in dedup_roots:
+                dedup_roots.append(resolved)
+
+        if palace_sif_path is None:
+            palace_sif_path = os.environ.get("PALACE_SIF")
+            if palace_sif_path is None:
+                sif_rel_candidates = [
+                    Path("Palace.sif"),
+                    Path("palace.sif"),
+                    Path("bin/Palace.sif"),
+                    Path("bin/palace.sif"),
+                ]
+                for root in dedup_roots:
+                    for rel in sif_rel_candidates:
+                        candidate = (root / rel).resolve()
+                        if candidate.exists():
+                            palace_sif_path = str(candidate)
+                            if verbose:
+                                logger.info(
+                                    "Auto-discovered Palace SIF: %s", palace_sif_path
+                                )
+                            break
+                    if palace_sif_path is not None:
+                        break
+
+        if palace_executable is None:
+            palace_executable = os.environ.get("PALACE_EXECUTABLE")
+
+        # Prefer a local Palace executable when available, even when a SIF is
+        # configured via PALACE_SIF. This keeps local developer workflows on
+        # native binaries by default.
+        if palace_executable is None:
+            for root in dedup_roots:
+                candidate = (root / "bin" / "palace").resolve()
+                if candidate.exists() and os.access(candidate, os.X_OK):
+                    palace_executable = str(candidate)
+                    if verbose:
+                        logger.info(
+                            "Auto-discovered Palace executable: %s", palace_executable
+                        )
+                    break
+
+        if palace_executable is None and palace_sif_path is None:
+            palace_executable = "palace"
+
+        # palace_executable takes precedence for a simpler API.
+        run_with_apptainer = use_apptainer and palace_executable is None
+
+        if palace_executable is not None and use_apptainer and verbose:
+            logger.info(
+                "Using Palace executable (%s); ignoring use_apptainer=True.",
+                palace_executable,
+            )
+
+        # Determine Palace command based on effective execution mode.
+        if run_with_apptainer:
             # Determine Palace SIF path from environment variable or parameter
             if palace_sif_path is None:
-                palace_sif_path = os.environ.get("PALACE_SIF")
-                if palace_sif_path is None:
-                    raise ValueError(
-                        "Palace SIF path not specified. Either set PALACE_SIF "
-                        "environment variable or pass palace_sif_path parameter."
-                    )
-                if verbose:
-                    logger.info(
-                        "Using PALACE_SIF from environment: %s", palace_sif_path
-                    )
+                raise ValueError(
+                    "Palace SIF path not specified. Either set PALACE_SIF, pass "
+                    "palace_sif_path, or provide a Palace executable."
+                )
 
             sif_path = Path(palace_sif_path).expanduser().resolve()
 
@@ -1705,33 +1800,85 @@ class PalaceSimMixin:
 
         else:
             # Direct Palace execution
-            if palace_executable is None:
-                palace_executable = os.environ.get("PALACE_EXECUTABLE", "palace")
-                if verbose:
-                    logger.info(
-                        "Using Palace executable from environment/default: %s",
-                        palace_executable,
+            resolved_exe: str | Path | None = None
+            lib_dir: Path | None = None
+
+            if palace_executable is not None:
+                # Explicit parameter — resolve to absolute path
+                resolved_exe = Path(palace_executable).expanduser().resolve()
+            else:
+                # Check PALACE_EXECUTABLE env var
+                env_exe = os.environ.get("PALACE_EXECUTABLE", "").strip()
+                if env_exe:
+                    resolved_exe = env_exe
+                    lib_dir = None
+                else:
+                    # Try bundled resolver (palace-toolkit-cpu, PALACE_BIN, PATH)
+                    from gsim.palace.runtime import (
+                        resolve_palace_binary,
+                        resolve_palace_library_dir,
                     )
 
-            exe_path = Path(palace_executable).expanduser()
+                    bundled = resolve_palace_binary()
+                    if bundled is not None:
+                        resolved_exe = bundled
+                        lib_dir = resolve_palace_library_dir()
+                        if verbose:
+                            logger.info(
+                                "Using Palace binary from runtime resolver: %s",
+                                bundled,
+                            )
+                    else:
+                        # Last resort: "palace" in PATH
+                        resolved_exe = "palace"
 
-            # Check if executable exists
+            if resolved_exe is None:
+                raise FileNotFoundError(
+                    "Palace executable not found. Set PALACE_BIN, "
+                    "PALACE_EXECUTABLE, or install palace-toolkit-cpu "
+                    "(pip install gsim[palace-toolkit-cpu])."
+                )
+
+            exe_path = Path(resolved_exe)
+
+            # Check if executable exists (resolve PATH if needed)
             if not exe_path.exists():
-                # Try resolving to see if it's in PATH
                 resolved = shutil.which(str(exe_path))
                 if resolved is None:
                     raise FileNotFoundError(
                         f"Palace executable not found: {exe_path}. "
                         "Install Palace directly or provide correct path via "
-                        "palace_executable parameter."
+                        "palace_executable parameter, or install palace-toolkit-cpu: "
+                        "pip install gsim[palace-toolkit-cpu]"
                     )
                 exe_path = Path(resolved)
+
+            if not os.access(exe_path, os.X_OK):
+                raise FileNotFoundError(
+                    f"Palace executable is not executable: {exe_path}. "
+                    "Update file permissions or provide a valid executable path."
+                )
 
             cmd = [
                 str(exe_path),
                 "-np",
                 str(num_processes),
             ]
+            # Propagate bundled lib dir out of the else scope for env setup
+            # (lib_dir is defined only inside this else branch)
+            _bundled_lib_dir = lib_dir
+
+        # Prepare environment with LD_LIBRARY_PATH for bundled Palace binary
+        _run_env = os.environ.copy()
+        if not use_apptainer and _bundled_lib_dir is not None:
+            prior = _run_env.get("LD_LIBRARY_PATH", "")
+            _run_env["LD_LIBRARY_PATH"] = (
+                f"{_bundled_lib_dir}:{prior}" if prior else str(_bundled_lib_dir)
+            )
+            logger.debug(
+                "Injected LD_LIBRARY_PATH for bundled Palace: %s",
+                _run_env["LD_LIBRARY_PATH"],
+            )
 
         if num_threads is not None:
             cmd.extend(["-nt", str(num_threads)])
@@ -1747,7 +1894,7 @@ class PalaceSimMixin:
             logger.warning(msg, *args)
 
         if verbose:
-            if use_apptainer:
+            if run_with_apptainer:
                 _emit_info("Running Palace simulation in %s via Apptainer", output_dir)
             else:
                 _emit_info("Running Palace simulation in %s directly", output_dir)
@@ -1765,6 +1912,7 @@ class PalaceSimMixin:
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,
+                    env=_run_env,
                 ) as process:
                     if process.stdout is not None:
                         for line in process.stdout:
@@ -1789,13 +1937,14 @@ class PalaceSimMixin:
                     check=True,
                     capture_output=True,
                     text=True,
+                    env=_run_env,
                 )
                 if result.stdout:
                     logger.debug(result.stdout)
                 if result.stderr:
                     _emit_warning(result.stderr)
         except FileNotFoundError as e:
-            if use_apptainer:
+            if run_with_apptainer:
                 raise RuntimeError(
                     "Apptainer not found. Install Apptainer to run local simulations "
                     "with use_apptainer=True."
@@ -1822,12 +1971,15 @@ class PalaceSimMixin:
 
         # Match cloud run() behavior for Palace: return parsed SParams when
         # possible, else fall back to raw files dict.
-        from gsim.palace.results import load_sparams
+        from gsim.palace.results import load_sparams, load_text_results
 
         try:
             return load_sparams(files)
         except FileNotFoundError:
-            return files
+            try:
+                return load_text_results(files)
+            except FileNotFoundError:
+                return files
 
     # -------------------------------------------------------------------------
     # Port methods

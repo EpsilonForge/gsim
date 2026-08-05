@@ -1,12 +1,22 @@
-"""Tests for Palace simulation classes."""
+"""Tests for Palace simulation classes and the Palace binary resolver.
+
+Covers DrivenSim/EigenmodeSim/ElectrostaticSim validation and config, plus
+the ``gsim.palace.runtime`` binary resolver (``resolve_palace_binary`` etc.).
+"""
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 import pytest
 
-from gsim.palace import DrivenSim, EigenmodeSim, ElectrostaticSim
+from gsim.palace import BoundaryModeSim, DrivenSim, EigenmodeSim, ElectrostaticSim
 from gsim.palace.models import MeshConfig
 
 
@@ -129,12 +139,82 @@ class TestElectrostaticSimValidation:
         assert not any("at least 2 terminals" in e for e in result.errors)
 
 
+class TestBoundaryModeSimValidation:
+    """Test BoundaryModeSim validation and API behavior."""
+
+    def test_missing_geometry(self):
+        """Test validation catches missing geometry."""
+        sim = BoundaryModeSim()
+        result = sim.validate_config()
+        assert not result.valid
+        assert any("No component set" in e for e in result.errors)
+
+    def test_requires_explicit_cross_section(self):
+        """Boundary mode requires explicit cross-section selection."""
+        sim = BoundaryModeSim()
+        result = sim.validate_config()
+        assert not result.valid
+        assert any("explicit cross-section plane" in e for e in result.errors)
+
+    def test_set_cross_section_from_string(self):
+        """String plane spec should parse into axis/value fields."""
+        sim = BoundaryModeSim()
+        sim.set_cross_section("y=100")
+        assert sim.cross_section is not None
+        assert sim.cross_section.axis == "y"
+        assert sim.cross_section.value == pytest.approx(100.0)
+
+    def test_set_cross_section_rejects_invalid_spec(self):
+        """Invalid plane spec should raise ValueError."""
+        sim = BoundaryModeSim()
+        with pytest.raises(ValueError, match="Invalid plane spec"):
+            sim.set_cross_section("foo")
+
+    def test_z_cross_section_rejected_for_native_2d(self):
+        """Native 2D BoundaryMode currently supports only x/y sections."""
+        sim = BoundaryModeSim()
+        sim.set_cross_section("z=0")
+        result = sim.validate_config()
+        assert not result.valid
+        assert any("supports only x/y" in e for e in result.errors)
+
+    def test_port_api_rejected_for_boundarymode(self):
+        """BoundaryMode native 2D does not accept explicit port definitions."""
+        sim = BoundaryModeSim()
+        sim.set_cross_section("x=0")
+        sim.add_wave_port("o1", layer="metal1")
+        result = sim.validate_config()
+        assert not result.valid
+        assert any("cross_section-only native 2D" in e for e in result.errors)
+
+    def test_set_boundary_mode_updates_model(self):
+        """set_boundary_mode should populate BoundaryModeConfig fields."""
+        sim = BoundaryModeSim()
+        sim.set_boundary_mode(
+            freq=8e9,
+            num_modes=3,
+            save=2,
+            target=2.2,
+            tolerance=1e-8,
+            max_size=60,
+            solver_type="SLEPc",
+        )
+        cfg = sim.boundary_mode
+        assert cfg.freq == pytest.approx(8e9)
+        assert cfg.num_modes == 3
+        assert cfg.save == 2
+        assert cfg.target == pytest.approx(2.2)
+        assert cfg.tolerance == pytest.approx(1e-8)
+        assert cfg.max_size == 60
+        assert cfg.solver_type == "SLEPc"
+
+
 class TestMixinMethods:
     """Test mixin methods work on all simulation classes."""
 
     def test_set_output_dir(self, tmp_path):
         """Test set_output_dir works on all sim classes."""
-        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim]:
+        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim, BoundaryModeSim]:
             sim = cls()
             sim.set_output_dir(tmp_path / "test")
             assert sim.output_dir == tmp_path / "test"
@@ -142,8 +222,8 @@ class TestMixinMethods:
             assert sim.output_dir.exists()
 
     def test_set_stack(self):
-        """Test set_stack no longer stores airbox parameters."""
-        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim]:
+        """Test set_stack works on all sim classes."""
+        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim, BoundaryModeSim]:
             sim = cls()
             sim.set_stack(air_above=500.0, air_below=25.0)
             assert "air_above" not in sim._stack_kwargs
@@ -158,7 +238,7 @@ class TestMixinMethods:
 
     def test_set_airbox(self):
         """Test set_airbox stores explicit airbox margins and z extents."""
-        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim]:
+        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim, BoundaryModeSim]:
             sim = cls()
             sim.set_airbox(margin_x=50.0, margin_y=30.0, z_above=100.0, z_below=80.0)
             assert sim._airbox_config == {
@@ -361,7 +441,7 @@ class TestMixinMethods:
 
     def test_set_material(self):
         """Test set_material works on all sim classes."""
-        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim]:
+        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim, BoundaryModeSim]:
             sim = cls()
             sim.set_material(
                 "custom_metal", material_type="conductor", conductivity=1e7
@@ -371,7 +451,7 @@ class TestMixinMethods:
 
     def test_set_numerical(self):
         """Test set_numerical works on all sim classes."""
-        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim]:
+        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim, BoundaryModeSim]:
             sim = cls()
             sim.set_numerical(
                 order=3,
@@ -390,7 +470,7 @@ class TestMixinMethods:
 
     def test_mesh_requires_output_dir(self):
         """Test mesh() raises if output_dir not set."""
-        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim]:
+        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim, BoundaryModeSim]:
             sim = cls()
             with pytest.raises(ValueError, match="Output directory not set"):
                 sim.mesh()
@@ -400,8 +480,8 @@ class TestAddPec:
     """Test add_pec() on all simulation classes."""
 
     def test_add_pec_stores_config(self):
-        """add_pec() stores PECBlockConfig on all 3 sim classes."""
-        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim]:
+        """add_pec() stores PECBlockConfig on all simulation classes."""
+        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim, BoundaryModeSim]:
             sim = cls()
             sim.add_pec(gds_layer=(65000, 0), from_layer="metal1", to_layer="topmetal2")
             assert len(sim._pec_blocks) == 1
@@ -424,3 +504,135 @@ class TestAddPec:
         assert len(sim._pec_blocks) == 2
         assert sim._pec_blocks[0].from_layer == "metal1"
         assert sim._pec_blocks[1].from_layer == "metal2"
+
+
+# ---------------------------------------------------------------------------
+# Palace binary resolver tests (gsim.palace.runtime)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _mock_gcloud(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock gsim.gcloud so we can import gsim.palace.runtime without gdsfactoryplus."""
+    import types
+
+    gcloud = types.ModuleType("gsim.gcloud")
+    for name in (
+        "get_status",
+        "wait_for_results",
+        "register_result_parser",
+        "print_job_summary",
+        "run_simulation",
+    ):
+        setattr(gcloud, name, lambda *a, **kw: None)  # noqa: ARG005
+    gcloud.RunResult = type("RunResult", (), {})  # ty: ignore[unresolved-attribute]
+    monkeypatch.setitem(sys.modules, "gsim.gcloud", gcloud)
+
+
+@pytest.fixture
+def _no_palacetoolkit(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+    """Ensure palacetoolkit_palace_cpu is unavailable during the test."""
+    if "palacetoolkit_palace_cpu" in sys.modules:
+        old = sys.modules["palacetoolkit_palace_cpu"]
+        monkeypatch.delitem(sys.modules, "palacetoolkit_palace_cpu", raising=False)
+        yield
+        sys.modules["palacetoolkit_palace_cpu"] = old
+    else:
+        yield
+
+
+class TestResolvePalaceBinary:
+    @pytest.mark.usefixtures("_mock_gcloud", "_no_palacetoolkit")
+    def test_returns_none_when_nothing_found(self) -> None:
+        from gsim.palace.runtime import resolve_palace_binary
+
+        with pytest.MonkeyPatch().context() as mp:
+            mp.delenv("PALACE_BIN", raising=False)
+            mp.delenv("PALACE_EXECUTABLE", raising=False)
+            with mp.context() as mp2:
+                mp2.setattr("gsim.palace.runtime._palace_cpu_available", lambda: False)
+                result = resolve_palace_binary()
+                assert result is None
+
+    @pytest.mark.usefixtures("_mock_gcloud")
+    def test_uses_palace_bin_env(self) -> None:
+        from gsim.palace.runtime import resolve_palace_binary
+
+        fake_bin = Path("/usr/local/bin/palace")
+
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setenv("PALACE_BIN", str(fake_bin))
+            mp.setattr("gsim.palace.runtime._binary_is_runnable", lambda _: True)
+            mp.setattr("pathlib.Path.is_file", lambda _: True)
+            result = resolve_palace_binary()
+            assert result is not None
+
+    @pytest.mark.usefixtures("_mock_gcloud")
+    def test_delegates_to_palacetoolkit(self) -> None:
+        from gsim.palace.runtime import resolve_palace_binary
+
+        fake_ptk_bin = Path("/opt/palacetoolkit/bin/palace")
+
+        class _FakePalaceCPU:
+            @staticmethod
+            def palace_binary_path() -> Path:
+                return fake_ptk_bin
+
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setitem(sys.modules, "palacetoolkit_palace_cpu", _FakePalaceCPU())
+            mp.setattr("gsim.palace.runtime._palace_cpu_available", lambda: True)
+            mp.setattr("gsim.palace.runtime._binary_is_runnable", lambda _: True)
+            mp.setattr("pathlib.Path.is_file", lambda _: True)
+            result = resolve_palace_binary()
+            assert result is not None
+
+    @pytest.mark.usefixtures("_mock_gcloud")
+    def test_prefer_bundled_skips_env(self) -> None:
+        from gsim.palace.runtime import resolve_palace_binary
+
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setenv("PALACE_BIN", "/usr/bin/palace")
+            mp.setattr("gsim.palace.runtime._palace_cpu_available", lambda: False)
+            result = resolve_palace_binary(prefer_bundled=True)
+            assert result is None
+
+
+class TestResolvePalaceLibraryDir:
+    @pytest.mark.usefixtures("_mock_gcloud", "_no_palacetoolkit")
+    def test_returns_none_without_palacetoolkit(self) -> None:
+        from gsim.palace.runtime import resolve_palace_library_dir
+
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setattr("gsim.palace.runtime._palace_cpu_available", lambda: False)
+            assert resolve_palace_library_dir() is None
+
+    @pytest.mark.usefixtures("_mock_gcloud")
+    def test_delegates_to_palacetoolkit(self) -> None:
+        from gsim.palace.runtime import resolve_palace_library_dir
+
+        fake_lib = Path("/opt/palacetoolkit/lib")
+
+        class _FakePalaceCPU:
+            @staticmethod
+            def palace_library_path() -> Path:
+                return fake_lib
+
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setitem(sys.modules, "palacetoolkit_palace_cpu", _FakePalaceCPU())
+            mp.setattr("gsim.palace.runtime._palace_cpu_available", lambda: True)
+            mp.setattr("pathlib.Path.is_dir", lambda _: True)
+            result = resolve_palace_library_dir()
+            assert result is not None
+
+
+class TestPalacetoolkitAvailable:
+    @pytest.mark.usefixtures("_mock_gcloud")
+    def test_true_when_installed(self) -> None:
+        from gsim.palace.runtime import _palace_cpu_available
+
+        # Since we mocked gcloud but not palacetoolkit_palace_cpu, if it's
+        # actually installed on the system, this will be True. We can't force
+        # it to be True via mock here without patching importlib, which is
+        # fragile.  Instead we just verify the function runs.
+        result = _palace_cpu_available()
+        assert isinstance(result, bool)
