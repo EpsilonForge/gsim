@@ -340,9 +340,6 @@ print("Config written to:", sim.output_dir)
 
 # %%
 # -- RF simulation (50 GHz) ------------------------------------------------
-# 2D mode analysis defaults to a single MPI rank + OpenMP threads: Palace's
-# SuperLU_DIST direct solve does not scale on small 2D problems (16 MPI
-# ranks can effectively hang), so MPI is unnecessary here.
 results = sim.run_local(verbose=True)
 results.print()
 
@@ -366,6 +363,7 @@ pl = plot_fields_2d(
     RF_OUTPUT_DIR,
     field=RF_FIELD,
     title=RF_FIELD_TITLE,
+    interactive=True,
 )
 
 # %%
@@ -377,6 +375,7 @@ pl = plot_fields_2d(
     field=RF_FIELD,
     physical_groups=RIB_PHYSICAL_GROUPS,
     title="RF Mode |E| in the Rib Waveguide (50 GHz, zoomed)",
+    interactive=True,
 )
 
 # %% [markdown]
@@ -401,20 +400,20 @@ TOLERANCE = 1e-8
 OPT_OUTPUT_DIR = "./palace-sim-mzm-pn-opt"
 OPT_MESH = {
     "preset": "default",
-    "refined_mesh_size": 0.02,
+    "refined_mesh_size": 0.2,
     "max_mesh_size": 0.5,
 }
 
 # %%
 # -- Optical setup + run (1550 nm) ---------------------------------------
-sim_opt = BoundaryModeSim()
-sim_opt.set_output_dir(OPT_OUTPUT_DIR)
-sim_opt.set_stack(stack)
-sim_opt.set_airbox(**AIRBOX)
-sim_opt.set_geometry(comp)
+sim_optical = BoundaryModeSim()
+sim_optical.set_output_dir(OPT_OUTPUT_DIR)
+sim_optical.set_stack(stack)
+sim_optical.set_airbox(**AIRBOX)
+sim_optical.set_geometry(comp)
 
-sim_opt.set_cross_section(f"{CROSS_SECTION_AXIS}={CROSS_SECTION_VALUE}")
-sim_opt.set_boundary_mode(
+sim_optical.set_cross_section(f"{CROSS_SECTION_AXIS}={CROSS_SECTION_VALUE}")
+sim_optical.set_boundary_mode(
     freq=F_OPT,
     num_modes=NUM_OPT_MODES,
     save=2,
@@ -422,7 +421,7 @@ sim_opt.set_boundary_mode(
     tolerance=TOLERANCE,
 )
 
-sim_opt.mesh(
+sim_optical.mesh(
     preset=OPT_MESH["preset"],
     refined_mesh_size=OPT_MESH["refined_mesh_size"],
     max_mesh_size=OPT_MESH["max_mesh_size"],
@@ -430,7 +429,16 @@ sim_opt.mesh(
     margin_y=MESH_MARGIN_Y,
 )
 
-opt_results = sim_opt.run_local(verbose=True)
+# %%
+# Interactive 3D mesh visualisation
+sim_optical.plot_mesh(
+    transparent_groups=["air__None", "air__passive", "oxide__passive"],
+    style="solid",
+    interactive=True,
+)
+
+# %%
+opt_results = sim_optical.run_local(verbose=True)
 opt_results.print()
 
 # %% [markdown]
@@ -467,7 +475,7 @@ opt_results.print()
 # 2. Run `sim.run_local(verbose=True)` with a Palace CPU runner installed (`pip install gsim[palace-toolkit-cpu]`). 2D
 #    mode analysis defaults to a single MPI rank + OpenMP threads; pass `num_processes=1` explicitly if you want
 #    to be explicit about it.
-# 3. Run `sim_opt.run_local(verbose=True)` for the optical mode.
+# 3. Run `sim_optical.run_local(verbose=True)` for the optical mode.
 # 4. Use `gsim.palace.plot_fields_2d()` to visualise mode profiles, and `gsim.palace.plot_plane_section()` for cross-section physical groups.
 #
 

@@ -792,7 +792,7 @@ class PalaceSimMixin:
         self,
         output: str | Path | None = None,
         show_groups: list[str] | None = None,
-        interactive: bool = True,
+        interactive: bool | None = None,
         style: Literal["wireframe", "solid"] = "wireframe",
         transparent_groups: list[str] | None = None,
     ) -> None:
@@ -801,11 +801,14 @@ class PalaceSimMixin:
         Requires mesh() to be called first.
 
         Args:
-            output: Output PNG path (only used if interactive=False)
+            output: Output PNG path (only used for static rendering).
             show_groups: List of group name patterns to show (None = all).
                 Example: ["metal", "P"] to show metal layers and ports.
-            interactive: If True, open interactive 3D viewer.
-                If False, save static PNG to output path.
+            interactive: If True, force an interactive 3D viewer (a widget on
+                the shared trame server in a notebook, or a blocking window
+                otherwise).  If False, save a static PNG.  If None (default),
+                follow the session flag from ``gsim.viz.set_interactive_mode``
+                — off by default, so plots render statically until enabled.
             style: ``"wireframe"`` (edges only) or ``"solid"`` (coloured
                 surfaces per physical group).
             transparent_groups: Group names rendered at low opacity in
@@ -828,8 +831,8 @@ class PalaceSimMixin:
         if not mesh_path.exists():
             raise ValueError(f"Mesh file not found: {mesh_path}. Call mesh() first.")
 
-        # Default output path if not interactive
-        if output is None and not interactive:
+        # Default output path for the static rendering path.
+        if output is None and interactive is not True:
             output = self._output_dir / "mesh.png"
 
         _plot_mesh(

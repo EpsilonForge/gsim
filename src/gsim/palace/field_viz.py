@@ -292,6 +292,7 @@ def plot_fields_2d(
     show_edges: bool = False,
     opacity: float = 1.0,
     show: bool = True,
+    interactive: bool | None = None,
     screenshot: str | Path | None = None,
     mode: Literal["auto", "live", "static"] = "auto",
 ) -> Any:
@@ -320,18 +321,26 @@ def plot_fields_2d(
         title: Plot title.
         show_edges: Toggle mesh edges on/off.
         opacity: Opacity of the mesh (0-1).
-        show: If True, show the interactive PyVista window.
-            If a live view is already open in this process (or *mode* is
-            ``"static"``), the plot is rendered to a PNG and displayed inline
-            instead of opening a second live window.
+        show: If True, display the plot (live view or static image); if
+            False, the plotter is created and returned without rendering.
+        interactive: If ``True``, force an interactive view: in a notebook
+            this renders as a widget on the single shared trame server (so
+            several views can coexist); otherwise it opens a blocking window.
+            ``False`` forces a static PNG.  ``None`` (default) follows the
+            session flag from ``gsim.viz.set_interactive_mode`` — off by
+            default, so plots render statically until it is enabled.
         screenshot: If given, save a screenshot to this path.
         mode: Rendering mode: ``"auto"`` (default), ``"live"`` or
             ``"static"``.  Overrides ``GSIM_VIZ_MODE`` for this call.
+            Interactive views are off by default; enable them globally with
+            ``gsim.viz.set_interactive_mode(True)``.  Close open views with
+            ``gsim.viz.close_interactive_views()``.  The camera always faces
+            the cross-section plane, including for interactive views.
 
     Returns:
         The ``pv.Plotter`` instance.
     """
-    from gsim.viz import _ensure_pyvista, _show_or_screenshot
+    from gsim.viz import _apply_front_camera, _ensure_pyvista, _show_or_screenshot
 
     _ensure_pyvista()
     import pyvista as pv
@@ -374,7 +383,7 @@ def plot_fields_2d(
         dataset = dataset.extract_cells(keep)
 
     # Slice to the cross-section plane.
-    sliced, _used_normal, _axis_idx, axes = _slice_plane(
+    sliced, _used_normal, _axis_idx, _axes = _slice_plane(
         dataset,
         normal=normal,
         origin=origin,
@@ -419,22 +428,14 @@ def plot_fields_2d(
     )
     pl.add_title(title, font_size=12)
 
-    pts = sliced.points
-    h_vals = pts[:, axes[0]]
-    v_vals = pts[:, axes[1]]
-    center = ((h_vals.min() + h_vals.max()) / 2, (v_vals.min() + v_vals.max()) / 2)
-    span = (h_vals.max() - h_vals.min(), v_vals.max() - v_vals.min())
-    dist = max(span) * 2.5 if max(span) > 0 else 1.0
-    pl.camera.focal_point = (center[0], center[1], 0.0)
-    pl.camera.position = (center[0], center[1], dist)
-
+    _apply_front_camera(pl, np.asarray(sliced.points), _axis_idx)
     if screenshot is not None:
         pl.screenshot(str(screenshot))
         pl.close()
         return pl
 
     if show:
-        _show_or_screenshot(pl, interactive=True, mode=mode)
+        _show_or_screenshot(pl, interactive=interactive, mode=mode, reset_camera=False)
     else:
         pl.close()
     return pl

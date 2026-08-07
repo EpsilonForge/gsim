@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import meshio
 import numpy as np
@@ -211,21 +212,79 @@ def test_plot_solid_skips_unsupported_blocks(tmp_path: Path) -> None:
     assert out.exists()
 
 
+@_SKIP_RENDER_ON_WIN
+def test_plot_mesh_2d_camera_faces_plane(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """plot_mesh on a 2D mesh points the camera straight at the plane."""
+    msh = tmp_path / "flat.msh"
+    _write_minimal_msh(msh)
+
+    captured: dict[str, object] = {}
+
+    def _spy(plotter: Any, **_kwargs: object) -> None:
+        captured["camera"] = plotter.camera
+        plotter.close()
+
+    monkeypatch.setattr(viz, "_show_or_screenshot", _spy)
+
+    viz.plot_mesh(msh, interactive=True, mode="live")
+
+    camera: Any = captured["camera"]
+    view = np.array(camera.position) - np.array(camera.focal_point)
+    view /= np.linalg.norm(view)
+    # The fixture mesh is thin along z, so the camera must face +z/-z.
+    assert np.allclose(np.abs(view), [0.0, 0.0, 1.0])
+
+
+@_SKIP_RENDER_ON_WIN
+def test_plot_mesh_3d_keeps_iso_camera(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """plot_mesh on a 3D mesh keeps the default isometric view."""
+    msh = tmp_path / "vol.msh"
+    _write_minimal_msh(msh, use_3d=True)
+
+    captured: dict[str, object] = {}
+
+    def _spy(plotter: Any, **_kwargs: object) -> None:
+        captured["camera"] = plotter.camera
+        plotter.close()
+
+    monkeypatch.setattr(viz, "_show_or_screenshot", _spy)
+
+    viz.plot_mesh(msh, interactive=True, mode="live")
+
+    camera: Any = captured["camera"]
+    view = np.array(camera.position) - np.array(camera.focal_point)
+    view /= np.linalg.norm(view)
+    # Isometric view is not aligned to a single axis.
+    assert sum(abs(d) > 0.5 for d in view) > 1
+
+
 class _FakePlotter:
     """Minimal stand-in for a PyVista plotter in mode-resolution tests."""
 
+    _id_counter = 0
     camera_position = None
 
     def __init__(self) -> None:
         self.shown = 0
         self.screenshotted = 0
         self.closed = 0
+        self.notebook = False
+        self._id_name = f"fake-{_FakePlotter._id_counter}"
+        _FakePlotter._id_counter += 1
 
     def show_axes(self) -> None:
         return None
 
-    def show(self) -> None:
+    def render(self) -> None:
+        return None
+
+    def show(self, **_kwargs: object) -> _FakePlotter:
         self.shown += 1
+        return self
 
     def screenshot(self, _path: object) -> None:
         self.screenshotted += 1
@@ -234,54 +293,237 @@ class _FakePlotter:
         self.closed += 1
 
 
-def test_show_or_screenshot_first_live_then_static(
+def test_show_or_screenshot_static_when_interactive_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Auto mode keeps the first interactive view, renders later ones as static PNGs."""
-    monkeypatch.setattr(viz, "_LIVE_PLOTTER_OPEN", False)
+    """With the session flag off, auto (interactive=None) renders a static PNG."""
+    viz._LIVE_PLOTTERS.clear()
+    monkeypatch.setattr(viz, "_INTERACTIVE_MODE", False)
+    monkeypatch.setattr(viz, "_in_notebook", lambda: False)
+
+    plotter = _FakePlotter()
+    viz._show_or_screenshot(plotter, interactive=None, mode="auto")
+    assert plotter.shown == 0
+    assert plotter.screenshotted == 1
+    assert viz._LIVE_PLOTTERS == {}
+
+
+def test_interactive_true_forces_live_even_when_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """interactive=True forces a live view even when the session flag is off."""
+    viz._LIVE_PLOTTERS.clear()
+    monkeypatch.setattr(viz, "_INTERACTIVE_MODE", False)
+    monkeypatch.setattr(viz, "_in_notebook", lambda: False)
+
+    plotter = _FakePlotter()
+    viz._show_or_screenshot(plotter, interactive=True, mode="auto")
+    assert plotter.shown == 1
+    assert plotter.screenshotted == 0
+    assert {plotter._id_name: plotter} == viz._LIVE_PLOTTERS
+
+
+def test_desktop_live_replaces_previous(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Outside a notebook, a live plot replaces any previously open live view."""
+    viz._LIVE_PLOTTERS.clear()
+    monkeypatch.setattr(viz, "_INTERACTIVE_MODE", True)
+    monkeypatch.setattr(viz, "_in_notebook", lambda: False)
 
     first = _FakePlotter()
     viz._show_or_screenshot(first, interactive=True, mode="auto")
     assert first.shown == 1
     assert first.screenshotted == 0
-    assert viz._LIVE_PLOTTER_OPEN
+    assert {first._id_name: first} == viz._LIVE_PLOTTERS
 
     second = _FakePlotter()
     viz._show_or_screenshot(second, interactive=True, mode="auto")
-    assert second.shown == 0
-    assert second.screenshotted == 1
-    assert second.closed == 1
-
-    monkeypatch.setattr(viz, "_LIVE_PLOTTER_OPEN", False)
+    assert second.shown == 1
+    assert first.closed == 1
+    assert {second._id_name: second} == viz._LIVE_PLOTTERS
 
 
-def test_mode_live_forces_show(monkeypatch: pytest.MonkeyPatch) -> None:
-    """mode='live' forces a live view even when one is already open."""
-    monkeypatch.setattr(viz, "_LIVE_PLOTTER_OPEN", True)
+def test_notebook_keeps_multiple_views(monkeypatch: pytest.MonkeyPatch) -> None:
+    """In a notebook each interactive plot adds a widget to the shared trame server."""
+    viz._LIVE_PLOTTERS.clear()
+    monkeypatch.setattr(viz, "_INTERACTIVE_MODE", True)
+    monkeypatch.setattr(viz, "_in_notebook", lambda: True)
+
+    first = _FakePlotter()
+    first.notebook = True
+    viz._show_or_screenshot(first, interactive=True, mode="auto")
+    assert first.shown == 1
+    assert first.closed == 0
+
+    second = _FakePlotter()
+    second.notebook = True
+    viz._show_or_screenshot(second, interactive=True, mode="auto")
+    assert second.shown == 1
+    assert second.closed == 0
+    assert first.closed == 0  # previous view stays alive
+    assert len(viz._LIVE_PLOTTERS) == 2
+
+
+def test_notebook_uses_trame_backend_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Notebook live views use server-side trame rendering by default."""
+    viz._LIVE_PLOTTERS.clear()
+    monkeypatch.setattr(viz, "_in_notebook", lambda: True)
+    monkeypatch.setattr(viz, "_TRAME_BACKEND", "trame")
+
+    seen: dict[str, object] = {}
+    plotter = _FakePlotter()
+    plotter.notebook = True
+
+    def _show(**_kwargs: object) -> _FakePlotter:
+        seen["backend"] = _kwargs.get("jupyter_backend")
+        return plotter
+
+    monkeypatch.setattr(plotter, "show", _show)
+
+    viz._show_or_screenshot(plotter, interactive=True, mode="live")
+    assert seen["backend"] == "trame"
+    assert {plotter._id_name: plotter} == viz._LIVE_PLOTTERS
+
+
+def test_set_trame_backend_validates() -> None:
+    """set_trame_backend accepts trame/client and rejects anything else."""
+    viz.set_trame_backend("client")
+    assert viz._TRAME_BACKEND == "client"
+    viz.set_trame_backend("trame")
+    assert viz._TRAME_BACKEND == "trame"
+    with pytest.raises(ValueError, match="backend"):
+        viz.set_trame_backend("bogus")  # ty: ignore[invalid-argument-type]
+
+
+def test_notebook_widget_failure_falls_back_to_static(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the interactive widget cannot be created, show a static image instead."""
+    viz._LIVE_PLOTTERS.clear()
+    monkeypatch.setattr(viz, "_INTERACTIVE_MODE", True)
+    monkeypatch.setattr(viz, "_in_notebook", lambda: True)
+
+    plotter = _FakePlotter()
+    plotter.notebook = True
+
+    def _broken_show(**_kwargs: object) -> None:
+        raise RuntimeError("trame widget failed")
+
+    monkeypatch.setattr(plotter, "show", _broken_show)
+
+    viz._show_or_screenshot(plotter, interactive=True, mode="auto")
+    assert plotter.shown == 0
+    assert plotter.screenshotted == 1
+    assert plotter.closed == 1
+    assert viz._LIVE_PLOTTERS == {}
+
+
+def test_mode_live_forces_show_desktop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """mode='live' forces a live view, replacing any open view outside a notebook."""
+    viz._LIVE_PLOTTERS.clear()
+    monkeypatch.setattr(viz, "_INTERACTIVE_MODE", False)
+    monkeypatch.setattr(viz, "_in_notebook", lambda: False)
+
+    prev = _FakePlotter()
+    viz._LIVE_PLOTTERS[prev._id_name] = prev
 
     forced = _FakePlotter()
     viz._show_or_screenshot(forced, interactive=True, mode="live")
     assert forced.shown == 1
-
-    monkeypatch.setattr(viz, "_LIVE_PLOTTER_OPEN", False)
+    assert prev.closed == 1
 
 
 def test_mode_static_always_screenshots(monkeypatch: pytest.MonkeyPatch) -> None:
     """mode='static' renders a screenshot even before any live view."""
-    monkeypatch.setattr(viz, "_LIVE_PLOTTER_OPEN", False)
+    viz._LIVE_PLOTTERS.clear()
+    monkeypatch.setattr(viz, "_INTERACTIVE_MODE", True)
 
     static = _FakePlotter()
     viz._show_or_screenshot(static, interactive=True, mode="static")
     assert static.shown == 0
     assert static.screenshotted == 1
+    assert viz._LIVE_PLOTTERS == {}
 
-    monkeypatch.setattr(viz, "_LIVE_PLOTTER_OPEN", False)
+
+def test_interactive_false_screenshots_even_in_live_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """interactive=False forces a static screenshot even when mode='live'."""
+    viz._LIVE_PLOTTERS.clear()
+    monkeypatch.setattr(viz, "_INTERACTIVE_MODE", True)
+    monkeypatch.setattr(viz, "_in_notebook", lambda: True)
+
+    plotter = _FakePlotter()
+    viz._show_or_screenshot(plotter, interactive=False, mode="live")
+    assert plotter.shown == 0
+    assert plotter.screenshotted == 1
+    assert viz._LIVE_PLOTTERS == {}
 
 
-def test_mode_for_respects_global_static(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GSIM_VIZ_MODE=static makes 'auto' resolve to static."""
+def test_close_interactive_views() -> None:
+    """close_interactive_views closes every registered view and clears the registry."""
+    viz._LIVE_PLOTTERS.clear()
+    a, b = _FakePlotter(), _FakePlotter()
+    viz._LIVE_PLOTTERS[a._id_name] = a
+    viz._LIVE_PLOTTERS[b._id_name] = b
+
+    viz.close_interactive_views()
+    assert a.closed == 1
+    assert b.closed == 1
+    assert viz._LIVE_PLOTTERS == {}
+
+
+def test_close_interactive_view_single() -> None:
+    """close_interactive_view closes one registered view by id."""
+    viz._LIVE_PLOTTERS.clear()
+    a, b = _FakePlotter(), _FakePlotter()
+    viz._LIVE_PLOTTERS[a._id_name] = a
+    viz._LIVE_PLOTTERS[b._id_name] = b
+
+    viz.close_interactive_view(a._id_name)
+    assert a.closed == 1
+    assert b.closed == 0
+    assert a._id_name not in viz._LIVE_PLOTTERS
+
+
+def test_interactive_views_lists_ids() -> None:
+    """interactive_views returns the ids of all open views."""
+    viz._LIVE_PLOTTERS.clear()
+    a = _FakePlotter()
+    viz._LIVE_PLOTTERS[a._id_name] = a
+    assert viz.interactive_views() == (a._id_name,)
+
+
+def test_mode_for_respects_interactive_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """auto is static by default and live only when interactive mode is enabled."""
+    monkeypatch.setattr(viz, "_VIZ_MODE", "auto")
+
+    monkeypatch.setattr(viz, "_INTERACTIVE_MODE", False)
+    assert viz._mode_for("auto") == "static"
+
+    monkeypatch.setattr(viz, "_INTERACTIVE_MODE", True)
+    assert viz._mode_for("auto") == "live"
+
     monkeypatch.setattr(viz, "_VIZ_MODE", "static")
     assert viz._mode_for("auto") == "static"
-    assert viz._mode_for("live") == "live"
-    monkeypatch.setattr(viz, "_VIZ_MODE", "auto")
+
+    monkeypatch.setattr(viz, "_VIZ_MODE", "live")
     assert viz._mode_for("auto") == "live"
+
+    monkeypatch.setattr(viz, "_VIZ_MODE", "auto")
+    monkeypatch.setattr(viz, "_INTERACTIVE_MODE", False)
+    assert viz._mode_for("auto") == "static"
+    assert viz._mode_for("live") == "live"
+    assert viz._mode_for("static") == "static"
+    monkeypatch.setattr(viz, "_INTERACTIVE_MODE", False)
+
+
+def test_set_interactive_mode_toggles_flag() -> None:
+    """The interactive mode flag is off by default and toggles via the setter."""
+    viz.set_interactive_mode(False)
+    assert viz.interactive_mode() is False
+    viz.set_interactive_mode(True)
+    assert viz.interactive_mode() is True
+    viz.set_interactive_mode(False)
+    assert viz.interactive_mode() is False

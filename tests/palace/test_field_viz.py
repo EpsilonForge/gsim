@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import matplotlib as mpl
 import numpy as np
 import pytest
@@ -94,6 +96,31 @@ def test_plot_fields_2d_missing_field_raises(planar_vector_dataset: pv.DataSet) 
             origin=0.0,
             show=False,
         )
+
+
+def test_plot_fields_2d_forwards_interactive_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    planar_vector_dataset: pv.DataSet,
+) -> None:
+    """The ``interactive`` flag is forwarded to the display helper."""
+    import gsim.viz as viz
+
+    captured: dict[str, object] = {}
+
+    def _spy(plotter: Any, **_kwargs: object) -> None:
+        captured["interactive"] = _kwargs.get("interactive")
+        plotter.close()
+
+    monkeypatch.setattr(viz, "_show_or_screenshot", _spy)
+
+    field_viz.plot_fields_2d(
+        planar_vector_dataset,
+        normal="z",
+        origin=0.0,
+        show=True,
+        interactive=False,
+    )
+    assert captured["interactive"] is False
 
 
 def test_extract_streamplot_inputs_2d(planar_vector_dataset: pv.DataSet) -> None:
