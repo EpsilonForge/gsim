@@ -89,7 +89,7 @@ def _resolve_impedance_boundaries(
             )
             continue
 
-        entry = {
+        entry: dict[str, object] = {
             "Attributes": [group_info["phys_group"]],
         }
 
@@ -270,13 +270,23 @@ def generate_palace_config(
     }
 
     # Build domains section
-    # Evaluate dispersion models at the center frequency of the sweep band
+    # Evaluate dispersion models at the problem's target frequency. Driven
+    # simulations use the sweep center frequency; boundary mode (2D waveguide
+    # cross-section) uses its single operating frequency so optical modes are
+    # computed with the true frequency-resolved permittivity (e.g. Sellmeier
+    # silicon at 1550 nm) rather than the RF constant values.
     stack_materials = stack.materials
     if driven_config is not None:
         from gsim.palace.materials import resolve_palace_materials_at_frequency
 
         stack_materials = resolve_palace_materials_at_frequency(
             stack.materials, driven_config.center_frequency
+        )
+    elif boundary_mode_config is not None:
+        from gsim.palace.materials import resolve_palace_materials_at_frequency
+
+        stack_materials = resolve_palace_materials_at_frequency(
+            stack.materials, boundary_mode_config.freq
         )
 
     # Support material keys with different capitalization conventions

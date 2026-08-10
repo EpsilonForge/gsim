@@ -249,6 +249,25 @@ def _curve_on_native_2d_domain_wall(
     return on_hmin or on_hmax or on_vmin or on_vmax
 
 
+def _ensure_background_material(stack, material: str) -> None:
+    """Ensure *material* has an entry in ``stack.materials``.
+
+    The native-2D background volume is grouped under ``airbox_material``. If
+    that name is not already in the stack's materials dict, populate it from
+    the built-in database so the config generator can resolve its permittivity
+    (falling back to eps=1 for unknown names).
+    """
+    from gsim.common.stack.materials import get_material_properties
+
+    if material in stack.materials:
+        return
+    props = get_material_properties(material)
+    if props is not None:
+        stack.materials[material] = props.to_dict()
+    else:
+        stack.materials[material] = {"permittivity": 1.0, "loss_tangent": 0.0}
+
+
 def _generate_native_boundarymode_groups(
     *,
     kernel,
@@ -263,6 +282,7 @@ def _generate_native_boundarymode_groups(
     airbox_margin_y: float | None,
     airbox_z_above: float | None,
     airbox_z_below: float | None,
+    airbox_material: str = "air",
 ) -> dict:
     """Build a native 2D gmsh model and groups for BoundaryMode."""
     if cross_section.axis not in {"x", "y"}:
@@ -513,6 +533,18 @@ def _generate_native_boundarymode_groups(
         else:
             dielectrics[layer_name] = sorted_tags
 
+    # The 2D domain region not claimed by any dielectric/layer rectangle is the
+    # background medium. By default it is named "air" (eps=1); ``airbox_material``
+    # retunes it to a real cladding material (e.g. "sio2") for uniform-dielectric
+    # optical cross-sections with no air. Merged into the dielectric groups so a
+    # background name matching an existing region (e.g. the oxide "sio2") becomes
+    # one contiguous physical group.
+    bg_tags = sorted(outer_parts - assigned)
+    if bg_tags:
+        _ensure_background_material(stack, airbox_material)
+        dielectrics.setdefault(airbox_material, []).extend(bg_tags)
+        assigned.update(bg_tags)
+
     for layer_name, sorted_tags in dielectrics.items():
         layer = stack.layers.get(layer_name)
         pg = gmsh.model.addPhysicalGroup(2, sorted_tags)
@@ -602,11 +634,8 @@ def _generate_native_boundarymode_groups(
                     "tags": curve_tags,
                 }
 
-    air_tags = sorted(outer_parts - assigned)
-    if air_tags:
-        air_pg = gmsh.model.addPhysicalGroup(2, air_tags)
-        gmsh.model.setPhysicalName(2, air_pg, "air")
-        groups["volumes"]["air"] = {"phys_group": air_pg, "tags": air_tags}
+    # The 2D background medium (unclaimed domain) is merged into the dielectric
+    # groups above, so nothing to add here.
 
     refinement_curves: set[int] = set()
     for info in groups["conductor_surfaces"].values():
@@ -969,6 +998,7 @@ def generate_mesh(
     airbox_margin_y: float | None = None,
     airbox_z_above: float | None = None,
     airbox_z_below: float | None = None,
+    airbox_material: str = "air",
     fmax: float = 100e9,
     show_gui: bool = False,
     simulation_type: str = "driven",
@@ -1011,6 +1041,9 @@ def generate_mesh(
         airbox_margin_y: Extra y-margin for explicit airbox (um)
         airbox_z_above: Extra +z margin for explicit airbox (um)
         airbox_z_below: Extra -z margin for explicit airbox (um)
+        airbox_material: Material name for the native-2D BoundaryMode background
+            region outside the stack/cladding (default ``"air"``). Pass e.g.
+            ``"sio2"`` for a uniform-dielectric cladding with no air.
         fmax: Max frequency for config (Hz)
         show_gui: Show gmsh GUI during meshing
         simulation_type: Type of simulation (driven, eigenmode or electrostatics)
@@ -1093,6 +1126,7 @@ def generate_mesh(
                 airbox_margin_y=airbox_margin_y,
                 airbox_z_above=airbox_z_above,
                 airbox_z_below=airbox_z_below,
+                airbox_material=airbox_material,
             )
 
             refinement_lines = sorted(

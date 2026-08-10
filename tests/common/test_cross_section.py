@@ -13,6 +13,7 @@ from gsim.common.cross_section import (
     Rect2D,
     RectYZ2D,
     build_doped_cross_section,
+    build_optical_cross_section,
     extract_plane_section,
     extract_xy_polygons,
     extract_xz_rectangles,
@@ -529,3 +530,84 @@ def test_make_doping_profile_geometry_added(doping_sides):
     )
     total = len(comp.get_polygons())
     assert total == 4
+
+
+class TestBuildOpticalCrossSection:
+    """Tests for build_optical_cross_section() — all-Si device in uniform cladding."""
+
+    def _component(self):
+        import gdsfactory as gf
+
+        LAYER = gf.gpdk.LAYER
+        comp = gf.Component()
+        wg = comp << _centered_rect(10.0, 0.4, LAYER.WG)
+        wg.y = -20.0
+        comp << _centered_rect(10.0, 100.0, LAYER.SLAB90)
+        p = comp << gf.c.rectangle((10.0, 0.2), layer=LAYER.P)
+        p.y = -19.9
+        n = comp << gf.c.rectangle((10.0, 0.2), layer=LAYER.N)
+        n.y = -20.1
+        return comp, LAYER
+
+    def _device_layers(self, LAYER):
+        return {
+            "core": (LAYER.WG, 0.0, 0.22),
+            "slab": (LAYER.SLAB90, 0.0, 0.09),
+            "p_rib": (LAYER.P, 0.0, 0.22),
+            "n_rib": (LAYER.N, 0.0, 0.22),
+        }
+
+    def test_builds_all_dielectric_stack(self):
+        comp, LAYER = self._component()
+        stack, section = build_optical_cross_section(
+            comp,
+            axis="x",
+            value=0.0,
+            device_layers=self._device_layers(LAYER),
+            substrate_thickness=2.0,
+            cladding_top=2.0,
+            verbose=False,
+        )
+
+        assert set(stack.layers) == {"core", "slab", "p_rib", "n_rib"}
+
+        # Every device region is plain silicon — no Drude-doped materials.
+        for layer in stack.layers.values():
+            assert layer.material == "si"
+            assert layer.layer_type == "dielectric"
+
+        # PN junction shares the rib's z-extent.
+        assert stack.layers["p_rib"].gds_layer == tuple(LAYER.P)
+        assert stack.layers["n_rib"].gds_layer == tuple(LAYER.N)
+        assert stack.layers["p_rib"].zmax == pytest.approx(0.22)
+
+        # Uniform cladding: a single SiO2 dielectric spanning the whole domain.
+        assert len(stack.dielectrics) == 1
+        oxide = stack.dielectrics[0]
+        assert oxide["name"] == "oxide"
+        assert oxide["material"] == "sio2"
+        assert oxide["zmin"] == pytest.approx(-2.0)
+        assert oxide["zmax"] == pytest.approx(2.0)
+
+        # Materials DB populated so Palace can resolve them.
+        assert "si" in stack.materials
+        assert "sio2" in stack.materials
+
+        layer_names = {r.layer_name for r in section}
+        assert {"core", "slab", "p_rib", "n_rib"} <= layer_names
+        assert all(r.material == "si" for r in section)
+
+    def test_uniform_cladding_ranges(self):
+        comp, LAYER = self._component()
+        stack, _ = build_optical_cross_section(
+            comp,
+            axis="x",
+            value=0.0,
+            device_layers=self._device_layers(LAYER),
+            substrate_thickness=3.0,
+            cladding_top=1.5,
+            verbose=False,
+        )
+        oxide = stack.dielectrics[0]
+        assert oxide["zmin"] == pytest.approx(-3.0)
+        assert oxide["zmax"] == pytest.approx(1.5)

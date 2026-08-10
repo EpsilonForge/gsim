@@ -8,7 +8,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.2
 #   kernelspec:
-#     display_name: gsim (3.12.3)
+#     display_name: .venv (3.12.3.final.0)
 #     language: python
 #     name: python3
 # ---
@@ -108,6 +108,7 @@ CROSS_SECTION_VALUE = 0.0
 # %%
 import gdsfactory as gf
 
+from gsim.common.cross_section import build_optical_cross_section
 from gsim.common.stack.doping import make_doping_profile
 
 gf.gpdk.PDK.activate()
@@ -121,56 +122,86 @@ def centered_rect(wx: float, wy: float, layer) -> gf.Component:
     return r
 
 
-# --- Component: TW-MZM cross-section ------------------------------------
-comp = gf.Component()
+def _add_device_core(comp: gf.Component) -> None:
+    """Rib + slab + PN junction — shared by the RF and optical components.
 
-# 1. Rib waveguide core (PN junction sits inside it)
-wg = comp << centered_rect(LENGTH, RIB_WIDTH, LAYER.WG)
-wg.y = RIB_CENTER_Y
+    The P/N rectangles are the same "doping profile" polygons in both, so the
+    optical cross-section still shows the junction shape. The optical stack
+    maps all four regions to plain silicon.
+    """
+    # 1. Rib waveguide core (PN junction sits inside it)
+    wg = comp << centered_rect(LENGTH, RIB_WIDTH, LAYER.WG)
+    wg.y = RIB_CENTER_Y
 
-# 2. Slab (90 nm)
-slab = comp << centered_rect(LENGTH, 2 * SLAB_HALF + RIB_WIDTH, LAYER.SLAB90)
-slab.y = 0.0
+    # 2. Slab (90 nm)
+    slab = comp << centered_rect(LENGTH, 2 * SLAB_HALF + RIB_WIDTH, LAYER.SLAB90)
+    slab.y = 0.0
 
-# 3. PN junction (P above / N below the rib centre)
-p_half = comp << gf.c.rectangle((LENGTH, RIB_WIDTH / 2), layer=LAYER.P)
-p_half.y = RIB_CENTER_Y + RIB_WIDTH / 4
-n_half = comp << gf.c.rectangle((LENGTH, RIB_WIDTH / 2), layer=LAYER.N)
-n_half.y = RIB_CENTER_Y - RIB_WIDTH / 4
+    # 3. PN junction (P above / N below the rib centre)
+    p_half = comp << gf.c.rectangle((LENGTH, RIB_WIDTH / 2), layer=LAYER.P)
+    p_half.y = RIB_CENTER_Y + RIB_WIDTH / 4
+    n_half = comp << gf.c.rectangle((LENGTH, RIB_WIDTH / 2), layer=LAYER.N)
+    n_half.y = RIB_CENTER_Y - RIB_WIDTH / 4
 
-# 4. Graded N+/P+ slab doping (contiguous, no gaps)
-doping_result = make_doping_profile(
-    comp,
-    length=LENGTH,
-    rib_center_y=RIB_CENTER_Y,
-    rib_width=RIB_WIDTH,
-    profile=DOPING_PROFILE,
-    sides=DOPING_SIDES,
-    zmin=0.0,
-    zmax=SLAB_THICKNESS,
-    permittivity=SI_PERMITTIVITY,
-    fmax=FMAX_RF_MATERIAL,
-)
 
-# 5. CPW electrodes (M1)
-sig = comp << centered_rect(LENGTH, SIG_WIDTH, LAYER.M1)
-gnd_top = comp << centered_rect(LENGTH, GND_WIDTH, LAYER.M1)
-gnd_top.y = SIG_WIDTH / 2 + GAP_WIDTH + GND_WIDTH / 2
-gnd_bot = comp << centered_rect(LENGTH, GND_WIDTH, LAYER.M1)
-gnd_bot.y = -(SIG_WIDTH / 2 + GAP_WIDTH + GND_WIDTH / 2)
+def _build_rf_component() -> tuple[gf.Component, dict]:
+    """Full TW-MZM cross-section: device core + graded doping + CPW + vias."""
+    comp = gf.Component()
+    _add_device_core(comp)
 
-# 6. Vias at x=0 (signal-to-P+, ground-to-N+)
-via_s_to_p = comp << gf.c.via_stack(
-    layers=("SLAB90", "M1"), vias=("viac", None), size=(VIA_SIZE, VIA_SIZE)
-)
-via_s_to_p.x = 0.0
-via_s_to_p.y = VIA_S_TO_P_Y
+    # 4. Graded N+/P+ slab doping (contiguous, no gaps)
+    doping_result = make_doping_profile(
+        comp,
+        length=LENGTH,
+        rib_center_y=RIB_CENTER_Y,
+        rib_width=RIB_WIDTH,
+        profile=DOPING_PROFILE,
+        sides=DOPING_SIDES,
+        zmin=0.0,
+        zmax=SLAB_THICKNESS,
+        permittivity=SI_PERMITTIVITY,
+        fmax=FMAX_RF_MATERIAL,
+    )
 
-via_g_to_n = comp << gf.c.via_stack(
-    layers=("SLAB90", "M1"), vias=("viac", None), size=(VIA_SIZE, VIA_SIZE)
-)
-via_g_to_n.x = 0.0
-via_g_to_n.y = VIA_G_TO_N_Y
+    # 5. CPW electrodes (M1)
+    comp << centered_rect(LENGTH, SIG_WIDTH, LAYER.M1)
+    gnd_top = comp << centered_rect(LENGTH, GND_WIDTH, LAYER.M1)
+    gnd_top.y = SIG_WIDTH / 2 + GAP_WIDTH + GND_WIDTH / 2
+    gnd_bot = comp << centered_rect(LENGTH, GND_WIDTH, LAYER.M1)
+    gnd_bot.y = -(SIG_WIDTH / 2 + GAP_WIDTH + GND_WIDTH / 2)
+
+    # 6. Vias at x=0 (signal-to-P+, ground-to-N+)
+    via_s_to_p = comp << gf.c.via_stack(
+        layers=("SLAB90", "M1"), vias=("viac", None), size=(VIA_SIZE, VIA_SIZE)
+    )
+    via_s_to_p.x = 0.0
+    via_s_to_p.y = VIA_S_TO_P_Y
+
+    via_g_to_n = comp << gf.c.via_stack(
+        layers=("SLAB90", "M1"), vias=("viac", None), size=(VIA_SIZE, VIA_SIZE)
+    )
+    via_g_to_n.x = 0.0
+    via_g_to_n.y = VIA_G_TO_N_Y
+
+    return comp, doping_result
+
+
+def _build_optical_component() -> gf.Component:
+    """Optical-only cross-section: rib + slab + PN junction (all silicon).
+
+    No electrodes, vias, or graded doping — the optical mode sees a single
+    homogeneous Si body embedded in the uniform SiO2 cladding stack.
+    """
+    comp = gf.Component()
+    _add_device_core(comp)
+    return comp
+
+
+# --- RF component (electrodes, vias, graded doping) ------------------------
+comp, doping_result = _build_rf_component()
+
+# --- Optical component (rib + slab + PN junction only) ---------------------
+comp_optical = _build_optical_component()
 
 # -- Plot ----------------------------------------------------------------------
 _cc = comp.copy()
@@ -207,6 +238,93 @@ stack, section = build_doped_cross_section(
     rib_height=RIB_HEIGHT,
     permittivity=SI_PERMITTIVITY,
     fmax=FMAX_RF_MATERIAL,
+)
+
+# %% [markdown]
+# ## Optical-only cross-section
+#
+# The optical analysis uses a simplified component: the same rib + slab + PN
+# junction (identical "doping profile" polygons) but **no** electrodes, vias, or
+# graded doping. Every device region maps to plain silicon, so the optical mode
+# sees one homogeneous Si body embedded in a uniform SiO2 cladding.
+#
+# `gsim.common.cross_section.build_optical_cross_section()` assembles the
+# minimal all-dielectric `LayerStack` and extracts the 2D cross-section at $x=0$.
+
+# %%
+# Uniform SiO2 cladding height above z=0 (um)
+OPT_CLAD_TOP = 3.0
+
+stack_opt, section_opt = build_optical_cross_section(
+    comp_optical,
+    axis=CROSS_SECTION_AXIS,
+    value=CROSS_SECTION_VALUE,
+    device_layers={
+        "core": (LAYER.WG, 0.0, RIB_HEIGHT),
+        "slab": (LAYER.SLAB90, 0.0, SLAB_THICKNESS),
+        "p_rib": (LAYER.P, 0.0, RIB_HEIGHT),
+        "n_rib": (LAYER.N, 0.0, RIB_HEIGHT),
+    },
+    substrate_thickness=BOX_THICKNESS,
+    cladding_top=OPT_CLAD_TOP,
+)
+
+print("Optical stack layers:", sorted(stack_opt.layers.keys()))
+print("Optical cladding:", stack_opt.dielectrics)
+
+# %% [markdown]
+# ### Optical cross-section plot
+#
+# The PN junction still shows its P/N profile, but both regions and the slab are
+# the same silicon material.
+
+# %%
+import matplotlib.pyplot as plt
+
+from gsim.palace import plot_plane_section
+
+PLOT_ZOOM_OPT = {"h_range": (-4.0, 4.0), "v_range": (-0.6, 1.5)}
+PLOT_COLORS_OPT = {
+    "core": "#c0392b",  # rib Si
+    "slab": "#e67e22",  # slab Si
+    "p_rib": "#2980b9",  # PN junction P region (Si)
+    "n_rib": "#27ae60",  # PN junction N region (Si)
+}
+PLOT_TITLE_OPT = (
+    "Optical cross-section: rib + slab + PN junction (all Si, SiO2 cladding)"
+)
+
+plot_plane_section(
+    section_opt,
+    colors=PLOT_COLORS_OPT,
+    h_range=PLOT_ZOOM_OPT["h_range"],
+    v_range=PLOT_ZOOM_OPT["v_range"],
+    title=PLOT_TITLE_OPT,
+)
+plt.tight_layout()
+plt.show()
+
+# %% [markdown]
+# ### Optical material properties (1550 nm)
+#
+# The PDK stack materials resolve to their Sellmeier optical constants at the
+# simulation wavelength. The Palace boundary-mode config generator evaluates
+# dispersion at `F_OPT` automatically; the values below are for reference.
+
+# %%
+import math
+
+from gsim.common.stack.materials import resolve_material_at_wavelength
+
+LAMBDA_OPT = 1.55  # reference wavelength (um)
+
+si_opt = resolve_material_at_wavelength("si", LAMBDA_OPT)
+sio2_opt = resolve_material_at_wavelength("sio2", LAMBDA_OPT)
+print(
+    f"si   @ {LAMBDA_OPT:.2f} um: eps={si_opt.permittivity_scalar:.4f}  n={math.sqrt(si_opt.permittivity_scalar):.4f}"
+)
+print(
+    f"sio2 @ {LAMBDA_OPT:.2f} um: eps={sio2_opt.permittivity_scalar:.4f}  n={math.sqrt(sio2_opt.permittivity_scalar):.4f}"
 )
 
 # %% [markdown]
@@ -381,11 +499,16 @@ pl = plot_fields_2d(
 # %% [markdown]
 # ## Optical simulation (1550 nm)
 #
-# The same cross-section is analysed at optical frequencies to compute the mode
-# confined in the rib waveguide. The airbox/mesh margins come from the RF
-# section (cells run in order). `run_local()` locates the Palace binary
-# internally — there is no manual `subprocess` / binary-search here.
+# The **simplified optical component** (rib + slab + PN junction, all Si) is
+# analysed at optical frequencies to compute the mode confined in the rib
+# waveguide. It uses the minimal all-dielectric stack with a **uniform SiO2
+# cladding** and **no air**: the padded 2D domain background is set to SiO2 via
+# `set_airbox(material="sio2", ...)` instead of the default air.
+# `run_local()` locates the Palace binary internally — there is no
+# manual `subprocess` / binary-search here.
 #
+# Material dispersion is evaluated at `F_OPT` by the boundary-mode config
+# generator, so the Si and SiO2 domains use their Sellmeier optical constants.
 
 # %%
 # =============================================================================
@@ -404,13 +527,30 @@ OPT_MESH = {
     "max_mesh_size": 0.5,
 }
 
+# Optical post-processing
+OPT_FIELD = "E_real"
+OPT_FIELD_TITLE = "Optical Mode |E| at x=0 (1550 nm)"
+OPT_RIB_PHYSICAL_GROUPS = ["slab", "p_rib", "n_rib"]
+
+
 # %%
 # -- Optical setup + run (1550 nm) ---------------------------------------
 sim_optical = BoundaryModeSim()
 sim_optical.set_output_dir(OPT_OUTPUT_DIR)
-sim_optical.set_stack(stack)
-sim_optical.set_airbox(**AIRBOX)
-sim_optical.set_geometry(comp)
+sim_optical.set_stack(stack_opt)
+# Uniform SiO2 cladding: the padded 2D domain is filled with SiO2 (material=
+# "sio2") instead of air, so the device sits in a uniform dielectric background.
+# Only modest padding is needed since the cladding now surrounds the rib
+# directly. The "absorbing boundary on solid dielectric" warning from mesh() is
+# expected here — for an eigenmode cross-section the PML sits far from the mode.
+sim_optical.set_airbox(
+    material="sio2",
+    margin_x=3.0,
+    margin_y=3.0,
+    z_above=3.0,
+    z_below=2.0,
+)
+sim_optical.set_geometry(comp_optical)
 
 sim_optical.set_cross_section(f"{CROSS_SECTION_AXIS}={CROSS_SECTION_VALUE}")
 sim_optical.set_boundary_mode(
@@ -421,13 +561,25 @@ sim_optical.set_boundary_mode(
     tolerance=TOLERANCE,
 )
 
+# Optical constants at 1550 nm (Sellmeier). The config generator also resolves
+# dispersion at F_OPT automatically; these overrides keep the config explicit.
+sim_optical.set_material(
+    "si", material_type="dielectric", permittivity=si_opt.permittivity_scalar
+)
+sim_optical.set_material(
+    "sio2", material_type="dielectric", permittivity=sio2_opt.permittivity_scalar
+)
+
 sim_optical.mesh(
     preset=OPT_MESH["preset"],
     refined_mesh_size=OPT_MESH["refined_mesh_size"],
     max_mesh_size=OPT_MESH["max_mesh_size"],
-    margin_x=MESH_MARGIN_X,
-    margin_y=MESH_MARGIN_Y,
 )
+
+# The optical-only stack has no conductors (only shaped dielectrics), which the
+# default write_config() mesh validation accepts. Generate config.json so the
+# local run below has something to submit.
+sim_optical.write_config()
 
 # %%
 # Interactive 3D mesh visualisation
@@ -440,6 +592,27 @@ sim_optical.plot_mesh(
 # %%
 opt_results = sim_optical.run_local(verbose=True)
 opt_results.print()
+
+# %%
+# --- Optical mode in the rib waveguide (1550 nm) ---
+from gsim.palace import plot_fields_2d
+
+pl = plot_fields_2d(
+    OPT_OUTPUT_DIR,
+    field=OPT_FIELD,
+    title=OPT_FIELD_TITLE,
+    interactive=True,
+)
+
+# %%
+# --- Rib waveguide zoom: optical physical groups (all Si) ---
+pl = plot_fields_2d(
+    OPT_OUTPUT_DIR,
+    field=OPT_FIELD,
+    physical_groups=OPT_RIB_PHYSICAL_GROUPS,
+    title="Optical Mode |E| in the Rib Waveguide (1550 nm, zoomed)",
+    interactive=True,
+)
 
 # %% [markdown]
 # ## Summary
@@ -470,6 +643,17 @@ opt_results.print()
 # - The **depletion region** and voltage-dependent capacitance are NOT modelled here — this is a linear small-signal analysis at a fixed bias point.
 # - The **plasma-dispersion effect** is not applied to the optical simulation; the rib is treated as intrinsic Si at 1550 nm.
 #
+# **Optical-only component:**
+# - The optical run (`sim_optical`) uses a **simplified component** — the same
+#   rib + slab + PN junction ("doping profile") polygons, but no electrodes,
+#   vias, or graded doping.
+# - Every device region maps to **plain silicon** in `build_optical_cross_section()`,
+#   so the optical mode sees one homogeneous Si body in a **uniform SiO2 cladding**.
+# - The background medium is SiO2, not air: `set_airbox(material="sio2", ...)`
+#   fills the padded 2D domain with the cladding material (default is air).
+# - Material dispersion is evaluated at `F_OPT` by the boundary-mode config
+#   generator: Si -> eps~12.09 (n~3.478), SiO2 -> eps~2.09 (n~1.444) at 1550 nm.
+#
 # **Next steps (user action):**
 # 1. Verify the zoomed cross-section plot shows the rib (centred at y=-20), PN junction, graded doping, and vias.
 # 2. Run `sim.run_local(verbose=True)` with a Palace CPU runner installed (`pip install gsim[palace-toolkit-cpu]`). 2D
@@ -483,6 +667,12 @@ opt_results.print()
 # Quick verification: dump the 2D cross-section layer regions
 print("=== RF cross-section regions (x=0) ===")
 for r in section:
+    print(
+        f"  {r.layer_name:12s}  mat={r.material:10s}  "
+        f"y=[{r.y0:6.2f},{r.y1:6.2f}]  z=[{r.zmin:5.3f},{r.zmax:5.3f}]"
+    )
+print("\n=== Optical cross-section regions (x=0) ===")
+for r in section_opt:
     print(
         f"  {r.layer_name:12s}  mat={r.material:10s}  "
         f"y=[{r.y0:6.2f},{r.y1:6.2f}]  z=[{r.zmin:5.3f},{r.zmax:5.3f}]"

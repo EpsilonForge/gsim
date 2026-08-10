@@ -518,6 +518,35 @@ def _view_id(plotter: Any) -> str:
     return f"plotter-{id(plotter)}"
 
 
+@contextlib.contextmanager
+def _quiet_trame_logging() -> Any:
+    """Raise trame server/client loggers above INFO while a live view is built.
+
+    trame's state/translator machinery logs the full Vue template
+    tokenisation at INFO on every widget render — ``js_key``/``trigger()``/
+    ``before:``/``after:``/``token`` lines — which floods notebook consoles
+    with hundreds of lines per view.  These are debugging logs, so they are
+    suppressed while the live view widget is created and restored afterwards.
+    """
+    noisy = (
+        "trame",
+        "trame_client",
+        "trame_server",
+        "trame_vtk",
+        "trame_vuetify",
+    )
+    previous: dict[str, int] = {}
+    for name in noisy:
+        lg = logging.getLogger(name)
+        previous[name] = lg.level
+        lg.setLevel(max(int(lg.level), logging.WARNING))
+    try:
+        yield
+    finally:
+        for name, level in previous.items():
+            logging.getLogger(name).setLevel(level)
+
+
 def _in_notebook() -> bool:
     """Return ``True`` when running inside a Jupyter/IPython kernel."""
     try:
@@ -695,7 +724,8 @@ def _show_live(plotter: Any) -> None:
     if _in_notebook() and getattr(plotter, "notebook", False):
         try:
             plotter.render()
-            plotter.show(jupyter_backend=_TRAME_BACKEND)
+            with _quiet_trame_logging():
+                plotter.show(jupyter_backend=_TRAME_BACKEND)
         except Exception:
             logger.warning(
                 "Failed to render interactive trame widget; showing a static image",

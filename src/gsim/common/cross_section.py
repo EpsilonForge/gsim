@@ -345,6 +345,122 @@ def build_doped_cross_section(
     return stack, section
 
 
+def build_optical_cross_section(
+    component: gf.Component,
+    *,
+    axis: Literal["x", "y", "z"],
+    value: float,
+    device_layers: Mapping[str, tuple[tuple[int, int], float, float]],
+    substrate_thickness: float = 2.0,
+    cladding_top: float = 2.0,
+    device_material: str = "si",
+    cladding_material: str = "sio2",
+    mesh_resolution: str | float = "fine",
+    verbose: bool = True,
+) -> tuple[LayerStack, list[Rect2D] | list[RectYZ2D] | list[PolygonXY2D]]:
+    """Assemble a minimal all-dielectric ``LayerStack`` and extract a plane section.
+
+    Builds a photonic ``LayerStack`` for a simplified device — e.g. a rib +
+    slab + PN junction made of a single semiconductor — sitting in a uniform
+    cladding background. Unlike :func:`build_doped_cross_section`, every device
+    region is mapped to the same plain dielectric material (e.g. ``"si"``) and
+    no electrodes, vias, or graded doping are registered. A single ``oxide``
+    dielectric slab (the cladding material) spans the full stack z-range, so the
+    simulation domain is a uniform cladding with only the drawn device embedded
+    in it.
+
+    Args:
+        component: gdsfactory component the cross-section is extracted from.
+        axis: Cross-section normal axis.
+        value: Plane coordinate in um.
+        device_layers: Mapping of ``name -> (gds_layer, zmin, zmax)`` for every
+            patterned device region (e.g. ``{"core": ((1, 0), 0.0, 0.22)}``).
+            All regions share ``device_material``.
+        substrate_thickness: Cladding thickness below z=0 in um.
+        cladding_top: Cladding thickness above z=0 in um.
+        device_material: Material name for all device regions (default ``"si"``).
+        cladding_material: Material name of the uniform background (default
+            ``"sio2"``).
+        mesh_resolution: Mesh resolution assigned to the device ``Layer`` specs.
+        verbose: Print the assembled stack and the extracted section.
+
+    Returns:
+        ``(stack, section)`` with the populated ``LayerStack`` (device layers +
+        uniform cladding dielectric + materials) and the list of ``Rect2D`` /
+        ``RectYZ2D`` / ``PolygonXY2D`` regions at the plane.
+    """
+    from gsim.common.stack.extractor import Layer, LayerStack
+    from gsim.common.stack.materials import get_material_properties
+
+    stack = LayerStack(pdk_name="optical")
+
+    for name, (gds_layer, zmin, zmax) in device_layers.items():
+        stack.layers[name] = Layer(
+            name=name,
+            gds_layer=gds_layer,
+            zmin=zmin,
+            zmax=zmax,
+            thickness=zmax - zmin,
+            material=device_material,
+            layer_type="dielectric",
+            mesh_resolution=mesh_resolution,
+        )
+
+    stack.dielectrics.append(
+        {
+            "name": "oxide",
+            "zmin": -substrate_thickness,
+            "zmax": cladding_top,
+            "material": cladding_material,
+        }
+    )
+
+    for material in (device_material, cladding_material):
+        props = get_material_properties(material)
+        if props is not None:
+            stack.materials[material] = props.to_dict()
+
+    section = extract_plane_section(
+        component.copy(),
+        stack,
+        axis=axis,
+        value=value,
+    )
+
+    if verbose:
+        logger.info("Stack: %s", stack.pdk_name)
+        logger.info("Layers: %s", sorted(stack.layers.keys()))
+        logger.info("Device material: %s", device_material)
+        logger.info("Cladding material: %s", cladding_material)
+        logger.info("Dielectrics: %s", stack.dielectrics)
+        logger.info("")
+        logger.info(
+            "Cross-section %s=%s intersects %s layer regions:",
+            axis,
+            value,
+            len(section),
+        )
+        for r in section:
+            lo = getattr(r, "y0", getattr(r, "x0", None))
+            hi = getattr(r, "y1", getattr(r, "x1", None))
+            zlo = getattr(r, "zmin", None)
+            zhi = getattr(r, "zmax", None)
+            if zlo is None:
+                logger.info("  %-12s material=%-10s", r.layer_name, r.material)
+            else:
+                logger.info(
+                    "  %-12s material=%-10s y=[%8.3f, %8.3f]  z=[%6.3f, %6.3f]",
+                    r.layer_name,
+                    r.material,
+                    lo,
+                    hi,
+                    zlo,
+                    zhi,
+                )
+
+    return stack, section
+
+
 @overload
 def _extract_line_slice_rectangles(
     component,
@@ -569,6 +685,7 @@ __all__ = [
     "Rect2D",
     "RectYZ2D",
     "build_doped_cross_section",
+    "build_optical_cross_section",
     "extract_plane_section",
     "extract_xy_polygons",
     "extract_xz_rectangles",

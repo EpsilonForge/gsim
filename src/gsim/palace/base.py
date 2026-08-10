@@ -173,7 +173,7 @@ class PalaceSimMixin:
     _hints: dict[str, Any]
     _impedance_boundaries: list[ImpedanceBoundaryConfig]
     absorbing_boundary: bool
-    _airbox_config: dict[str, float]
+    _airbox_config: dict[str, Any]
 
     # -------------------------------------------------------------------------
     # Output directory
@@ -302,6 +302,7 @@ class PalaceSimMixin:
         margin_y: float | None = None,
         z_above: float | None = None,
         z_below: float | None = None,
+        material: str = "air",
     ) -> None:
         """Configure an explicit weak-priority airbox for meshing.
 
@@ -309,6 +310,17 @@ class PalaceSimMixin:
         across mesh margin arguments and stack air thickness parameters.
         The resulting airbox is created as a dedicated dielectric volume
         with the weakest boolean-priority in mesh construction.
+
+        ``material`` sets the material name of the padded background region.
+        It defaults to ``"air"`` (eps=1). For a photonic cross-section with a
+        uniform cladding, pass e.g. ``"sio2"`` so the region around the device
+        is filled with SiO2 instead of air. The material must be resolvable in
+        the stack's materials (or the built-in database); its permittivity is
+        evaluated at the simulation frequency (e.g. Sellmeier SiO2 at 1550 nm).
+
+        Note: the background material currently applies to the native-2D
+        BoundaryMode domain (the region outside the stack/cladding); the 3D
+        airbox region remains air.
 
         Args:
             margin_x: Airbox x-margin around the design (um).
@@ -319,6 +331,8 @@ class PalaceSimMixin:
                 Defaults to ``0.0`` when omitted.
             z_below: Airbox extension below the stack bottom (um).
                 Defaults to ``0.0`` when omitted.
+            material: Background material name for the padded region
+                (default ``"air"``).
         """
         mx = 0.0 if margin_x is None else margin_x
         my = 0.0 if margin_y is None else margin_y
@@ -331,6 +345,8 @@ class PalaceSimMixin:
             raise ValueError("margin_y must be >= 0")
         if za < 0 or zb < 0:
             raise ValueError("z_above and z_below must be >= 0")
+        if not material or not isinstance(material, str):
+            raise ValueError("material must be a non-empty string")
 
         # Keep mesh margin controls in sync for domain/port extents.
         mesh_config = getattr(self, "mesh_config", None)
@@ -344,6 +360,7 @@ class PalaceSimMixin:
             "margin_y": my,
             "z_above": za,
             "z_below": zb,
+            "material": material,
         }
 
     def _apply_airbox_overrides(
@@ -369,6 +386,7 @@ class PalaceSimMixin:
             margin_y=margin_y if margin_y is not None else current.get("margin_y"),
             z_above=z_above if z_above is not None else current.get("z_above"),
             z_below=z_below if z_below is not None else current.get("z_below"),
+            material=str(current.get("material", "air")),
         )
 
     # -------------------------------------------------------------------------
@@ -1111,6 +1129,7 @@ class PalaceSimMixin:
             airbox_margin_y=airbox_cfg.get("margin_y"),
             airbox_z_above=airbox_cfg.get("z_above"),
             airbox_z_below=airbox_cfg.get("z_below"),
+            airbox_material=airbox_cfg.get("material", "air"),
             fmax=effective_fmax,
             show_gui=mesh_config.show_gui,
             simulation_type=self.simulation_type,
@@ -1337,6 +1356,7 @@ class PalaceSimMixin:
                 airbox_margin_y=airbox_cfg.get("margin_y"),
                 airbox_z_above=airbox_cfg.get("z_above"),
                 airbox_z_below=airbox_cfg.get("z_below"),
+                airbox_material=airbox_cfg.get("material", "air"),
                 fmax=mesh_config.fmax,
                 show_gui=True,
                 simulation_type=self.simulation_type,

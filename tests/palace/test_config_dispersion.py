@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from scipy.constants import c as C0  # noqa: N812
 
+from gsim.common.stack.extractor import Layer, LayerStack
 from gsim.common.stack.materials import MATERIALS_DB
 from gsim.palace.materials import resolve_palace_materials_at_frequency
-from gsim.palace.models import DrivenConfig
+from gsim.palace.mesh.config_generator import generate_palace_config
+from gsim.palace.models import BoundaryModeConfig, DrivenConfig
 
 
 class TestDrivenConfigCenterFrequency:
@@ -104,3 +108,98 @@ class TestResolvePalaceMaterialsAtFrequency:
         resolved = resolve_palace_materials_at_frequency(materials, freq_hz)
         assert "sapphire" in resolved
         assert isinstance(resolved["sapphire"]["permittivity"], list)
+
+
+class TestBoundaryModeFrequencyResolution:
+    """Boundary-mode configs must evaluate dispersion at the operating frequency."""
+
+    @staticmethod
+    def _stack_with_core() -> LayerStack:
+        stack = LayerStack()
+        stack.layers["CORE"] = Layer(
+            name="CORE",
+            gds_layer=(1, 0),
+            zmin=0.0,
+            zmax=0.22,
+            thickness=0.22,
+            material="silicon",
+            layer_type="dielectric",
+        )
+        stack.materials = {"silicon": MATERIALS_DB["silicon"].to_dict()}
+        return stack
+
+    @staticmethod
+    def _groups() -> dict:
+        return {
+            "volumes": {
+                "CORE": {
+                    "phys_group": 101,
+                    "is_shaped_dielectric": True,
+                }
+            },
+            "conductor_surfaces": {},
+            "pec_surfaces": {},
+            "port_surfaces": {},
+            "boundary_surfaces": {},
+        }
+
+    def _material_permittivity(self, config_path) -> float:
+        config = json.loads(config_path.read_text())
+        materials = config["Domains"]["Materials"]
+        core_mat = next(
+            entry for entry in materials if 101 in entry.get("Attributes", [])
+        )
+        return core_mat["Permittivity"]
+
+    def test_optical_frequency_uses_sellmeier(self, tmp_path):
+        """At 1550 nm the config permittivity matches Sellmeier silicon (n~3.48)."""
+        boundary = BoundaryModeConfig(freq=C0 / (1.55e-6), num_modes=2, save=1)
+        config_path = generate_palace_config(
+            groups=self._groups(),
+            ports=[],
+            port_info=[],
+            stack=self._stack_with_core(),
+            output_path=tmp_path,
+            model_name="palace",
+            fmax=100e9,
+            simulation_type="boundarymode",
+            boundary_mode_config=boundary,
+            absorbing_boundary=False,
+        )
+        eps = self._material_permittivity(config_path)
+        assert eps == pytest.approx(12.09, abs=0.05)
+
+    def test_rf_frequency_uses_constant_model(self, tmp_path):
+        """At 50 GHz the config permittivity falls back to the RF constant value."""
+        boundary = BoundaryModeConfig(freq=50e9, num_modes=2, save=1)
+        config_path = generate_palace_config(
+            groups=self._groups(),
+            ports=[],
+            port_info=[],
+            stack=self._stack_with_core(),
+            output_path=tmp_path,
+            model_name="palace",
+            fmax=100e9,
+            simulation_type="boundarymode",
+            boundary_mode_config=boundary,
+            absorbing_boundary=False,
+        )
+        eps = self._material_permittivity(config_path)
+        assert eps == pytest.approx(11.9)
+
+    def test_no_frequency_resolution_without_boundary_config(self, tmp_path):
+        """Without a boundary-mode config, stack materials pass through unchanged."""
+        stack = self._stack_with_core()
+        stack.materials = {"silicon": {"permittivity": 12.1}}
+        config_path = generate_palace_config(
+            groups=self._groups(),
+            ports=[],
+            port_info=[],
+            stack=stack,
+            output_path=tmp_path,
+            model_name="palace",
+            fmax=100e9,
+            simulation_type="boundarymode",
+            absorbing_boundary=False,
+        )
+        assert self._material_permittivity(config_path) == pytest.approx(12.1)

@@ -64,7 +64,7 @@ class BoundaryModeSim(PalaceSimMixin, BaseModel):
     _pec_blocks: list = PrivateAttr(default_factory=list)
     _hints: dict[str, Any] = PrivateAttr(default_factory=dict)
     _impedance_boundaries: list = PrivateAttr(default_factory=list)
-    _airbox_config: dict[str, float] = PrivateAttr(default_factory=dict)
+    _airbox_config: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     # Internal state
     _output_dir: Path | None = PrivateAttr(default=None)

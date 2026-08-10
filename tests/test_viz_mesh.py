@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import meshio
 import numpy as np
@@ -384,6 +384,50 @@ def test_notebook_uses_trame_backend_by_default(
     viz._show_or_screenshot(plotter, interactive=True, mode="live")
     assert seen["backend"] == "trame"
     assert {plotter._id_name: plotter} == viz._LIVE_PLOTTERS
+
+
+def test_notebook_live_view_silences_trame_debug_logs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Trame's template/state debug loggers are quiet while a live view is built.
+
+    The Vue-template tokenisation trame logs at INFO on every widget render
+    floods notebook consoles.  ``_show_live`` must raise those loggers to
+    WARNING for the duration of ``show()`` and restore them afterwards.
+    """
+    import logging
+
+    noisy = ("trame", "trame_client", "trame_server", "trame_vtk", "trame_vuetify")
+    for name in noisy:
+        logging.getLogger(name).setLevel(logging.NOTSET)
+    try:
+        viz._LIVE_PLOTTERS.clear()
+        monkeypatch.setattr(viz, "_in_notebook", lambda: True)
+        monkeypatch.setattr(viz, "_TRAME_BACKEND", "trame")
+
+        seen: dict[str, object] = {}
+        plotter = _FakePlotter()
+        plotter.notebook = True
+
+        def _show(**_kwargs: object) -> _FakePlotter:
+            seen["levels"] = {name: logging.getLogger(name).level for name in noisy}
+            return plotter
+
+        monkeypatch.setattr(plotter, "show", _show)
+
+        viz._show_or_screenshot(plotter, interactive=True, mode="live")
+
+        levels = cast(dict[str, int], seen["levels"])
+        for name, level in levels.items():
+            assert level >= logging.WARNING, f"{name} not silenced (level={level})"
+
+        # Levels restored after the live view is created.
+        for name in noisy:
+            assert logging.getLogger(name).level == logging.NOTSET
+        assert plotter._id_name in viz._LIVE_PLOTTERS
+    finally:
+        for name in noisy:
+            logging.getLogger(name).setLevel(logging.NOTSET)
 
 
 def test_set_trame_backend_validates() -> None:
