@@ -34,7 +34,7 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from gdsfactoryplus import sim
 
@@ -42,6 +42,24 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
+
+
+def _status_value(status: Any) -> str:
+    """Return a status string for SDK 1.x enums and SDK 2.x strings."""
+    return str(getattr(status, "value", status))
+
+
+def _get_job_logs_callable() -> Callable[..., dict[str, Any]] | None:
+    """Return the SDK log fetcher across the 1.x module and 2.x package layouts."""
+    get_logs = getattr(sim, "_get_job_logs", None)
+    if get_logs is not None:
+        return cast("Callable[..., dict[str, Any]]", get_logs)
+
+    sim_web = getattr(sim, "web", None)
+    return cast(
+        "Callable[..., dict[str, Any]] | None",
+        getattr(sim_web, "_get_job_logs", None),
+    )
 
 
 def _is_transient_error(exc: Exception) -> bool:
@@ -171,7 +189,7 @@ def _handle_failed_job(job, output_dir: Path, verbose: bool) -> None:
     """
     error_parts = [
         f"Simulation failed with exit code {job.exit_code}",
-        f"Status: {job.status.value}",
+        f"Status: {_status_value(job.status)}",
     ]
 
     if job.status_reason:
@@ -336,12 +354,12 @@ def get_status(job_id: str) -> str:
         ``"running"``, ``"completed"``, ``"failed"``.
     """
     job = sim.get_job(job_id)
-    return job.status.value
+    return _status_value(job.status)
 
 
 def _fetch_logs(job_id: str, cursor: str | None) -> tuple[list[str], str | None]:
     """Fetch a page of log messages. Returns (messages, next_cursor)."""
-    _get_logs = getattr(sim, "_get_job_logs", None)
+    _get_logs = _get_job_logs_callable()
     if _get_logs is None:
         return [], cursor
     _logs_unavailable = getattr(sim, "LogsNotAvailableError", Exception)
@@ -415,11 +433,11 @@ def wait_for_results(
     if not job_ids:
         raise ValueError("At least one job_id is required")
 
-    if verbose == "full" and not hasattr(sim, "_get_job_logs"):
+    if verbose == "full" and _get_job_logs_callable() is None:
         import warnings
 
         warnings.warn(
-            "Log streaming requires gdsfactoryplus >= 1.6.4. "
+            "Log streaming is not supported by this gdsfactoryplus SDK. "
             "Falling back to verbose='status'.",
             stacklevel=2,
         )
@@ -430,11 +448,14 @@ def wait_for_results(
     now = time.monotonic()
     start_times: dict[str, float] = dict.fromkeys(job_ids, now)
     end_times: dict[str, float] = {}
-    terminal = {sim.SimStatus.COMPLETED, sim.SimStatus.FAILED}
+    terminal = {
+        _status_value(sim.SimStatus.COMPLETED),
+        _status_value(sim.SimStatus.FAILED),
+    }
 
     # Freeze timer for any jobs already finished
     for jid, job in jobs.items():
-        if job.status in terminal:
+        if _status_value(job.status) in terminal:
             end_times[jid] = now
 
     # Track how many lines we printed last time (for overwriting multi-job)
@@ -444,7 +465,7 @@ def wait_for_results(
     log_cursors: dict[str, str | None] = dict.fromkeys(job_ids, None)
 
     # Poll until all jobs reach a terminal state
-    while not all(j.status in terminal for j in jobs.values()):
+    while not all(_status_value(j.status) in terminal for j in jobs.values()):
         if verbose == "status":
             prev_lines = _print_status_table(
                 jobs, start_times, prev_lines, end_times=end_times
@@ -453,7 +474,7 @@ def wait_for_results(
         time.sleep(poll_interval)
 
         for jid, job in jobs.items():
-            if job.status not in terminal:
+            if _status_value(job.status) not in terminal:
                 try:
                     jobs[jid] = sim.get_job(jid)
                 except Exception as exc:
@@ -462,10 +483,12 @@ def wait_for_results(
                         continue
                     raise
                 # Stream logs when running
-                if verbose == "full" and jobs[jid].status == sim.SimStatus.RUNNING:
+                if verbose == "full" and _status_value(
+                    jobs[jid].status
+                ) == _status_value(sim.SimStatus.RUNNING):
                     log_cursors[jid] = _fetch_and_print_logs(jid, log_cursors[jid])
                 # Freeze timer when job reaches terminal state
-                if jobs[jid].status in terminal:
+                if _status_value(jobs[jid].status) in terminal:
                     end_times[jid] = time.monotonic()
 
     # Final log fetch — drain all remaining pages
@@ -560,7 +583,7 @@ def _print_status_table(
 
     if n == 1:
         jid, job = next(iter(jobs.items()))
-        msg = f"  {job.job_name or jid}  {job.status.value}  {_elapsed(jid)}"
+        msg = f"  {job.job_name or jid}  {_status_value(job.status)}  {_elapsed(jid)}"
         if mode == "tty":
             sys.stdout.write(f"\r{msg:<60s}")
             if final:
@@ -574,7 +597,8 @@ def _print_status_table(
     print(f"Waiting for {n} jobs...")  # noqa: T201
     lines_printed += 1
     for jid, job in jobs.items():
-        line = f"  {job.job_name or jid:<30s} {job.status.value:<12s} {_elapsed(jid)}"
+        status = _status_value(job.status)
+        line = f"  {job.job_name or jid:<30s} {status:<12s} {_elapsed(jid)}"
         print(line)  # noqa: T201
         lines_printed += 1
 
@@ -702,7 +726,8 @@ def run_simulation(
 
         now = datetime.now(finished_job.created_at.tzinfo).strftime("%H:%M:%S")
         print(  # noqa: T201
-            f"Created: {created} | Now: {now} | Status: {finished_job.status.value}"
+            f"Created: {created} | Now: {now} | "
+            f"Status: {_status_value(finished_job.status)}"
         )
 
     # Check status
@@ -737,7 +762,9 @@ def print_job_summary(job) -> None:
     files = list(job.download_urls.keys()) if job.download_urls else []
 
     print(f"{'Job:':<12} {job.job_name}")  # noqa: T201
-    print(f"{'Status:':<12} {job.status.value} (exit {job.exit_code})")  # noqa: T201
+    print(  # noqa: T201
+        f"{'Status:':<12} {_status_value(job.status)} (exit {job.exit_code})"
+    )
     print(f"{'Duration:':<12} {duration}")  # noqa: T201
     mem_gb = job.requested_memory_mb // 1024
     print(f"{'Resources:':<12} {job.requested_cpu} CPU / {mem_gb} GB")  # noqa: T201
