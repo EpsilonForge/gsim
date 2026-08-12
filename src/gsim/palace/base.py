@@ -59,6 +59,8 @@ class PalaceSimMixin:
     terminals: list[TerminalConfig]
     simulation_type: Literal["driven", "eigenmode", "electrostatic", "boundarymode"]
     _output_dir: Path | None
+    _job_id: str | None
+    _input_hash: str | None
     _stack_kwargs: dict[str, Any]
     _pec_blocks: list
     _hints: dict[str, Any]
@@ -1490,10 +1492,14 @@ class PalaceSimMixin:
             or :func:`gsim.wait_for_results`.
         """
         from gsim import gcloud
+        from gsim.hashing import compute_input_hash
 
         tmp = self._prepare_upload_dir()
         try:
-            self._job_id = gcloud.upload(tmp, "palace", verbose=verbose)
+            self._input_hash = compute_input_hash(tmp, "palace")
+            self._job_id = gcloud.upload(
+                tmp, "palace", verbose=verbose, input_hash=self._input_hash
+            )
         except Exception:
             import shutil
 
@@ -1565,6 +1571,7 @@ class PalaceSimMixin:
         *,
         verbose: Literal["quiet", "status", "full"] = "status",
         wait: bool = True,
+        check_cache: bool = False,
     ) -> SParams | dict[str, Path] | str:
         """Run simulation on GDSFactory+ cloud.
 
@@ -1576,6 +1583,9 @@ class PalaceSimMixin:
                 Defaults to the current working directory.
             verbose: ``"quiet"`` no output, ``"status"`` status line,
                 ``"full"`` stream solver logs.
+            check_cache: If ``True``, look for a completed cloud job with
+                byte-identical inputs and reuse its results instead of
+                submitting. A lookup failure degrades to a normal submit.
             wait: If ``True`` (default), block until results are ready.
                 If ``False``, upload + start and return the ``job_id``.
 
@@ -1599,7 +1609,23 @@ class PalaceSimMixin:
             >>> results = eigen_sim.run()  # returns dict[str, Path]
             >>> print(results["eig.csv"])
         """
-        self.upload(verbose=False)
+        from gsim import gcloud
+
+        if check_cache:
+            tmp = self._prepare_upload_dir()
+            self._input_hash, cached_job_id = gcloud.check_cache_for_dir(tmp, "palace")
+            if cached_job_id is not None:
+                self._job_id = cached_job_id
+                if verbose != "quiet":
+                    print(f"Cache hit: reusing job {cached_job_id}")  # noqa: T201
+                if not wait:
+                    return self._job_id
+                return self.wait_for_results(verbose=verbose, parent_dir=parent_dir)
+            self._job_id = gcloud.upload(
+                tmp, "palace", verbose=False, input_hash=self._input_hash
+            )
+        else:
+            self.upload(verbose=False)
         self.start(verbose=verbose != "quiet")
         if not wait:
             if self._job_id is None:
