@@ -31,6 +31,12 @@ with minimal boilerplate.
 pip install gsim
 ```
 
+For local Palace execution on Linux x86_64, install the optional prebuilt binary separately:
+
+```bash
+pip install "palacetoolkit-palace-cpu @ https://github.com/EpsilonForge/PalaceToolkit/releases/download/palace-cpu-v0.1.2/palacetoolkit_palace_cpu-0.1.0-py3-none-linux_x86_64.whl"
+```
+
 For development (requires [uv](https://docs.astral.sh/uv/)):
 
 ```bash

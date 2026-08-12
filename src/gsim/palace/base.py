@@ -1861,8 +1861,8 @@ class PalaceSimMixin:
             if resolved_exe is None:
                 raise FileNotFoundError(
                     "Palace executable not found. Set PALACE_BIN, "
-                    "PALACE_EXECUTABLE, or install palace-toolkit-cpu "
-                    "(pip install gsim[palace-toolkit-cpu])."
+                    "PALACE_EXECUTABLE, or install the optional "
+                    "palacetoolkit-palace-cpu wheel documented in the gsim README."
                 )
 
             exe_path = Path(resolved_exe)
@@ -1874,8 +1874,8 @@ class PalaceSimMixin:
                     raise FileNotFoundError(
                         f"Palace executable not found: {exe_path}. "
                         "Install Palace directly or provide correct path via "
-                        "palace_executable parameter, or install palace-toolkit-cpu: "
-                        "pip install gsim[palace-toolkit-cpu]"
+                        "palace_executable, or install the optional "
+                        "palacetoolkit-palace-cpu wheel documented in the gsim README."
                     )
                 exe_path = Path(resolved)
 
