@@ -21,7 +21,7 @@ class FakeJob:
     id: str = "job-abc123"
     job_name: str = "palace-abc123"
     job_def_name: str = "prod-palace-simulation"
-    status: SimStatus = SimStatus.COMPLETED
+    status: str | SimStatus = SimStatus.COMPLETED
     exit_code: int | None = 0
     download_urls: dict | None = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -121,6 +121,36 @@ class TestResultParserRegistry:
 
 
 # ---------------------------------------------------------------------------
+# SDK layout compatibility
+# ---------------------------------------------------------------------------
+
+
+class TestSdkLayoutCompatibility:
+    """Tests for SDK helpers that moved between 1.x and 2.x."""
+
+    @patch("gsim.gcloud.sim")
+    def test_get_job_logs_from_sdk_1_module(self, mock_sim):
+        """SDK 1.x exposes the log fetcher directly on sim."""
+        from gsim.gcloud import _get_job_logs_callable
+
+        fetch_logs = MagicMock()
+        mock_sim._get_job_logs = fetch_logs
+
+        assert _get_job_logs_callable() is fetch_logs
+
+    @patch("gsim.gcloud.sim")
+    def test_get_job_logs_from_sdk_2_web_module(self, mock_sim):
+        """SDK 2.x exposes the log fetcher from the nested web module."""
+        from gsim.gcloud import _get_job_logs_callable
+
+        fetch_logs = MagicMock()
+        mock_sim._get_job_logs = None
+        mock_sim.web._get_job_logs = fetch_logs
+
+        assert _get_job_logs_callable() is fetch_logs
+
+
+# ---------------------------------------------------------------------------
 # upload()
 # ---------------------------------------------------------------------------
 
@@ -193,6 +223,15 @@ class TestGetStatus:
         assert status == "running"
         mock_sim.get_job.assert_called_once_with("job-abc")
 
+    @patch("gsim.gcloud.sim")
+    def test_returns_sdk_2_string_status(self, mock_sim):
+        """SDK 2.x string statuses are returned without enum conversion."""
+        from gsim.gcloud import get_status
+
+        mock_sim.get_job.return_value = FakeJob(status="running")
+
+        assert get_status("job-abc") == "running"
+
 
 # ---------------------------------------------------------------------------
 # wait_for_results() — single job
@@ -228,6 +267,23 @@ class TestWaitForResultsSingle:
             assert "result.csv" in result["files"]
         finally:
             del _RESULT_PARSERS["palace"]
+
+    @patch("gsim.gcloud.sim")
+    def test_already_completed_with_sdk_2_string_status(self, mock_sim, tmp_path):
+        """SDK 2.x string terminal statuses are recognized."""
+        from gsim.gcloud import wait_for_results
+
+        mock_sim.SimStatus = SimStatus
+        mock_sim.get_job.return_value = FakeJob(
+            job_def_name="unknown", status="completed"
+        )
+        output_file = tmp_path / "result.csv"
+        output_file.write_text("data")
+        mock_sim.download_results.return_value = {"output": output_file}
+
+        result = wait_for_results("job-1", verbose="quiet", parent_dir=tmp_path)
+
+        assert "result.csv" in result.files
 
     @patch("gsim.gcloud.sim")
     def test_list_input(self, mock_sim, tmp_path):
