@@ -1399,6 +1399,8 @@ class Simulation(BaseModel):
         Raises:
             ValueError: If config is invalid.
         """
+        import klayout.db as kdb
+
         from gsim.meep.script import generate_meep_script
 
         output_dir = Path(output_dir)
@@ -1406,8 +1408,30 @@ class Simulation(BaseModel):
 
         result = self.build_config()
 
-        # Write extended component GDS
-        result.component.write_gds(output_dir / "layout.gds")
+        # The solver only consumes polygons, so write a canonical flattened
+        # layout without metadata, hierarchy names, or timestamps. Those GDS
+        # details do not affect the simulation but would change the cache key.
+        gds_path = output_dir / "layout.gds"
+        save_options = kdb.SaveLayoutOptions()
+        save_options.gds2_write_timestamps = False
+        result.component.write_gds(
+            gds_path,
+            save_options=save_options,
+            with_metadata=False,
+        )
+
+        canonical_layout = kdb.Layout()
+        canonical_layout.read(str(gds_path))
+        top_cells = canonical_layout.top_cells()
+        if len(top_cells) != 1:  # pragma: no cover - write_gds emits one top cell
+            raise RuntimeError(f"Expected one top GDS cell, found {len(top_cells)}")
+        top_cell = top_cells[0]
+        top_cell.flatten(True)
+        top_cell.name = "layout"
+        save_options.select_this_cell(top_cell.cell_index())
+        save_options.gds2_write_cell_properties = False
+        save_options.gds2_write_file_properties = False
+        canonical_layout.write(str(gds_path), save_options)
 
         # Write JSON config
         result.config.to_json(output_dir / "sim_config.json")
