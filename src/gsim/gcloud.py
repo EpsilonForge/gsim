@@ -87,6 +87,8 @@ def _is_forbidden_error(exc: Exception) -> bool:
 __all__ = [
     "CloudSimulationNotEnabledError",
     "RunResult",
+    "check_cache",
+    "check_cache_for_dir",
     "get_status",
     "print_job_summary",
     "register_result_parser",
@@ -234,6 +236,78 @@ def _get_job_definition(job_type: str):
     return getattr(sim.JobDefinition, job_type_upper)
 
 
+# ---------------------------------------------------------------------------
+# Result cache
+# ---------------------------------------------------------------------------
+
+
+def _sdk_accepts(func: Any, param: str) -> bool:
+    """Return True if *func* accepts a keyword argument named *param*.
+
+    Used to stay compatible with SDK versions released before the caching
+    parameters existed.
+    """
+    import inspect
+
+    try:
+        return param in inspect.signature(func).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builtins / C funcs
+        return False
+
+
+def check_cache(job_type: str, input_hash: str) -> str | None:
+    """Look up a previously completed job with identical inputs.
+
+    Never raises: a cache lookup is an optimization, so an unsupported SDK,
+    a transient network error, or a server error all degrade to a miss and
+    the caller submits the job normally.
+
+    Args:
+        job_type: Solver name, e.g. ``"meep"`` or ``"palace"``.
+        input_hash: Value from :func:`gsim.hashing.compute_input_hash`.
+
+    Returns:
+        ``job_id`` of the cached job, or ``None`` on a miss.
+    """
+    sdk_check = getattr(sim, "check_cache", None)
+    if sdk_check is None:
+        logger.debug(
+            "Installed gdsfactoryplus has no check_cache(); skipping cache lookup"
+        )
+        return None
+
+    try:
+        result = sdk_check(
+            job_definition=_get_job_definition(job_type),
+            input_hash=input_hash,
+        )
+    except Exception as exc:
+        logger.debug("Cache lookup failed (%s); submitting normally", exc)
+        return None
+
+    if not getattr(result, "cached", False):
+        return None
+    return getattr(result, "job_id", None)
+
+
+def check_cache_for_dir(input_dir: str | Path, job_type: str) -> tuple[str, str | None]:
+    """Hash a prepared input directory and look it up in the cloud cache.
+
+    Args:
+        input_dir: Directory holding the files that would be uploaded.
+        job_type: Solver name, e.g. ``"meep"`` or ``"palace"``.
+
+    Returns:
+        ``(input_hash, job_id)`` where ``job_id`` is ``None`` on a cache
+        miss. The hash is returned either way so the caller can pass it to
+        :func:`upload` and populate the cache for the next run.
+    """
+    from gsim.hashing import compute_input_hash
+
+    input_hash = compute_input_hash(input_dir, job_type)
+    return input_hash, check_cache(job_type, input_hash)
+
+
 def _download_job(job, parent_dir: str | Path | None, verbose: bool) -> RunResult:
     """Download results from a finished job.
 
@@ -295,6 +369,7 @@ def upload(
     job_type: str,
     *,
     verbose: bool = True,
+    input_hash: str | None = None,
 ) -> str:
     """Upload simulation files to the cloud. Does NOT start execution.
 
@@ -302,6 +377,10 @@ def upload(
         config_dir: Directory containing simulation config files.
         job_type: Simulation type (e.g. ``"palace"``, ``"meep"``).
         verbose: Print progress messages.
+        input_hash: Optional cache key from
+            :func:`gsim.hashing.compute_input_hash`. Recorded server-side so
+            a later identical run can be served from cache. Ignored by SDK
+            versions that predate the caching API.
 
     Returns:
         ``job_id`` string that can be passed to :func:`start`,
@@ -314,7 +393,10 @@ def upload(
     if verbose:
         print("Uploading simulation... ", end="", flush=True)  # noqa: T201
 
-    pre_job = upload_simulation_dir(config_dir, job_type)
+    # Only forward input_hash when set, keeping the call shape unchanged for
+    # callers that don't use caching.
+    extra = {"input_hash": input_hash} if input_hash is not None else {}
+    pre_job = upload_simulation_dir(config_dir, job_type, **extra)
 
     if verbose:
         print(f"done (job_id: {pre_job.job_id})")  # noqa: T201
@@ -615,12 +697,19 @@ class CloudSimulationNotEnabledError(Exception):
     """Raised when the user's account does not have cloud simulation enabled."""
 
 
-def upload_simulation_dir(input_dir: str | Path, job_type: str):
+def upload_simulation_dir(
+    input_dir: str | Path,
+    job_type: str,
+    *,
+    input_hash: str | None = None,
+):
     """Upload a simulation directory for cloud execution.
 
     Args:
         input_dir: Directory containing simulation files
         job_type: Simulation type (e.g., "palace")
+        input_hash: Optional cache key recorded with the job. Silently
+            dropped when the installed SDK does not support it.
 
     Returns:
         PreJob object from gdsfactoryplus
@@ -630,8 +719,19 @@ def upload_simulation_dir(input_dir: str | Path, job_type: str):
     """
     input_dir = Path(input_dir)
     job_definition = _get_job_definition(job_type)
+    kwargs: dict[str, Any] = {}
+    if input_hash is not None:
+        if _sdk_accepts(sim.upload_simulation, "input_hash"):
+            kwargs["input_hash"] = input_hash
+        else:
+            logger.debug(
+                "Installed gdsfactoryplus does not accept input_hash; "
+                "uploading without a cache key"
+            )
     try:
-        return sim.upload_simulation(path=input_dir, job_definition=job_definition)
+        return sim.upload_simulation(
+            path=input_dir, job_definition=job_definition, **kwargs
+        )
     except Exception as exc:
         if _is_forbidden_error(exc):
             raise CloudSimulationNotEnabledError(

@@ -319,6 +319,7 @@ class Simulation(BaseModel):
     # Cloud job state (set by upload/run)
     _job_id: str | None = PrivateAttr(default=None)
     _config_dir: Path | None = PrivateAttr(default=None)
+    _input_hash: str | None = PrivateAttr(default=None)
 
     # PDK overlay (foundry-specific material values, loaded from YAML)
     _pdk_overlay: dict[str, Any] | None = PrivateAttr(default=None)
@@ -1398,6 +1399,8 @@ class Simulation(BaseModel):
         Raises:
             ValueError: If config is invalid.
         """
+        import klayout.db as kdb
+
         from gsim.meep.script import generate_meep_script
 
         output_dir = Path(output_dir)
@@ -1405,8 +1408,30 @@ class Simulation(BaseModel):
 
         result = self.build_config()
 
-        # Write extended component GDS
-        result.component.write_gds(output_dir / "layout.gds")
+        # The solver only consumes polygons, so write a canonical flattened
+        # layout without metadata, hierarchy names, or timestamps. Those GDS
+        # details do not affect the simulation but would change the cache key.
+        gds_path = output_dir / "layout.gds"
+        save_options = kdb.SaveLayoutOptions()
+        save_options.gds2_write_timestamps = False
+        result.component.write_gds(
+            gds_path,
+            save_options=save_options,
+            with_metadata=False,
+        )
+
+        canonical_layout = kdb.Layout()
+        canonical_layout.read(str(gds_path))
+        top_cells = canonical_layout.top_cells()
+        if len(top_cells) != 1:  # pragma: no cover - write_gds emits one top cell
+            raise RuntimeError(f"Expected one top GDS cell, found {len(top_cells)}")
+        top_cell = top_cells[0]
+        top_cell.flatten(True)
+        top_cell.name = "layout"
+        save_options.select_this_cell(top_cell.cell_index())
+        save_options.gds2_write_cell_properties = False
+        save_options.gds2_write_file_properties = False
+        canonical_layout.write(str(gds_path), save_options)
 
         # Write JSON config
         result.config.to_json(output_dir / "sim_config.json")
@@ -1548,6 +1573,19 @@ class Simulation(BaseModel):
     # Cloud: fine-grained control
     # -------------------------------------------------------------------------
 
+    def _prepare_upload_dir(self) -> Path:
+        """Write the config files to a fresh temp directory for upload.
+
+        Returns:
+            Path to the temp directory, also recorded on ``_config_dir``.
+        """
+        import tempfile
+
+        tmp = Path(tempfile.mkdtemp(prefix="meep_"))
+        self.write_config(tmp)
+        self._config_dir = tmp
+        return tmp
+
     def upload(self, *, verbose: bool = True) -> str:
         """Write config and upload to the cloud. Does NOT start execution.
 
@@ -1558,14 +1596,14 @@ class Simulation(BaseModel):
             ``job_id`` string for use with :meth:`start`, :meth:`get_status`,
             or :func:`gsim.wait_for_results`.
         """
-        import tempfile
-
         from gsim import gcloud
+        from gsim.hashing import compute_input_hash
 
-        tmp = Path(tempfile.mkdtemp(prefix="meep_"))
-        self.write_config(tmp)
-        self._config_dir = tmp
-        self._job_id = gcloud.upload(tmp, "meep", verbose=verbose)
+        tmp = self._prepare_upload_dir()
+        self._input_hash = compute_input_hash(tmp, "meep")
+        self._job_id = gcloud.upload(
+            tmp, "meep", verbose=verbose, input_hash=self._input_hash
+        )
         return self._job_id
 
     def start(self, *, verbose: bool = True) -> None:
@@ -1633,6 +1671,7 @@ class Simulation(BaseModel):
         *,
         verbose: Literal["quiet", "status", "full"] = "status",
         wait: bool = True,
+        check_cache: bool = False,
     ) -> Any:
         """Run MEEP simulation on the cloud.
 
@@ -1643,13 +1682,32 @@ class Simulation(BaseModel):
                 ``"full"`` stream solver logs.
             wait: If ``True`` (default), block until results are ready.
                 If ``False``, upload + start and return the ``job_id``.
+            check_cache: If ``True``, look for a completed cloud job with
+                byte-identical inputs and reuse its results instead of
+                submitting. A lookup failure degrades to a normal submit.
 
         Returns:
             ``SParameterResult`` when ``wait=True``, or ``job_id`` string
             when ``wait=False``.
         """
+        from gsim import gcloud
+
         self._run_verbose = verbose
-        self.upload(verbose=False)
+        if check_cache:
+            tmp = self._prepare_upload_dir()
+            self._input_hash, cached_job_id = gcloud.check_cache_for_dir(tmp, "meep")
+            if cached_job_id is not None:
+                self._job_id = cached_job_id
+                if verbose != "quiet":
+                    print(f"Cache hit: reusing job {cached_job_id}")  # noqa: T201
+                if not wait:
+                    return self._job_id
+                return self.wait_for_results(verbose=verbose, parent_dir=parent_dir)
+            self._job_id = gcloud.upload(
+                tmp, "meep", verbose=False, input_hash=self._input_hash
+            )
+        else:
+            self.upload(verbose=False)
         self.start(verbose=verbose != "quiet")
         if not wait:
             return self._job_id
