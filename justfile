@@ -8,19 +8,13 @@ dev:
   uvx pre-commit install
   git config diff.ipynb.textconv "jupyter nbconvert --to script --stdout"
 
-# Version bumping
-[linux,macos]
-bver:
-    curl -LsSf https://github.com/flaport/bver/releases/latest/download/install.sh | sh
-
-# Version bumping
-[windows]
-bver:
-    powershell -ExecutionPolicy ByPass -c "irm https://github.com/flaport/bver/releases/latest/download/install.ps1 | iex"
+# Install the release versioning tool.
+tbump:
+    uv tool install tbump
 
 # bump version
-bump version="patch":
-    bver bump "{{ version }}"
+bump version:
+    tbump "{{ version }}"
 
 uv:
   curl -LsSf https://astral.sh/uv/install.sh | sh
