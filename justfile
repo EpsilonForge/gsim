@@ -13,7 +13,7 @@ tbump:
     uv tool install tbump
 
 # bump version
-bump version="patch":
+bump version:
     tbump "{{ version }}"
 
 uv:
