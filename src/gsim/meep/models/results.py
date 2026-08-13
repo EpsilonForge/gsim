@@ -475,9 +475,9 @@ class ModeResult(BaseModel):
             raise ValueError(
                 "Ambiguous geometry: both x_grid and y_grid are populated."
             )
-        if has_y:
+        if self.y_grid is not None:
             return self.y_grid, "y (µm)"
-        if has_x:
+        if self.x_grid is not None:
             return self.x_grid, "x (µm)"
         raise ValueError(
             "No horizontal grid available. Set x_grid or y_grid on ModeResult."

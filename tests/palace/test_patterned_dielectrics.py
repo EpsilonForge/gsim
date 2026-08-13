@@ -47,6 +47,14 @@ def test_extract_layer_stack_defaults_keep_synthetic_dielectrics():
     assert "air_box" not in names
 
 
+def test_synthetic_oxide_does_not_use_silicon_as_cladding():
+    """A silicon core is not a valid fallback material for blanket oxide."""
+    stack = extract_layer_stack(_fake_gf_stack(), pdk_name="test-pdk")
+
+    oxide = next(d for d in stack.dielectrics if d["name"] == "oxide")
+    assert oxide["material"] == "SiO2"
+
+
 def test_build_entities_prioritizes_patterned_dielectrics_over_background_boxes():
     """Patterned dielectric volumes must be cut before blanket boxes."""
     stack_layers = {

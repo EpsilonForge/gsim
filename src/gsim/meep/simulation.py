@@ -553,7 +553,52 @@ class Simulation(BaseModel):
         if mz_high < needed:
             self.domain.margin_z = (mz_low, needed)
 
-    def _resolve_z_ref_extent(self) -> tuple[float, float, str, float | None, bool]:
+    def _component_with_derived_layers(self, component: Any) -> Any:
+        """Return *component* augmented with any active-PDK derived layers.
+
+        GDS stores source mask layers, whereas a gdsfactory ``LayerStack`` may
+        describe physical layers using boolean expressions and ``derived_layer``
+        targets.  MEEP needs both: the evaluated layers for the physical stack
+        and the original layers for stack entries that are not derived.
+        """
+        import gdsfactory as gf
+
+        pdk_layer_stack = gf.get_active_pdk().layer_stack
+        if pdk_layer_stack is None:
+            return component.copy()
+        if not any(
+            level.derived_layer is not None for level in pdk_layer_stack.layers.values()
+        ):
+            return component.copy()
+
+        derived = pdk_layer_stack.get_component_with_derived_layers(component)
+        # ``get_component_with_derived_layers`` evaluates each layer's
+        # Boolean expression but does not apply gdsfactory's ``background``
+        # semantics.  Recreate those physical layers from the component bbox
+        # and the declared etch exclusions, matching ``Component.to_3d()``.
+        # This keeps the hierarchy intact; no flattening is required.
+        from kfactory import kdb
+
+        for level in pdk_layer_stack.layers.values():
+            if not getattr(level, "background", False) or level.derived_layer is None:
+                continue
+
+            target_layer = gf.get_layer_tuple(level.derived_layer.layer)
+            background = kdb.Region(component.kdb_cell.bbox())
+            for excluded_layer in getattr(level, "background_exclude_layers", ()):
+                layer_index = component.kcl.layer(*tuple(excluded_layer))
+                background -= kdb.Region(
+                    component.kdb_cell.begin_shapes_rec(layer_index)
+                )
+            derived.remove_layers([target_layer])
+            derived.add_polygon(background, layer=target_layer)
+
+        derived.add_ref(component)
+        return derived
+
+    def _resolve_z_ref_extent(
+        self, component: Any | None = None
+    ) -> tuple[float, float, str, float | None, bool]:
         """Resolve ``domain.z_ref`` to a vertical reference window.
 
         Single source of truth for both the fiber-margin expansion and the
@@ -588,7 +633,8 @@ class Simulation(BaseModel):
 
         if z_ref is None:
             layer, n = _find_highest_n_layer_in_component(
-                self.geometry.component, stack
+                component if component is not None else self.geometry.component,
+                stack,
             )
             if layer is None:
                 extent = self._stack_material_extent()
@@ -1139,11 +1185,21 @@ class Simulation(BaseModel):
         if self.geometry.component is None:
             raise ValueError("No geometry set.")
 
+        # Materialize derived PDK layers before inspecting or exporting the
+        # geometry.  A number of PDKs define the physical core as a boolean
+        # expression of fabrication-mask layers; those derived polygons are
+        # not present in an imported GDS until the layer stack evaluates them.
+        original_component = self._component_with_derived_layers(
+            self.geometry.component
+        )
+
         # Apply z-crop for 3D and XZ 2D (both use the vertical dimension).
         # XY 2D collapses z entirely so cropping is meaningless. The crop
         # window comes from domain.z_ref (default: the drawn photonic core).
         if (is_3d or plane == "xz") and not self._z_cropped:
-            ref_zmin, ref_zmax, ref_name, ref_n, is_auto = self._resolve_z_ref_extent()
+            ref_zmin, ref_zmax, ref_name, ref_n, is_auto = self._resolve_z_ref_extent(
+                component=original_component
+            )
             # When a fiber source is configured in XZ mode, expand the
             # above (high) side of margin_z so the cropped stack still
             # contains the beam plane (and PML headroom) — from the ref top.
@@ -1152,7 +1208,6 @@ class Simulation(BaseModel):
 
         import gdsfactory as gf
 
-        original_component = self.geometry.component.copy()
         stack = self.geometry.stack
 
         # Resolve the XZ cut Y-coordinate ('auto'/None -> bbox center).
