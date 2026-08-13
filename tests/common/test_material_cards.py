@@ -1,5 +1,7 @@
 from math import sqrt
+from types import SimpleNamespace
 
+import gdsfactory as gf
 import pytest
 from pdk_schema import Index, MaterialCard, Sellmeier, TabulatedValue
 
@@ -75,6 +77,17 @@ def test_project_material_card_takes_precedence() -> None:
     assert (
         get_material_card("SiO2", {"Si": project_card}) is GSIM_MATERIAL_CARDS["SiO2"]
     )
+
+
+def test_active_pdk_material_card_takes_precedence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_card = MaterialCard(name="Si", optical=None, rf=None, info={})
+    project_pdk = SimpleNamespace(material_cards={"Si": project_card})
+    monkeypatch.setattr(gf, "get_active_pdk", lambda: project_pdk)
+
+    assert get_material_card("Si") is project_card
+    assert get_material_card("SiO2") is GSIM_MATERIAL_CARDS["SiO2"]
 
 
 def test_cards_have_no_external_data_references() -> None:

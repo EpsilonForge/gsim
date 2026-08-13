@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 
+import gdsfactory as gf
 from pdk_schema import (
     Band,
     Coord,
@@ -178,7 +179,10 @@ def get_material_card(
     material_name: str,
     project_material_cards: Mapping[str, MaterialCard] | None = None,
 ) -> MaterialCard:
-    """Return a project card when present, otherwise a built-in card."""
+    """Return an active-PDK card when present, otherwise a built-in card."""
+    if project_material_cards is None:
+        active_pdk = gf.get_active_pdk()
+        project_material_cards = getattr(active_pdk, "material_cards", None)
     if project_material_cards and material_name in project_material_cards:
         return project_material_cards[material_name]
     return GSIM_MATERIAL_CARDS[material_name]
