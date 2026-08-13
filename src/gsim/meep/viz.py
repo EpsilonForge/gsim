@@ -254,9 +254,8 @@ def build_cross_section_rectangles(
     directly so cross-section geometry for custom material stacks
     (e.g. TFLN) is rendered correctly.
 
-    Layers that have no GDS polygons at all (``_layer_has_any_polygon``
-    returns ``False``) are skipped, since their boundaries are already
-    implicit from adjacent layers.
+    Layers that have no GDS polygons are skipped, since their boundaries are
+    already implicit from adjacent layers.
 
     Args:
         component: gdsfactory Component with GDS polygons.
@@ -274,23 +273,6 @@ def build_cross_section_rectangles(
 
     if not stack.layers:
         return []
-
-    def _has_any_polygon(layer: object) -> bool:
-        gds = getattr(layer, "gds_layer", None)
-        if gds is None:
-            return False
-        try:
-            polys = component.get_polygons_points(layers=(gds,), merge=True)
-        except Exception:
-            return False
-        else:
-            if not isinstance(polys, dict):
-                return False
-            for v in polys.values():
-                items = v if isinstance(v, list) else [v]
-                if len(items) > 0:
-                    return True
-            return False
 
     if slice_axis == "y":
         cut_line = LineString([(-1e6, slice_coord), (1e6, slice_coord)])
@@ -327,21 +309,9 @@ def build_cross_section_rectangles(
                 poly_items.extend(items)
 
         if not poly_items:
-            if _has_any_polygon(layer):
-                continue
-            rectangles.append(
-                {
-                    "h_min": -float("inf"),
-                    "h_max": float("inf"),
-                    "z_min": layer.zmin,
-                    "z_max": layer.zmax,
-                    "layer_name": layer.name,
-                    "material": layer.material,
-                    "sidewall_angle": float(
-                        getattr(layer, "sidewall_angle", 0.0) or 0.0
-                    ),
-                }
-            )
+            # The component does not draw this stack layer.  Do not turn it
+            # into an infinite slab: the runner likewise emits no geometry
+            # for a layer with no GDS polygons.
             continue
 
         for poly in poly_items:

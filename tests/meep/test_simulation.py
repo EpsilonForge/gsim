@@ -645,6 +645,31 @@ def _xz_trivial_stack():
 class TestXZBuildConfig:
     """Tests for XZ 2D fields wired through Simulation.build_config()."""
 
+    def test_materializes_active_pdk_derived_layers(self):
+        """Derived physical layers are retained alongside source mask layers."""
+        import gdsfactory as gf
+
+        from gsim.meep.simulation import Simulation
+
+        c = gf.Component()
+        c.add_polygon(
+            [(0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (0.0, 1.0)],
+            layer=gf.gpdk.LAYER.WG,
+        )
+        c.add_polygon(
+            [(0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (0.0, 1.0)],
+            layer=gf.gpdk.LAYER.SHALLOW_ETCH,
+        )
+
+        materialized = Simulation()._component_with_derived_layers(c)
+        pdk_layer_stack = gf.get_active_pdk().layer_stack
+        assert pdk_layer_stack is not None
+        derived_layer = pdk_layer_stack.layers["shallow_etch"].derived_layer
+        assert derived_layer is not None
+
+        assert tuple(gf.gpdk.LAYER.SHALLOW_ETCH) in materialized.layers
+        assert tuple(derived_layer.layer) in materialized.layers
+
     def test_y_cut_defaults_to_bbox_center(self):
         from gsim.meep.simulation import Simulation
 

@@ -491,6 +491,13 @@ def extract_layer_stack(
             if not _is_dielectric_material(material):
                 continue
             if not _looks_like_passivation(layer_name, material):
+                if material.strip().lower() in {
+                    "si",
+                    "silicon",
+                    "ge",
+                    "germanium",
+                }:
+                    continue
                 bulk_material = material
                 break
 
@@ -502,12 +509,18 @@ def extract_layer_stack(
 
     if bulk_material is None and sorted_dielectric_layers:
         for _zmin, _zmax, material, _layer_name in sorted_dielectric_layers:
-            if _is_dielectric_material(material):
+            # Silicon/Ge layers can be classified as dielectrics for geometry
+            # purposes, but they are not a suitable blanket cladding.  If a
+            # PDK has no oxide-like layer, use the explicit SiO2 fallback
+            # below rather than turning the synthetic BOX/cladding into Si.
+            if _is_dielectric_material(material) and material.strip().lower() not in {
+                "si",
+                "silicon",
+                "ge",
+                "germanium",
+            }:
                 bulk_material = material
                 break
-
-    if bulk_material is None and sorted_dielectric_layers:
-        bulk_material = sorted_dielectric_layers[0][2]
 
     if bulk_material is None:
         # Rare fallback when a PDK stack defines no dielectric layers.
