@@ -53,18 +53,76 @@ class GeometryConfig(_StrictModel):
 
     volumes: dict[str, RegionConfig] = Field(min_length=1)
     layers: dict[str, RegionConfig] = Field(min_length=1)
-    ports: dict[str, PortConfig] = Field(min_length=1)
+    ports: dict[str, PortConfig] = Field(default_factory=dict)
+
+
+Vector3 = tuple[float, float, float]
+SignedAxis = Literal["+x", "-x", "+y", "-y", "+z", "-z"]
+
+
+class GaussianBeamConfig(_StrictModel):
+    """Free-space Gaussian beam injected through an axis-aligned aperture."""
+
+    region_min: Vector3
+    region_max: Vector3
+    aperture_normal: SignedAxis
+    propagation_direction: Vector3
+    e_polarization: Vector3
+    focal_point: Vector3
+    waist_radius: float = Field(gt=0)
+    refractive_index: float = Field(gt=0)
+
+
+class FiberModeConfig(_StrictModel):
+    """Analytic Gaussian fiber profile used by a plane monitor."""
+
+    propagation_direction: Vector3
+    e_polarization: Vector3
+    focal_point: Vector3
+    waist_radius: float = Field(gt=0)
+    refractive_index: float = Field(gt=0)
+
+
+class PlaneMonitorConfig(_StrictModel):
+    """Flux and optional fiber-overlap monitor on an arbitrary plane."""
+
+    name: str = Field(min_length=1)
+    region_min: Vector3
+    region_max: Vector3
+    normal: SignedAxis
+    flux: bool = True
+    wavelengths: list[float] | None = None
+    fiber_mode: FiberModeConfig | None = None
+
+    @model_validator(mode="after")
+    def validate_plane(self) -> PlaneMonitorConfig:
+        """Require ordered bounds and zero thickness along the normal axis."""
+        if any(
+            lower > upper
+            for lower, upper in zip(self.region_min, self.region_max, strict=True)
+        ):
+            raise ValueError("monitor region_min cannot exceed region_max")
+        normal_axis = {"x": 0, "y": 1, "z": 2}[self.normal[-1]]
+        if self.region_min[normal_axis] != self.region_max[normal_axis]:
+            raise ValueError("monitor region must be planar along its normal axis")
+        if self.wavelengths is not None and any(
+            wavelength <= 0 for wavelength in self.wavelengths
+        ):
+            raise ValueError("monitor wavelengths must be positive")
+        return self
 
 
 class ExcitationConfig(_StrictModel):
     """Initial eigenmode pulse configuration."""
 
-    type: Literal["eigenmode"] = "eigenmode"
+    type: Literal["eigenmode", "gaussian_beam"] = "eigenmode"
     waveform: Literal["pulse", "continuous_wave"] = "pulse"
     center_wavelength: float = Field(gt=0)
     wavelength_halfspan: float = Field(ge=0)
     num_wavelengths: int = Field(ge=1)
-    default_port: str = Field(min_length=1)
+    amplitude: float = 1.0
+    default_port: str | None = Field(default=None, min_length=1)
+    gaussian_beam: GaussianBeamConfig | None = None
 
     @model_validator(mode="after")
     def validate_wavelength_span(self) -> ExcitationConfig:
@@ -73,6 +131,18 @@ class ExcitationConfig(_StrictModel):
             raise ValueError("wavelength_halfspan must be smaller than the center")
         if self.waveform == "continuous_wave" and self.num_wavelengths != 1:
             raise ValueError("continuous_wave requires num_wavelengths=1")
+        if self.amplitude == 0:
+            raise ValueError("excitation amplitude cannot be zero")
+        if self.type == "eigenmode":
+            if self.default_port is None:
+                raise ValueError("eigenmode excitation requires default_port")
+            if self.gaussian_beam is not None:
+                raise ValueError("eigenmode excitation cannot include gaussian_beam")
+        else:
+            if self.gaussian_beam is None:
+                raise ValueError("gaussian_beam excitation requires its settings")
+            if self.default_port is not None:
+                raise ValueError("gaussian_beam excitation cannot use default_port")
         return self
 
 
@@ -101,6 +171,7 @@ class FDTDConfig(_StrictModel):
     materials: dict[str, MaterialConfig] = Field(min_length=1)
     geometry: GeometryConfig
     excitation: ExcitationConfig
+    monitors: list[PlaneMonitorConfig] = Field(default_factory=list)
     grid: GridConfig
     run: RunConfig
 
@@ -123,10 +194,16 @@ class FDTDConfig(_StrictModel):
                 raise ValueError(
                     f"port {port_name!r} references unknown layer {port.layer!r}"
                 )
-        if self.excitation.default_port not in self.geometry.ports:
+        if (
+            self.excitation.type == "eigenmode"
+            and self.excitation.default_port not in self.geometry.ports
+        ):
             raise ValueError(
                 f"default_port {self.excitation.default_port!r} is not declared"
             )
+        monitor_names = [monitor.name for monitor in self.monitors]
+        if len(monitor_names) != len(set(monitor_names)):
+            raise ValueError("monitor names must be unique")
         return self
 
 
@@ -150,12 +227,14 @@ def build_fdtd_config(
     center_wavelength_nm: float,
     wavelength_halfspan_nm: float,
     num_wavelengths: int,
-    default_port: str,
+    default_port: str | None,
     nanometers_per_cell: float,
     pml_cells: int,
     max_timesteps: int | None,
     energy_decay_fraction: float,
     max_wall_seconds: float,
+    gaussian_beam: GaussianBeamConfig | None = None,
+    monitors: list[PlaneMonitorConfig] | None = None,
 ) -> FDTDConfig:
     """Build and cross-validate a GDSFactory FDTD config from a mesh manifest."""
     if background_material not in material_snapshots:
@@ -196,11 +275,14 @@ def build_fdtd_config(
             },
         ),
         excitation=ExcitationConfig(
+            type="gaussian_beam" if gaussian_beam is not None else "eigenmode",
             center_wavelength=center_wavelength_nm,
             wavelength_halfspan=wavelength_halfspan_nm,
             num_wavelengths=num_wavelengths,
             default_port=default_port,
+            gaussian_beam=gaussian_beam,
         ),
+        monitors=monitors or [],
         grid=GridConfig(
             nanometers_per_cell=nanometers_per_cell,
             pml_cells=pml_cells,
@@ -216,9 +298,12 @@ def build_fdtd_config(
 __all__ = [
     "ExcitationConfig",
     "FDTDConfig",
+    "FiberModeConfig",
+    "GaussianBeamConfig",
     "GeometryConfig",
     "GridConfig",
     "MaterialConfig",
+    "PlaneMonitorConfig",
     "PortConfig",
     "RegionConfig",
     "RunConfig",

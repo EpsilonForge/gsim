@@ -30,11 +30,31 @@ FDTD.
 
 ## Initial geometry limits
 
-The first backend supports axis-aligned optical ports, one connected polygon per
-material-bearing layer, and vertical or constant-angle sidewalls. It rejects
-ambiguous geometry, unsupported `bias`/`z_to_bias` profiles, and lossy material
-snapshots because GDSFactory FDTD config schema version 1 accepts only real scalar
-refractive indices.
+The backend supports disconnected polygons, polygon holes, axis-aligned guided
+ports, and vertical or constant-angle sidewalls. Tapered layers use a small
+number of midpoint-sampled prisms selected from the Yee-cell size, keeping the
+lateral approximation error below one quarter cell while leaving field
+resolution to the backend voxelizer.
+
+Vertical `vertical_te` and `vertical_tm` ports are free-space apertures rather
+than material-owned eigenmode ports. By default a vertical port becomes a
+plane/fiber monitor while the first guided port is excited. Select the vertical
+port explicitly to generate a Gaussian-beam source:
+
+```python
+simulation = fdtd.Simulation(pdk=gpdk, default_port="o2")
+simulation.geometry("grating_coupler_elliptical")
+simulation.write("fdtd_output/grating")
+```
+
+The aperture defaults to a square using the port width, top-facing `+z`, with a
+beam waist equal to half the aperture width. Override these policies with
+`vertical_port_axis`, `vertical_port_aperture_width_um`, and
+`vertical_port_waist_radius_um`.
+
+The initial implementation rejects unsupported `bias`/`z_to_bias` profiles and
+lossy material snapshots because config schema version 1 accepts only real
+scalar refractive indices.
 
 ## Reference
 

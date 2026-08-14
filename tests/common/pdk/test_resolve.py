@@ -221,6 +221,26 @@ def test_rejects_non_axis_aligned_ports() -> None:
         )
 
 
+def test_preserves_vertical_port_type_and_in_plane_polarization_angle() -> None:
+    component = demo_component()
+    component.add_port(
+        name="fiber",
+        center=(1.0, 0.1),
+        width=10,
+        orientation=45,
+        layer=(1, 0),
+        port_type="vertical_te",
+    )
+
+    result = resolve_passive_pcell(component, pdk=make_test_pdk())
+
+    fiber = result.ports["fiber"]
+    assert fiber.is_vertical
+    assert fiber.port_type == "vertical_te"
+    assert fiber.orientation == pytest.approx(45)
+    assert fiber.normal == (0, 0, 1)
+
+
 def test_rejects_settings_for_component_instance() -> None:
     with pytest.raises(ComponentResolutionError, match="Settings cannot"):
         resolve_passive_pcell(

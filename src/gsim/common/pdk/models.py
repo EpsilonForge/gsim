@@ -61,8 +61,14 @@ class ResolvedPort:
     width: float
     orientation: float
     normal: tuple[int, int, int]
-    layer_key: str
-    material: str
+    port_type: str
+    layer_key: str | None
+    material: str | None
+
+    @property
+    def is_vertical(self) -> bool:
+        """Return whether this is a free-space vertical optical port."""
+        return self.port_type.startswith("vertical_")
 
 
 @dataclass(frozen=True)

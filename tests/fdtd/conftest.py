@@ -35,6 +35,31 @@ def straight_component(length: float = 2.0) -> gf.Component:
     return component
 
 
+def vertical_coupler_component(length: float = 2.0) -> gf.Component:
+    """Return a waveguide with one guided and one vertical optical port."""
+    component = gf.Component()
+    component.add_polygon(
+        [(0, -0.25), (length, -0.25), (length, 0.25), (0, 0.25)],
+        layer=(1, 0),
+    )
+    component.add_port(
+        name="o1",
+        center=(0, 0),
+        width=0.5,
+        orientation=180,
+        layer=(1, 0),
+    )
+    component.add_port(
+        name="o2",
+        center=(length / 2, 0),
+        width=1,
+        orientation=0,
+        layer=(1, 0),
+        port_type="vertical_te",
+    )
+    return component
+
+
 @pytest.fixture
 def fdtd_pdk_module() -> SimpleNamespace:
     """Return a PDK module with project Si and fallback-only SiO2."""
@@ -60,7 +85,10 @@ def fdtd_pdk_module() -> SimpleNamespace:
     )
     pdk = gf.Pdk(
         name="fdtd_test_pdk",
-        cells={"straight": straight_component},
+        cells={
+            "straight": straight_component,
+            "vertical_coupler": vertical_coupler_component,
+        },
         layer_stack=layer_stack,
     )
     project_si = GSIM_MATERIAL_CARDS["Si-Li-293K"].model_copy(update={"name": "Si"})

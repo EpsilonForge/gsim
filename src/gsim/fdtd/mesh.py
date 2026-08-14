@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from math import radians, tan
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import gmsh
-from shapely.geometry import MultiPolygon, Polygon, box
-from shapely.geometry.polygon import orient
-from shapely.validation import explain_validity
 
 from gsim.common.pdk import ResolvedLayer, ResolvedPassivePcell, ResolvedPort
+from gsim.fdtd.mesh_geometry import (
+    GEOMETRY_TOLERANCE_NM,
+    UM_TO_NM,
+    add_layer_volumes,
+)
 from gsim.fdtd.mesh_validation import validate_mesh
 from gsim.fdtd.models import (
     FDTDGeometryError,
@@ -20,221 +21,6 @@ from gsim.fdtd.models import (
     MeshManifest,
     PortMeshGroup,
 )
-
-_UM_TO_NM = 1000.0
-_GEOMETRY_TOLERANCE_NM = 1e-3
-
-
-def _single_polygon(layer: ResolvedLayer) -> Polygon:
-    """Return one valid connected polygon for a GDSFactory FDTD layer."""
-    geometry = layer.geometry
-    if isinstance(geometry, Polygon):
-        polygon = geometry
-    elif isinstance(geometry, MultiPolygon) and len(geometry.geoms) == 1:
-        polygon = geometry.geoms[0]
-    else:
-        count = len(geometry.geoms) if hasattr(geometry, "geoms") else 0
-        raise FDTDGeometryError(
-            f"Layer {layer.key!r} has {count} disconnected polygons; the initial "
-            "GDSFactory FDTD backend requires one connected solid per layer."
-        )
-    if polygon.is_empty or not polygon.is_valid or polygon.area <= 0:
-        raise FDTDGeometryError(
-            f"Layer {layer.key!r} has invalid polygon geometry: "
-            f"{explain_validity(polygon)}."
-        )
-    return polygon
-
-
-def _scaled_ring(coordinates: Iterable[tuple[float, ...]]) -> list[tuple[float, float]]:
-    """Convert one Shapely ring from micrometers to nanometers."""
-    points = [
-        (float(point[0]) * _UM_TO_NM, float(point[1]) * _UM_TO_NM)
-        for point in coordinates
-    ]
-    if len(points) >= 2 and points[0] == points[-1]:
-        points.pop()
-    return points
-
-
-def _add_wire(kernel: Any, polygon: Polygon, z_nm: float) -> int:
-    """Create one closed OCC wire for lofting."""
-    points = _scaled_ring(orient(polygon, sign=1.0).exterior.coords)
-    if len(points) < 3:
-        raise FDTDGeometryError("A loft profile has fewer than three vertices.")
-    first_index = min(
-        range(len(points)),
-        key=lambda index: (points[index][0], points[index][1]),
-    )
-    points = points[first_index:] + points[:first_index]
-    point_tags = [kernel.addPoint(x, y, z_nm) for x, y in points]
-    line_tags = [
-        kernel.addLine(point_tags[index], point_tags[(index + 1) % len(point_tags)])
-        for index in range(len(point_tags))
-    ]
-    return kernel.addWire(line_tags, checkClosed=True)
-
-
-def _profile_offset_um(layer: ResolvedLayer, normalized_z: float) -> float:
-    """Return the PDK sidewall offset at one normalized z position."""
-    return (
-        (layer.width_to_z - normalized_z)
-        * abs(layer.thickness)
-        * tan(radians(layer.sidewall_angle))
-    )
-
-
-def _condition_profile_at_ports(
-    profile: Polygon,
-    ports: list[ResolvedPort],
-    offset_um: float,
-) -> Polygon:
-    """Extend and clip a profile so every port is a full planar end face."""
-    for port in ports:
-        normal_axis = next(index for index, value in enumerate(port.normal) if value)
-        if normal_axis not in {0, 1}:
-            raise FDTDGeometryError(
-                f"Port {port.name!r} is not in the component plane."
-            )
-        transverse_axis = 1 - normal_axis
-        half_width = port.width / 2 + offset_um
-        if half_width <= 0:
-            raise FDTDGeometryError(
-                f"Layer {port.layer_key!r} sidewall offset closes port {port.name!r}."
-            )
-
-        target = port.center[normal_axis]
-        transverse_lower = port.center[transverse_axis] - half_width
-        transverse_upper = port.center[transverse_axis] + half_width
-        xmin, ymin, xmax, ymax = profile.bounds
-        epsilon = _GEOMETRY_TOLERANCE_NM / _UM_TO_NM
-        if normal_axis == 0:
-            edge = xmin if port.normal[0] < 0 else xmax
-            inner = max(target + epsilon, edge + epsilon)
-            if port.normal[0] > 0:
-                inner = min(target - epsilon, edge - epsilon)
-            extension = box(
-                min(target, inner),
-                transverse_lower,
-                max(target, inner),
-                transverse_upper,
-            )
-        else:
-            edge = ymin if port.normal[1] < 0 else ymax
-            inner = max(target + epsilon, edge + epsilon)
-            if port.normal[1] > 0:
-                inner = min(target - epsilon, edge - epsilon)
-            extension = box(
-                transverse_lower,
-                min(target, inner),
-                transverse_upper,
-                max(target, inner),
-            )
-        profile = profile.union(extension)
-
-        xmin, ymin, xmax, ymax = profile.bounds
-        margin = max(xmax - xmin, ymax - ymin, port.width, 1.0)
-        if normal_axis == 0 and port.normal[0] < 0:
-            clip = box(target, ymin - margin, xmax + margin, ymax + margin)
-        elif normal_axis == 0:
-            clip = box(xmin - margin, ymin - margin, target, ymax + margin)
-        elif port.normal[1] < 0:
-            clip = box(xmin - margin, target, xmax + margin, ymax + margin)
-        else:
-            clip = box(xmin - margin, ymin - margin, xmax + margin, target)
-        profile = profile.intersection(clip)
-
-    profile = profile.simplify(
-        10 * _GEOMETRY_TOLERANCE_NM / _UM_TO_NM,
-        preserve_topology=True,
-    )
-    if not isinstance(profile, Polygon) or profile.is_empty or not profile.is_valid:
-        raise FDTDGeometryError("Port conditioning produced invalid layer geometry.")
-    return profile
-
-
-def _offset_profile(
-    polygon: Polygon,
-    layer: ResolvedLayer,
-    ports: list[ResolvedPort],
-    normalized_z: float,
-) -> Polygon:
-    """Apply the PDK sidewall offset and preserve full port end faces."""
-    offset_um = _profile_offset_um(layer, normalized_z)
-    profile = polygon.buffer(offset_um, join_style=2)
-    if not isinstance(profile, Polygon) or profile.is_empty or not profile.is_valid:
-        raise FDTDGeometryError(
-            f"Layer {layer.key!r} sidewall profile becomes empty or disconnected "
-            f"at normalized z={normalized_z:g}."
-        )
-    return _condition_profile_at_ports(profile, ports, offset_um)
-
-
-def _add_layer_volume(
-    kernel: Any,
-    layer: ResolvedLayer,
-    ports: list[ResolvedPort],
-) -> list[int]:
-    """Create one vertical or sidewall-tapered OCC layer volume."""
-    if layer.bias not in (None, 0, 0.0) or layer.z_to_bias is not None:
-        raise FDTDGeometryError(
-            f"Layer {layer.key!r} uses bias or z_to_bias, which is not supported "
-            "by the initial GDSFactory FDTD mesh writer."
-        )
-    if not 0 <= layer.width_to_z <= 1:
-        raise FDTDGeometryError(
-            f"Layer {layer.key!r} width_to_z must be between 0 and 1."
-        )
-    if abs(layer.sidewall_angle) >= 80:
-        raise FDTDGeometryError(
-            f"Layer {layer.key!r} sidewall angle is too steep to mesh safely."
-        )
-
-    polygon = _single_polygon(layer)
-    z_lower_um, z_upper_um = layer.z_bounds
-    z_lower_nm = z_lower_um * _UM_TO_NM
-    z_upper_nm = z_upper_um * _UM_TO_NM
-    if layer.sidewall_angle == 0:
-        from gsim.palace.mesh.gmsh_utils import extrude_polygon
-
-        polygon = _condition_profile_at_ports(polygon, ports, 0.0)
-        exterior = _scaled_ring(polygon.exterior.coords)
-        hole_coordinates = []
-        for interior in polygon.interiors:
-            points = _scaled_ring(interior.coords)
-            hole_coordinates.append(
-                ([point[0] for point in points], [point[1] for point in points])
-            )
-        volume_tag = extrude_polygon(
-            kernel,
-            [point[0] for point in exterior],
-            [point[1] for point in exterior],
-            z_lower_nm,
-            z_upper_nm - z_lower_nm,
-            holes=hole_coordinates,
-        )
-        if volume_tag is None:
-            raise FDTDGeometryError(f"Could not extrude layer {layer.key!r}.")
-        return [volume_tag]
-
-    if polygon.interiors:
-        raise FDTDGeometryError(
-            f"Layer {layer.key!r} combines holes and sidewalls, which is not "
-            "supported by the initial GDSFactory FDTD mesh writer."
-        )
-    lower_profile = _offset_profile(polygon, layer, ports, 0.0)
-    upper_profile = _offset_profile(polygon, layer, ports, 1.0)
-    lower_wire = _add_wire(kernel, lower_profile, z_lower_nm)
-    upper_wire = _add_wire(kernel, upper_profile, z_upper_nm)
-    dimtags = kernel.addThruSections(
-        [lower_wire, upper_wire],
-        makeSolid=True,
-        makeRuled=True,
-    )
-    volume_tags = [tag for dimension, tag in dimtags if dimension == 3]
-    if not volume_tags:
-        raise FDTDGeometryError(f"Could not loft layer {layer.key!r}.")
-    return volume_tags
 
 
 def _priority_by_mesh_order(
@@ -249,7 +35,7 @@ def _priority_by_mesh_order(
     return {name: order_priority[layer.mesh_order] for name, layer in layers.items()}
 
 
-def _background_bounds_nm(
+def background_bounds_nm(
     resolved: ResolvedPassivePcell,
     background_material: str,
     padding_um: float,
@@ -259,6 +45,7 @@ def _background_bounds_nm(
     port_axes = {
         next(index for index, value in enumerate(port.normal) if value)
         for port in resolved.ports.values()
+        if not port.is_vertical
     }
     x_padding = 0.0 if 0 in port_axes else padding_um
     y_padding = 0.0 if 1 in port_axes else padding_um
@@ -279,12 +66,12 @@ def _background_bounds_nm(
         z_upper = upper[2] + padding_um
 
     return (
-        (lower[0] - x_padding) * _UM_TO_NM,
-        (lower[1] - y_padding) * _UM_TO_NM,
-        z_lower * _UM_TO_NM,
-        (upper[0] + x_padding) * _UM_TO_NM,
-        (upper[1] + y_padding) * _UM_TO_NM,
-        z_upper * _UM_TO_NM,
+        (lower[0] - x_padding) * UM_TO_NM,
+        (lower[1] - y_padding) * UM_TO_NM,
+        z_lower * UM_TO_NM,
+        (upper[0] + x_padding) * UM_TO_NM,
+        (upper[1] + y_padding) * UM_TO_NM,
+        z_upper * UM_TO_NM,
     )
 
 
@@ -304,8 +91,13 @@ def _port_surface_tags(
 ) -> list[int]:
     """Find the owning layer boundary face at an axis-aligned port plane."""
     normal_axis = next(index for index, value in enumerate(port.normal) if value)
-    target_nm = port.center[normal_axis] * _UM_TO_NM
-    center_nm = tuple(coordinate * _UM_TO_NM for coordinate in port.center)
+    if normal_axis not in {0, 1}:
+        raise FDTDGeometryError(
+            f"Guided port {port.name!r} must have an in-plane normal."
+        )
+    target_nm = port.center[normal_axis] * UM_TO_NM
+    transverse_axis = 1 - normal_axis
+    transverse_center_nm = port.center[transverse_axis] * UM_TO_NM
     candidates: list[int] = []
     boundary_bounds: list[tuple[int, tuple[float, ...]]] = []
     for volume_tag in volume_tags:
@@ -320,16 +112,14 @@ def _port_surface_tags(
             bounds = gmsh.model.getBoundingBox(2, surface_tag)
             boundary_bounds.append((surface_tag, bounds))
             if (
-                abs(bounds[normal_axis] - target_nm) > _GEOMETRY_TOLERANCE_NM
-                or abs(bounds[normal_axis + 3] - target_nm) > _GEOMETRY_TOLERANCE_NM
+                abs(bounds[normal_axis] - target_nm) > GEOMETRY_TOLERANCE_NM
+                or abs(bounds[normal_axis + 3] - target_nm) > GEOMETRY_TOLERANCE_NM
             ):
                 continue
-            transverse_axes = [axis for axis in range(3) if axis != normal_axis]
-            if all(
-                bounds[axis] - _GEOMETRY_TOLERANCE_NM
-                <= center_nm[axis]
-                <= bounds[axis + 3] + _GEOMETRY_TOLERANCE_NM
-                for axis in transverse_axes
+            if (
+                bounds[transverse_axis] - GEOMETRY_TOLERANCE_NM
+                <= transverse_center_nm
+                <= bounds[transverse_axis + 3] + GEOMETRY_TOLERANCE_NM
             ):
                 candidates.append(surface_tag)
     if not candidates:
@@ -344,6 +134,7 @@ def _port_surface_tags(
             f"Port {port.name!r} does not coincide with a boundary face of "
             f"layer {port.layer_key!r}; nearest boundary bounds are {nearest_bounds}."
         )
+    candidates = sorted(set(candidates))
     claimed_surfaces.update(candidates)
     return candidates
 
@@ -356,12 +147,21 @@ def _validate_port_on_background_face(
     axis = next(index for index, value in enumerate(port.normal) if value)
     side = 0 if port.normal[axis] < 0 else 3
     background_face = background_bounds[axis + side]
-    port_coordinate = port.center[axis] * _UM_TO_NM
-    if abs(background_face - port_coordinate) > _GEOMETRY_TOLERANCE_NM:
+    port_coordinate = port.center[axis] * UM_TO_NM
+    if abs(background_face - port_coordinate) > GEOMETRY_TOLERANCE_NM:
         raise FDTDGeometryError(
             f"Port {port.name!r} is not on the background domain face required "
             "for unambiguous GDSFactory FDTD port extrusion."
         )
+
+
+def _guided_layer_key(port: ResolvedPort) -> str:
+    """Return the physical owner required by a guided port."""
+    if port.layer_key is None:
+        raise FDTDGeometryError(
+            f"Guided port {port.name!r} has no owning physical layer."
+        )
+    return port.layer_key
 
 
 def generate_mesh(
@@ -371,12 +171,15 @@ def generate_mesh(
     background_material: str,
     background_padding_um: float,
     mesh_size_nm: float,
+    nanometers_per_cell: float,
 ) -> MeshManifest:
     """Generate and validate a coarse GDSFactory FDTD tetrahedral mesh."""
     if background_padding_um <= 0:
         raise FDTDGeometryError("background_padding_um must be positive.")
     if mesh_size_nm <= 0:
         raise FDTDGeometryError("mesh_size_nm must be positive.")
+    if nanometers_per_cell <= 0:
+        raise FDTDGeometryError("nanometers_per_cell must be positive.")
     if "background" in resolved.layers:
         raise FDTDGeometryError(
             "Layer name 'background' is reserved by GDSFactory FDTD."
@@ -391,12 +194,15 @@ def generate_mesh(
         gmsh.option.setNumber("General.Terminal", 0)
         gmsh.model.add("gsim_fdtd")
         kernel = gmsh.model.occ
-        background_bounds = _background_bounds_nm(
+        background_bounds = background_bounds_nm(
             resolved,
             background_material,
             background_padding_um,
         )
-        for port in resolved.ports.values():
+        guided_ports = {
+            name: port for name, port in resolved.ports.items() if not port.is_vertical
+        }
+        for port in guided_ports.values():
             _validate_port_on_background_face(port, background_bounds)
 
         xmin, ymin, zmin, xmax, ymax, zmax = background_bounds
@@ -409,10 +215,11 @@ def generate_mesh(
             zmax - zmin,
         )
         layer_volume_tags = {
-            name: _add_layer_volume(
+            name: add_layer_volumes(
                 kernel,
                 layer,
-                [port for port in resolved.ports.values() if port.layer_key == name],
+                [port for port in guided_ports.values() if port.layer_key == name],
+                nanometers_per_cell=nanometers_per_cell,
             )
             for name, layer in resolved.layers.items()
         }
@@ -431,10 +238,11 @@ def generate_mesh(
         }
         claimed_surfaces: set[int] = set()
         port_groups = {}
-        for name, port in resolved.ports.items():
+        for name, port in guided_ports.items():
+            layer_key = _guided_layer_key(port)
             surface_tags = _port_surface_tags(
                 port,
-                layer_volume_tags[port.layer_key],
+                layer_volume_tags[layer_key],
                 claimed_surfaces,
             )
             physical_name = f"port_{name}"
@@ -442,7 +250,7 @@ def generate_mesh(
                 name=name,
                 physical_name=physical_name,
                 physical_tag=_add_physical_group(2, surface_tags, physical_name),
-                layer=port.layer_key,
+                layer=layer_key,
                 normal=port.normal,
             )
         manifest = MeshManifest(
@@ -482,4 +290,4 @@ def generate_mesh(
     return manifest
 
 
-__all__ = ["generate_mesh", "validate_mesh"]
+__all__ = ["background_bounds_nm", "generate_mesh", "validate_mesh"]

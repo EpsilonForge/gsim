@@ -66,8 +66,8 @@ def test_write_uses_project_material_then_fallback_and_valid_mesh(
 
     port_points = _physical_group_points(mesh, "port_o1", "triangle")
     assert port_points[:, 0] == pytest.approx(0)
-    assert port_points[:, 1].min() == pytest.approx(-269.39597, abs=1e-3)
-    assert port_points[:, 1].max() == pytest.approx(269.39597, abs=1e-3)
+    assert port_points[:, 1].min() == pytest.approx(-262.930645, abs=1e-3)
+    assert port_points[:, 1].max() == pytest.approx(262.930645, abs=1e-3)
     assert port_points[:, 2].min() == pytest.approx(0)
     assert port_points[:, 2].max() == pytest.approx(220)
 
@@ -78,3 +78,56 @@ def test_write_uses_project_material_then_fallback_and_valid_mesh(
 def test_write_requires_geometry(tmp_path) -> None:
     with pytest.raises(FDTDGeometryError, match=r"Call Simulation\.geometry"):
         fdtd.Simulation().write(tmp_path)
+
+
+def test_vertical_port_becomes_fiber_monitor_not_material_port(
+    tmp_path,
+    fdtd_pdk_module,
+) -> None:
+    simulation = fdtd.Simulation(
+        pdk=fdtd_pdk_module,
+        mesh_size_nm=750,
+        background_padding_um=0.25,
+    )
+    simulation.geometry("vertical_coupler")
+
+    artifacts = simulation.write(tmp_path)
+    document = json.loads(artifacts.config_path.read_text(encoding="utf8"))
+    mesh = meshio.read(artifacts.mesh_path)
+
+    assert document["excitation"]["type"] == "eigenmode"
+    assert document["excitation"]["default_port"] == "o1"
+    assert set(document["geometry"]["ports"]) == {"o1"}
+    assert "port_o2" not in mesh.field_data
+    assert document["monitors"][0]["name"] == "o2"
+    assert document["monitors"][0]["normal"] == "+z"
+    assert document["monitors"][0]["fiber_mode"]["e_polarization"] == [
+        -0.0,
+        1.0,
+        0.0,
+    ]
+
+
+def test_vertical_default_port_uses_gaussian_beam(
+    tmp_path,
+    fdtd_pdk_module,
+) -> None:
+    simulation = fdtd.Simulation(
+        pdk=fdtd_pdk_module,
+        default_port="o2",
+        mesh_size_nm=750,
+        background_padding_um=0.25,
+    )
+    simulation.geometry("vertical_coupler")
+
+    artifacts = simulation.write(tmp_path)
+    document = json.loads(artifacts.config_path.read_text(encoding="utf8"))
+
+    assert document["excitation"]["type"] == "gaussian_beam"
+    assert "default_port" not in document["excitation"]
+    assert document["excitation"]["gaussian_beam"]["aperture_normal"] == "-z"
+    assert document["excitation"]["gaussian_beam"]["propagation_direction"] == [
+        0.0,
+        0.0,
+        -1.0,
+    ]
