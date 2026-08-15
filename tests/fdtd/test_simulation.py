@@ -131,3 +131,40 @@ def test_vertical_default_port_uses_gaussian_beam(
         0.0,
         -1.0,
     ]
+
+
+def test_write_restores_options_from_existing_gmsh_session(
+    tmp_path,
+    fdtd_pdk_module,
+) -> None:
+    import gmsh
+
+    original_options = {
+        "Mesh.Binary": 1.0,
+        "Mesh.ElementOrder": 2.0,
+        "Mesh.MeshSizeExtendFromBoundary": 1.0,
+        "Mesh.MeshSizeFromCurvature": 1.0,
+        "Mesh.MeshSizeMax": 34.5,
+        "Mesh.MeshSizeMin": 12.5,
+        "Mesh.MshFileVersion": 4.1,
+        "Mesh.SaveAll": 1.0,
+    }
+    gmsh.initialize()
+    try:
+        for option_name, value in original_options.items():
+            gmsh.option.setNumber(option_name, value)
+
+        simulation = fdtd.Simulation(
+            pdk=fdtd_pdk_module,
+            mesh_size_nm=750,
+            background_padding_um=0.25,
+        )
+        simulation.geometry("straight", settings={"length": 2.0})
+        simulation.write(tmp_path)
+
+        assert gmsh.isInitialized()
+        for option_name, expected in original_options.items():
+            assert gmsh.option.getNumber(option_name) == pytest.approx(expected)
+    finally:
+        gmsh.clear()
+        gmsh.finalize()

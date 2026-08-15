@@ -22,6 +22,32 @@ from gsim.fdtd.models import (
     PortMeshGroup,
 )
 
+_GMSH_OPTIONS_CHANGED = (
+    "General.Terminal",
+    "Mesh.Binary",
+    "Mesh.ElementOrder",
+    "Mesh.MeshSizeExtendFromBoundary",
+    "Mesh.MeshSizeFromCurvature",
+    "Mesh.MeshSizeMax",
+    "Mesh.MeshSizeMin",
+    "Mesh.MshFileVersion",
+    "Mesh.SaveAll",
+)
+
+
+def _snapshot_gmsh_options() -> dict[str, float]:
+    """Capture options that FDTD meshing temporarily changes."""
+    return {
+        option_name: gmsh.option.getNumber(option_name)
+        for option_name in _GMSH_OPTIONS_CHANGED
+    }
+
+
+def _restore_gmsh_options(option_values: Mapping[str, float]) -> None:
+    """Restore options owned by an existing caller Gmsh session."""
+    for option_name, value in option_values.items():
+        gmsh.option.setNumber(option_name, value)
+
 
 def _priority_by_mesh_order(
     layers: Mapping[str, ResolvedLayer],
@@ -186,6 +212,7 @@ def generate_mesh(
         )
 
     initialized_here = not bool(gmsh.isInitialized())
+    caller_option_values = {} if initialized_here else _snapshot_gmsh_options()
     if initialized_here:
         gmsh.initialize()
     else:
@@ -285,6 +312,7 @@ def generate_mesh(
             gmsh.finalize()
         else:
             gmsh.clear()
+            _restore_gmsh_options(caller_option_values)
 
     validate_mesh(mesh_path, manifest)
     return manifest

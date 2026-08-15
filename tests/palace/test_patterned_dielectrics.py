@@ -4,10 +4,24 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from gdsfactory.technology import LayerLevel
 
 from gsim.common.stack.extractor import Layer, LayerStack, extract_layer_stack
 from gsim.palace.mesh.geometry import build_entities
+
+
+@pytest.fixture
+def gmsh_session():
+    """Provide an isolated Gmsh session and always release it."""
+    import gmsh
+
+    gmsh.initialize()
+    try:
+        yield gmsh
+    finally:
+        gmsh.clear()
+        gmsh.finalize()
 
 
 def _fake_gf_stack():
@@ -99,7 +113,7 @@ def test_build_entities_prioritizes_patterned_dielectrics_over_background_boxes(
     assert orders["air"] == 4
 
 
-def test_add_patterned_dielectrics_skips_covered_dielectric_layers():
+def test_add_patterned_dielectrics_skips_covered_dielectric_layers(gmsh_session):
     """Layers covered by bulk dielectric boxes must not be re-extruded."""
     import gdsfactory as gf
     import klayout.db as kdb
@@ -163,9 +177,7 @@ def test_add_patterned_dielectrics_skips_covered_dielectric_layers():
 
     geometry = extract_geometry(c, stack)
 
-    import gmsh
-
-    gmsh.initialize()
+    gmsh = gmsh_session
     gmsh.option.setNumber("General.Verbosity", 0)
     gmsh.model.add("test")
     kernel = gmsh.model.occ
