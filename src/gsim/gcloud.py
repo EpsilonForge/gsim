@@ -49,6 +49,18 @@ def _status_value(status: Any) -> str:
     return str(getattr(status, "value", status))
 
 
+def _job_failed(job: Any) -> bool:
+    """Return whether a finished job reports a failed outcome.
+
+    Infrastructure failures can happen before a container starts, in which case
+    the SDK reports ``status=failed`` without an exit code.  Solver failures have
+    a non-zero exit code, so preserve that signal as well.
+    """
+    status = _status_value(getattr(job, "status", "")).casefold()
+    exit_code = getattr(job, "exit_code", None)
+    return status == "failed" or (exit_code is not None and exit_code != 0)
+
+
 def _get_job_logs_callable() -> Callable[..., dict[str, Any]] | None:
     """Return the SDK log fetcher across the 1.x module and 2.x package layouts."""
     get_logs = getattr(sim, "_get_job_logs", None)
@@ -189,19 +201,24 @@ def _handle_failed_job(job, output_dir: Path, verbose: bool) -> None:
     Raises:
         RuntimeError: Always raised with detailed error information
     """
-    error_parts = [
-        f"Simulation failed with exit code {job.exit_code}",
-        f"Status: {_status_value(job.status)}",
-    ]
+    exit_code = getattr(job, "exit_code", None)
+    if exit_code is None:
+        error_parts = ["Simulation failed before producing an exit code"]
+    else:
+        error_parts = [f"Simulation failed with exit code {exit_code}"]
 
-    if job.status_reason:
-        error_parts.append(f"Reason: {job.status_reason}")
-    if job.detail_reason:
-        error_parts.append(f"Details: {job.detail_reason}")
+    error_parts.append(f"Status: {_status_value(job.status)}")
+
+    status_reason = getattr(job, "status_reason", None)
+    detail_reason = getattr(job, "detail_reason", None)
+    if status_reason:
+        error_parts.append(f"Reason: {status_reason}")
+    if detail_reason:
+        error_parts.append(f"Details: {detail_reason}")
 
     # Try to download logs even though job failed
     try:
-        if job.download_urls:
+        if exit_code is not None and job.download_urls:
             if verbose:
                 print("Downloading logs from failed job...")  # noqa: T201
 
@@ -323,14 +340,14 @@ def _download_job(job, parent_dir: str | Path | None, verbose: bool) -> RunResul
         RunResult with sim_dir, files, and job_name.
 
     Raises:
-        RuntimeError: If the job failed (non-zero exit code).
+        RuntimeError: If the job failed or has a non-zero exit code.
     """
     root = Path(parent_dir) if parent_dir else Path.cwd()
     sim_dir = root / f"sim-data-{job.job_name}"
     sim_dir.mkdir(parents=True, exist_ok=True)
 
     # Check status
-    if job.exit_code is not None and job.exit_code != 0:
+    if _job_failed(job):
         _handle_failed_job(job, sim_dir, verbose)
 
     # Download directly into sim_dir
@@ -831,7 +848,7 @@ def run_simulation(
         )
 
     # Check status
-    if finished_job.exit_code != 0:
+    if _job_failed(finished_job):
         _handle_failed_job(finished_job, sim_dir, verbose)
 
     # Download directly into sim_dir (SDK creates results/ subdirectory)

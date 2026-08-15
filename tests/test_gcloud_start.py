@@ -286,6 +286,30 @@ class TestWaitForResultsSingle:
         assert "result.csv" in result.files
 
     @patch("gsim.gcloud.sim")
+    def test_failed_before_start_reports_backend_reason(self, mock_sim, tmp_path):
+        """Pre-start failures raise their backend reason without downloading."""
+        from gsim.gcloud import wait_for_results
+
+        mock_sim.SimStatus = SimStatus
+        mock_sim.get_job.return_value = FakeJob(
+            status="failed",
+            exit_code=None,
+            download_urls={"results": "https://example.com/missing-results.tar.gz"},
+            status_reason="CannotPullContainerError",
+            detail_reason="no space left on device",
+        )
+
+        with pytest.raises(RuntimeError) as exc_info:
+            wait_for_results("job-1", verbose="quiet", parent_dir=tmp_path)
+
+        message = str(exc_info.value)
+        assert "Simulation failed before producing an exit code" in message
+        assert "Status: failed" in message
+        assert "Reason: CannotPullContainerError" in message
+        assert "Details: no space left on device" in message
+        mock_sim.download_results.assert_not_called()
+
+    @patch("gsim.gcloud.sim")
     def test_list_input(self, mock_sim, tmp_path):
         """wait_for_results(*[id]) works like wait_for_results(id)."""
         from gsim.gcloud import wait_for_results
@@ -428,6 +452,44 @@ class TestRunSimulationBackwardCompat:
         )
         assert result.job_name == "palace-bc"
         assert "result.csv" in result.files
+
+    @patch("gsim.gcloud.sim")
+    def test_pre_start_failure_reports_backend_reason(self, mock_sim, tmp_path):
+        """Legacy API reports infrastructure failures without downloading."""
+        from gsim.gcloud import run_simulation
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "config.json").write_text("{}")
+
+        pre_job = PreJob(job_id="job-bc", job_name="palace-bc")
+        mock_sim.upload_simulation.return_value = pre_job
+        mock_sim.JobDefinition.PALACE = "palace"
+
+        started_job = FakeJob(
+            id="job-bc", job_name="palace-bc", status=SimStatus.RUNNING
+        )
+        mock_sim.start_simulation.return_value = started_job
+        mock_sim.wait_for_simulation.return_value = FakeJob(
+            id="job-bc",
+            job_name="palace-bc",
+            status="failed",
+            exit_code=None,
+            download_urls={"results": "https://example.com/missing-results.tar.gz"},
+            status_reason="CannotPullContainerError",
+            detail_reason="no space left on device",
+        )
+
+        with pytest.raises(RuntimeError, match="CannotPullContainerError") as exc_info:
+            run_simulation(
+                config_dir=config_dir,
+                job_type="palace",
+                verbose=False,
+                parent_dir=tmp_path,
+            )
+
+        assert "Details: no space left on device" in str(exc_info.value)
+        mock_sim.download_results.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
