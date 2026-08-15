@@ -30,7 +30,7 @@ def wavelength_validity(minimum_um: float, maximum_um: float) -> Validity:
 def material_card(
     name: str,
     permittivity: Index | Sellmeier,
-    temperature_ref: float,
+    temperature_ref: float | None,
 ) -> MaterialCard:
     """Build a compact optical material card."""
     provenance = Provenance(

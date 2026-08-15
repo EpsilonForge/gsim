@@ -17,6 +17,7 @@ from gsim.common.materials import (
     [
         ("Si-Salzberg", 3.477723756),
         ("Si-Li-293K", 3.4757),
+        ("SiN-Luke", 1.996279731714),
         ("SiO2-Malitson", 1.444023622),
     ],
 )
@@ -35,6 +36,13 @@ def test_tabulated_material_interpolates() -> None:
     snapshot = resolve_material_snapshot("Si-Li-293K", 1.525, {})
 
     assert snapshot.refractive_index == pytest.approx(3.4778)
+
+
+def test_sin_fallback_alias_uses_luke_card() -> None:
+    snapshot = resolve_material_snapshot("SiN", 1.55, {})
+
+    assert snapshot.refractive_index == pytest.approx(1.996279731714)
+    assert snapshot.source == "gsim"
 
 
 def test_project_card_overrides_fallback_and_missing_card_uses_fallback() -> None:
