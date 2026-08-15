@@ -56,25 +56,7 @@ def fuse_polygons(
         Merged Shapely Polygon or MultiPolygon
     """
     source_layer = getattr(layer, "layer", layer)
-    derived_layer = getattr(layer, "derived_layer", None)
-
-    # Simulation export materializes derived layers onto their GDS targets.
-    # Prefer those polygons when present: re-evaluating the source Boolean
-    # expression loses LayerLevel.background semantics (notably full-height
-    # grating teeth). Fall back to evaluating the source expression for the
-    # ordinary, unmaterialized visualization path.
-    layer_region = None
-    if derived_layer is not None:
-        target = tuple(derived_layer.layer)
-        layer_index = component.kcl.layer(*target)
-        target_region = component.kdb_cell.begin_shapes_rec(layer_index)
-        if not target_region.at_end():
-            from kfactory import kdb
-
-            layer_region = kdb.Region(target_region)
-
-    if layer_region is None:
-        layer_region = source_layer.get_shapes(component)
+    layer_region = source_layer.get_shapes(component)
 
     shapely_polygons = []
     for klayout_polygon in layer_region.each_merged():

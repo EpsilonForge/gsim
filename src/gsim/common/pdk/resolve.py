@@ -311,7 +311,7 @@ def resolve_passive_pcell(
         raise LayerResolutionError(
             f"Could not evaluate derived layers: {error}"
         ) from error
-    layers = _resolved_layers(derived_component, layer_stack)
+    layers = _resolved_layers(resolved_component, layer_stack)
     project_cards = _resolve_project_cards(pdk_object, pdk_or_module)
     materials = {}
     for material_name in dict.fromkeys(layer.material for layer in layers.values()):

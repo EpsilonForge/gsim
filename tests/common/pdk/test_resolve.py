@@ -138,6 +138,18 @@ def test_preserves_derived_geometry_and_authoritative_layer_fields() -> None:
     assert (10, 0) in result.derived_component.layers
 
 
+def test_preexisting_derived_target_does_not_replace_source_geometry() -> None:
+    component = demo_component()
+    component.add_polygon(
+        [(-10, -10), (10, -10), (10, 10), (-10, 10)],
+        layer=(10, 0),
+    )
+
+    result = resolve_passive_pcell(component, pdk=make_test_pdk())
+
+    assert result.layers["core_key"].geometry.area == pytest.approx(0.875)
+
+
 def test_accepts_callable_and_instantiated_components() -> None:
     pdk = make_test_pdk()
 
