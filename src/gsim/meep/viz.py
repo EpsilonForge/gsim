@@ -29,12 +29,13 @@ def build_geometry_model(
     stack: LayerStack | None,
     domain_config: DomainConfig,
     extend_ports_length: float | None = None,
+    gdsfactory_stack: Any | None = None,
 ) -> GeometryModel:
     """Build a GeometryModel from a component + stack for visualization.
 
-    Uses the gdsfactory LayerStack from the active PDK (not the gsim
-    LayerStack), because ``LayeredComponentBase`` needs gdsfactory's
-    ``LayerStack`` for polygon extraction via ``DerivedLayer.get_shapes()``.
+    ``Simulation.build_config`` supplies a direct-layer GDSFactory stack that
+    is remapped to the materialized component. Standalone callers fall back to
+    the active PDK stack for backward compatibility.
 
     When ``domain_config.extend_ports`` is configured, the waveguide
     ports are extended into the PML region so the visualization matches
@@ -48,6 +49,7 @@ def build_geometry_model(
             when the component has already been extended by
             :meth:`Simulation.build_config`. ``None`` (default) computes
             the length from *domain_config* as before.
+        gdsfactory_stack: Optional direct-layer stack matching *component*.
 
     Returns:
         GeometryModel ready for visualization.
@@ -60,8 +62,11 @@ def build_geometry_model(
     from gsim.common.geometry_model import extract_geometry_model
     from gsim.common.layered_component import LayeredComponentBase
 
-    pdk = gf.get_active_pdk()
-    gf_layer_stack = pdk.layer_stack
+    if gdsfactory_stack is not None:
+        gf_layer_stack = gdsfactory_stack
+    else:
+        pdk = gf.get_active_pdk()
+        gf_layer_stack = pdk.layer_stack
     if gf_layer_stack is None:
         raise ValueError(
             "Active PDK has no layer_stack. Activate a PDK with a layer stack first."
@@ -393,6 +398,7 @@ def plot_3d(
     domain_config: DomainConfig,
     backend: str = "open3d",
     extend_ports_length: float | None = None,
+    gdsfactory_stack: Any | None = None,
     **kwargs: Any,
 ) -> Any:
     """Create interactive 3D visualization of MEEP geometry.
@@ -404,6 +410,7 @@ def plot_3d(
         backend: "open3d" (Jupyter/VS Code) or "pyvista" (desktop).
         extend_ports_length: Override port extension length (pass 0 if
             the component is already extended).
+        gdsfactory_stack: Optional direct-layer stack matching *component*.
         **kwargs: Extra args forwarded to the backend renderer.
 
     Returns:
@@ -412,7 +419,11 @@ def plot_3d(
     from gsim.common.viz import plot_prisms_3d, plot_prisms_3d_open3d
 
     gm = build_geometry_model(
-        component, stack, domain_config, extend_ports_length=extend_ports_length
+        component,
+        stack,
+        domain_config,
+        extend_ports_length=extend_ports_length,
+        gdsfactory_stack=gdsfactory_stack,
     )
     if backend == "pyvista":
         return plot_prisms_3d(gm, **kwargs)
@@ -436,6 +447,7 @@ def plot_2d_interactive(
     fiber_source: Any = None,
     monitor_z_span: float | None = None,
     aspect: Literal["equal", "auto"] = "equal",
+    gdsfactory_stack: Any | None = None,
 ) -> Any:
     """Plot an interactive 2D cross-section using Plotly.
 
@@ -465,6 +477,7 @@ def plot_2d_interactive(
         monitor_z_span: Port monitor z-span override.
         aspect: Axis aspect ratio. Use ``"equal"`` to preserve physical
             proportions or ``"auto"`` to fill the available plotting area.
+        gdsfactory_stack: Optional direct-layer stack matching *component*.
 
     Returns:
         ``plotly.graph_objects.Figure``.
@@ -478,7 +491,11 @@ def plot_2d_interactive(
         )
 
     gm = build_geometry_model(
-        component, stack, domain_config, extend_ports_length=extend_ports_length
+        component,
+        stack,
+        domain_config,
+        extend_ports_length=extend_ports_length,
+        gdsfactory_stack=gdsfactory_stack,
     )
     overlay = build_overlay(
         gm,
@@ -521,6 +538,7 @@ def plot_2d(
     fiber_source: Any = None,
     monitor_z_span: float | None = None,
     aspect: Literal["equal", "auto"] = "equal",
+    gdsfactory_stack: Any | None = None,
 ) -> plt.Axes | None:
     """Plot 2D cross-sections of the MEEP geometry.
 
@@ -551,7 +569,11 @@ def plot_2d(
     from gsim.common.viz import plot_prism_slices
 
     gm = build_geometry_model(
-        component, stack, domain_config, extend_ports_length=extend_ports_length
+        component,
+        stack,
+        domain_config,
+        extend_ports_length=extend_ports_length,
+        gdsfactory_stack=gdsfactory_stack,
     )
     overlay = build_overlay(
         gm,
