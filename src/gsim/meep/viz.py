@@ -7,7 +7,7 @@ Called directly by ``Simulation.plot_2d()`` / ``plot_3d()`` — no legacy
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import matplotlib.pyplot as plt
 
@@ -435,6 +435,7 @@ def plot_2d_interactive(
     component_bbox: list[float] | tuple[float, ...] | None = None,
     fiber_source: Any = None,
     monitor_z_span: float | None = None,
+    aspect: Literal["equal", "auto"] = "equal",
 ) -> Any:
     """Plot an interactive 2D cross-section using Plotly.
 
@@ -462,6 +463,8 @@ def plot_2d_interactive(
             (for correct cell boundary computation with extended ports).
         fiber_source: Pre-computed fiber source config (for overlay).
         monitor_z_span: Port monitor z-span override.
+        aspect: Axis aspect ratio. Use ``"equal"`` to preserve physical
+            proportions or ``"auto"`` to fill the available plotting area.
 
     Returns:
         ``plotly.graph_objects.Figure``.
@@ -498,7 +501,7 @@ def plot_2d_interactive(
     else:
         kw["z"] = z if z is not None else "core"
 
-    return plot_prism_slices_interactive(gm, overlay=overlay, **kw)
+    return plot_prism_slices_interactive(gm, aspect=aspect, overlay=overlay, **kw)
 
 
 def plot_2d(
@@ -517,6 +520,7 @@ def plot_2d(
     component_bbox: list[float] | tuple[float, ...] | None = None,
     fiber_source: Any = None,
     monitor_z_span: float | None = None,
+    aspect: Literal["equal", "auto"] = "equal",
 ) -> plt.Axes | None:
     """Plot 2D cross-sections of the MEEP geometry.
 
@@ -536,6 +540,10 @@ def plot_2d(
         port_data: Pre-computed port data (skips re-extraction).
         component_bbox: Original component bbox ``[xmin, ymin, xmax, ymax]``
             (for correct cell boundary computation with extended ports).
+        fiber_source: Pre-computed fiber source config (for overlay).
+        monitor_z_span: Port monitor z-span override.
+        aspect: Axis aspect ratio. Use ``"equal"`` to preserve physical
+            proportions or ``"auto"`` to fill the available plotting area.
 
     Returns:
         ``plt.Axes`` when *ax* was provided, otherwise ``None``.
@@ -556,4 +564,6 @@ def plot_2d(
         fiber_source=fiber_source,
         monitor_z_span=monitor_z_span,
     )
-    return plot_prism_slices(gm, x, y, z, ax, legend, slices, overlay=overlay)
+    return plot_prism_slices(
+        gm, x, y, z, ax, legend, slices, aspect=aspect, overlay=overlay
+    )

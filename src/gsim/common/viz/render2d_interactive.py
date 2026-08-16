@@ -7,7 +7,7 @@ and toggle individual layers/materials on and off via the legend.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from gsim.common.geometry_model import GeometryModel
 
@@ -62,6 +62,7 @@ def plot_prism_slices_interactive(
     y: float | str | None = None,
     z: float | str | None = None,
     *,
+    aspect: Literal["equal", "auto"] = "equal",
     overlay: Any | None = None,
 ) -> Any:
     """Plot an interactive 2D cross-section using Plotly.
@@ -74,12 +75,17 @@ def plot_prism_slices_interactive(
         x: X-coordinate (or layer name) for the slice plane.
         y: Y-coordinate (or layer name) for the slice plane.
         z: Z-coordinate (or layer name) for the slice plane.
+        aspect: Axis aspect ratio. Use ``"equal"`` to preserve physical
+            proportions or ``"auto"`` to fill the available plotting area.
         overlay: Optional SimOverlay with sim cell / PML / port metadata.
 
     Returns:
         ``plotly.graph_objects.Figure``.
     """
     import plotly.graph_objects as go
+
+    if aspect not in {"equal", "auto"}:
+        raise ValueError(f"aspect must be 'equal' or 'auto'. Got: {aspect!r}")
 
     x_resolved, y_resolved, z_resolved = (
         geometry_model.get_layer_center(c)[i] if isinstance(c, str) else c
@@ -211,12 +217,18 @@ def plot_prism_slices_interactive(
         xlabel, ylabel = "x (um)", "z (um)"
         title = f"XZ cross section at y={y_resolved:.2f}"
 
+    xaxis: dict[str, Any] = dict(showgrid=False, zeroline=False)
+    yaxis: dict[str, Any] = dict(showgrid=False, zeroline=False)
+    if aspect == "equal":
+        xaxis.update(scaleanchor="y", scaleratio=1)
+        yaxis["constrain"] = "domain"
+
     fig.update_layout(
         title=title,
         xaxis_title=xlabel,
         yaxis_title=ylabel,
-        xaxis=dict(scaleanchor="y", scaleratio=1, showgrid=False, zeroline=False),
-        yaxis=dict(constrain="domain", showgrid=False, zeroline=False),
+        xaxis=xaxis,
+        yaxis=yaxis,
         legend=dict(
             title="Layers / Materials",
             itemclick="toggle",

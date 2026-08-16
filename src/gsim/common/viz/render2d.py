@@ -11,7 +11,7 @@ When a ``SimOverlay`` is provided, the plot also draws:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,6 +33,7 @@ def plot_prism_slices(
     legend: bool = True,
     slices: str = "z",
     *,
+    aspect: Literal["equal", "auto"] = "equal",
     overlay: Any | None = None,
 ) -> plt.Axes | None:
     """Plot cross sections of a GeometryModel with multi-view support.
@@ -46,12 +47,17 @@ def plot_prism_slices(
         legend: Whether to show the legend.
         slices: Which slice(s) to plot -- "x", "y", "z", or combinations
             like "xy", "xz", "yz", "xyz".
+        aspect: Axis aspect ratio. Use ``"equal"`` to preserve physical
+            proportions or ``"auto"`` to fill the available plotting area.
         overlay: Optional SimOverlay with sim cell / PML / port metadata.
 
     Returns:
         ``plt.Axes`` when *ax* was provided, otherwise ``None``
         (the figure is shown directly).
     """
+    if aspect not in {"equal", "auto"}:
+        raise ValueError(f"aspect must be 'equal' or 'auto'. Got: {aspect!r}")
+
     slices_to_plot = sorted(set(slices.lower()))
     if not all(s in "xyz" for s in slices_to_plot):
         raise ValueError(f"slices must only contain 'x', 'y', 'z'. Got: {slices}")
@@ -69,6 +75,7 @@ def plot_prism_slices(
                 z=None,
                 ax=ax,
                 legend=legend,
+                aspect=aspect,
                 overlay=overlay,
             )
         if slice_axis == "y":
@@ -80,6 +87,7 @@ def plot_prism_slices(
                 z=None,
                 ax=ax,
                 legend=legend,
+                aspect=aspect,
                 overlay=overlay,
             )
         if slice_axis == "z":
@@ -90,6 +98,7 @@ def plot_prism_slices(
                 z=z,
                 ax=ax,
                 legend=legend,
+                aspect=aspect,
                 overlay=overlay,
             )
 
@@ -100,6 +109,7 @@ def plot_prism_slices(
         y,
         z,
         show_legend=legend,
+        aspect=aspect,
         overlay=overlay,
     )
     return None
@@ -117,6 +127,7 @@ def _plot_multi_view(
     y: float | str | None,
     z: float | str | None,
     show_legend: bool = True,
+    aspect: Literal["equal", "auto"] = "equal",
     overlay: Any | None = None,
 ) -> None:
     """Create multi-view plot with a shared legend panel."""
@@ -136,6 +147,7 @@ def _plot_multi_view(
                 z=None,
                 ax=ax_i,
                 legend=False,
+                aspect=aspect,
                 overlay=overlay,
             )
         elif slice_axis == "y":
@@ -147,6 +159,7 @@ def _plot_multi_view(
                 z=None,
                 ax=ax_i,
                 legend=False,
+                aspect=aspect,
                 overlay=overlay,
             )
         elif slice_axis == "z":
@@ -157,6 +170,7 @@ def _plot_multi_view(
                 z=z,
                 ax=ax_i,
                 legend=False,
+                aspect=aspect,
                 overlay=overlay,
             )
 
@@ -194,6 +208,7 @@ def _plot_single_prism_slice(
     z: float | str | None = None,
     ax: plt.Axes | None = None,
     legend: bool = True,
+    aspect: Literal["equal", "auto"] = "equal",
     overlay: Any | None = None,
 ) -> plt.Axes:
     """Plot a single cross-section using generic Prisms."""
@@ -455,7 +470,7 @@ def _plot_single_prism_slice(
     ax.set_ylabel(ylabel)
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
-    ax.set_aspect("equal")
+    ax.set_aspect(aspect)
 
     if legend:
         ax.legend(fancybox=True, framealpha=1.0)
