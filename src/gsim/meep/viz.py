@@ -7,7 +7,8 @@ Called directly by ``Simulation.plot_2d()`` / ``plot_3d()`` — no legacy
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import matplotlib.pyplot as plt
 
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 
     from gsim.common import LayerStack
     from gsim.common.geometry_model import GeometryModel
-    from gsim.meep.models.config import DomainConfig
+    from gsim.meep.models.config import DomainConfig, MaterialData
 
 
 # ---------------------------------------------------------------------------
@@ -448,6 +449,14 @@ def plot_2d_interactive(
     monitor_z_span: float | None = None,
     aspect: Literal["equal", "auto"] = "equal",
     gdsfactory_stack: Any | None = None,
+    kind: Literal["layers", "index"] = "index",
+    index_component: Literal["mean", "x", "y", "z"] = "mean",
+    cmap: str = "Blues",
+    material_data: Mapping[str, MaterialData] | None = None,
+    wavelength: float | None = None,
+    is_3d: bool = True,
+    plane: Literal["xy", "xz"] = "xy",
+    layer_order: Sequence[str] | None = None,
 ) -> Any:
     """Plot an interactive 2D cross-section using Plotly.
 
@@ -478,10 +487,22 @@ def plot_2d_interactive(
         aspect: Axis aspect ratio. Use ``"equal"`` to preserve physical
             proportions or ``"auto"`` to fill the available plotting area.
         gdsfactory_stack: Optional direct-layer stack matching *component*.
+        kind: ``"index"`` for the refractive-index map or ``"layers"`` for
+            the categorical legacy view.
+        index_component: Permittivity tensor component used by the index view.
+        cmap: Matplotlib colormap used to build the interactive color scale.
+        material_data: Center-wavelength material data for the index view.
+        wavelength: Wavelength represented by the index view in um.
+        is_3d: Whether background slabs follow 3D simulation semantics.
+        plane: Resolved 2D simulation plane.
+        layer_order: Geometry precedence order used by the MEEP runner.
 
     Returns:
         ``plotly.graph_objects.Figure``.
     """
+    if kind not in {"layers", "index"}:
+        raise ValueError(f"kind must be 'layers' or 'index'. Got: {kind!r}")
+
     from gsim.common.viz import plot_prism_slices_interactive
 
     slices_to_plot = sorted(set(slices.lower()))
@@ -509,7 +530,7 @@ def plot_2d_interactive(
         monitor_z_span=monitor_z_span,
     )
 
-    slice_dir = slices_to_plot[0]
+    slice_dir = cast(Literal["x", "y", "z"], slices_to_plot[0])
     kw: dict[str, Any] = {}
     if slice_dir == "x":
         kw["x"] = x if x is not None else "core"
@@ -517,6 +538,32 @@ def plot_2d_interactive(
         kw["y"] = y if y is not None else "core"
     else:
         kw["z"] = z if z is not None else "core"
+
+    if kind == "index":
+        if material_data is None or wavelength is None:
+            raise ValueError(
+                "kind='index' requires center-wavelength material_data and wavelength"
+            )
+        from gsim.meep.index_viz_interactive import (
+            plot_refractive_index_interactive,
+        )
+
+        return plot_refractive_index_interactive(
+            gm,
+            material_data,
+            wavelength=wavelength,
+            overlay=overlay,
+            slice_axis=slice_dir,
+            layer_order=layer_order,
+            is_3d=is_3d,
+            plane=plane,
+            index_component=index_component,
+            cmap=cmap,
+            x=x,
+            y=y,
+            z=z if z is not None else "core",
+            aspect=aspect,
+        )
 
     return plot_prism_slices_interactive(gm, aspect=aspect, overlay=overlay, **kw)
 
@@ -539,6 +586,14 @@ def plot_2d(
     monitor_z_span: float | None = None,
     aspect: Literal["equal", "auto"] = "equal",
     gdsfactory_stack: Any | None = None,
+    kind: Literal["layers", "index"] = "index",
+    index_component: Literal["mean", "x", "y", "z"] = "mean",
+    cmap: str = "Blues",
+    material_data: Mapping[str, MaterialData] | None = None,
+    wavelength: float | None = None,
+    is_3d: bool = True,
+    plane: Literal["xy", "xz"] = "xy",
+    layer_order: Sequence[str] | None = None,
 ) -> plt.Axes | None:
     """Plot 2D cross-sections of the MEEP geometry.
 
@@ -562,10 +617,23 @@ def plot_2d(
         monitor_z_span: Port monitor z-span override.
         aspect: Axis aspect ratio. Use ``"equal"`` to preserve physical
             proportions or ``"auto"`` to fill the available plotting area.
+        kind: ``"layers"`` for the existing categorical layer view or
+            ``"index"`` for a refractive-index map.
+        index_component: Permittivity tensor component used by the index view.
+            ``"mean"`` plots ``sqrt(mean(epsilon_diag))``.
+        cmap: Matplotlib colormap for the index view.
+        material_data: Center-wavelength material data for the index view.
+        wavelength: Wavelength represented by the index view in um.
+        is_3d: Whether background slabs follow 3D simulation semantics.
+        plane: Resolved 2D simulation plane.
+        layer_order: Geometry precedence order used by the MEEP runner.
 
     Returns:
         ``plt.Axes`` when *ax* was provided, otherwise ``None``.
     """
+    if kind not in {"layers", "index"}:
+        raise ValueError(f"kind must be 'layers' or 'index'. Got: {kind!r}")
+
     from gsim.common.viz import plot_prism_slices
 
     gm = build_geometry_model(
@@ -586,6 +654,31 @@ def plot_2d(
         fiber_source=fiber_source,
         monitor_z_span=monitor_z_span,
     )
+    if kind == "index":
+        if material_data is None or wavelength is None:
+            raise ValueError(
+                "kind='index' requires center-wavelength material_data and wavelength"
+            )
+        from gsim.meep.index_viz import plot_refractive_index_slices
+
+        return plot_refractive_index_slices(
+            gm,
+            material_data,
+            wavelength=wavelength,
+            overlay=overlay,
+            layer_order=layer_order,
+            is_3d=is_3d,
+            plane=plane,
+            index_component=index_component,
+            cmap=cmap,
+            x=x,
+            y=y,
+            z=z,
+            ax=ax,
+            legend=legend,
+            slices=slices,
+            aspect=aspect,
+        )
     return plot_prism_slices(
         gm, x, y, z, ax, legend, slices, aspect=aspect, overlay=overlay
     )
