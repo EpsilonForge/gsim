@@ -645,11 +645,12 @@ def _xz_trivial_stack():
 class TestXZBuildConfig:
     """Tests for XZ 2D fields wired through Simulation.build_config()."""
 
-    def test_materializes_active_pdk_derived_layers(self):
-        """Derived physical layers are retained alongside source mask layers."""
+    def test_materializes_derived_layers_without_target_alias(self):
+        """Derived and direct physical levels receive independent GDS tuples."""
         import gdsfactory as gf
 
-        from gsim.meep.simulation import Simulation
+        from gsim.common.stack import get_stack
+        from gsim.meep.physical_layers import materialize_physical_layers
 
         c = gf.Component()
         c.add_polygon(
@@ -661,14 +662,14 @@ class TestXZBuildConfig:
             layer=gf.gpdk.LAYER.SHALLOW_ETCH,
         )
 
-        materialized = Simulation()._component_with_derived_layers(c)
-        pdk_layer_stack = gf.get_active_pdk().layer_stack
-        assert pdk_layer_stack is not None
-        derived_layer = pdk_layer_stack.layers["shallow_etch"].derived_layer
-        assert derived_layer is not None
+        materialized = materialize_physical_layers(c, get_stack())
+        core_layer = materialized.layer_map["core"]
+        shallow_layer = materialized.layer_map["shallow_etch"]
+        slab_layer = materialized.layer_map["slab150"]
 
-        assert tuple(gf.gpdk.LAYER.SHALLOW_ETCH) in materialized.layers
-        assert tuple(derived_layer.layer) in materialized.layers
+        assert len({core_layer, shallow_layer, slab_layer}) == 3
+        assert shallow_layer in materialized.component.layers
+        assert slab_layer not in materialized.component.layers
 
     def test_y_cut_defaults_to_bbox_center(self):
         from gsim.meep.simulation import Simulation

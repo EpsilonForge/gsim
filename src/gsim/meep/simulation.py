@@ -43,11 +43,15 @@ class BuildResult:
         config: Full serializable SimConfig.
         component: Extended component (what meep actually simulates).
         original_component: Original component before port extension.
+        stack: Simulation stack remapped to the component's physical layers.
+        gdsfactory_stack: Direct-layer stack used to visualize the component.
     """
 
     config: Any  # SimConfig
     component: Any  # gdsfactory Component (extended)
     original_component: Any  # gdsfactory Component (original)
+    stack: Any  # gsim LayerStack (cropped and remapped)
+    gdsfactory_stack: Any  # gdsfactory LayerStack (direct physical layers)
 
 
 # ---------------------------------------------------------------------------
@@ -512,7 +516,9 @@ class Simulation(BaseModel):
     # Internal: fiber-aware z margin
     # -------------------------------------------------------------------------
 
-    def _stack_material_extent(self) -> tuple[float, float] | None:
+    def _stack_material_extent(
+        self, stack: Any | None = None
+    ) -> tuple[float, float] | None:
         """Return (zmin, zmax) spanning all non-air layers and dielectrics.
 
         This is the reference used by auto z-crop and by the fiber-aware
@@ -520,7 +526,7 @@ class Simulation(BaseModel):
         core, cladding, passive, ...) and trims only the synthetic air
         padding added by the extractor.
         """
-        stack = self.geometry.stack
+        stack = stack if stack is not None else self.geometry.stack
         if stack is None:
             return None
         zmins: list[float] = []
@@ -577,7 +583,7 @@ class Simulation(BaseModel):
         return bounds, (margin_low, margin_high)
 
     def _resolve_active_z_bounds(
-        self, component: Any
+        self, component: Any, stack: Any | None = None
     ) -> tuple[tuple[float, float], str, float | None, bool]:
         """Resolve the public Z-domain setting to one concrete inner window.
 
@@ -592,7 +598,8 @@ class Simulation(BaseModel):
             return (z_low, z_high), "explicit", None, False
 
         ref_zmin, ref_zmax, ref_name, ref_n, is_auto_ref = self._resolve_z_ref_extent(
-            component=component
+            component=component,
+            stack=stack,
         )
         legacy_fields = self.domain.legacy_z_fields_used()
         if legacy_fields:
@@ -653,51 +660,10 @@ class Simulation(BaseModel):
         self._z_cropped = False
         self._last_cropped_stack = None
 
-    def _component_with_derived_layers(self, component: Any) -> Any:
-        """Return *component* augmented with any active-PDK derived layers.
-
-        GDS stores source mask layers, whereas a gdsfactory ``LayerStack`` may
-        describe physical layers using boolean expressions and ``derived_layer``
-        targets.  MEEP needs both: the evaluated layers for the physical stack
-        and the original layers for stack entries that are not derived.
-        """
-        import gdsfactory as gf
-
-        pdk_layer_stack = gf.get_active_pdk().layer_stack
-        if pdk_layer_stack is None:
-            return component.copy()
-        if not any(
-            level.derived_layer is not None for level in pdk_layer_stack.layers.values()
-        ):
-            return component.copy()
-
-        derived = pdk_layer_stack.get_component_with_derived_layers(component)
-        # ``get_component_with_derived_layers`` evaluates each layer's
-        # Boolean expression but does not apply gdsfactory's ``background``
-        # semantics.  Recreate those physical layers from the component bbox
-        # and the declared etch exclusions, matching ``Component.to_3d()``.
-        # This keeps the hierarchy intact; no flattening is required.
-        from kfactory import kdb
-
-        for level in pdk_layer_stack.layers.values():
-            if not getattr(level, "background", False) or level.derived_layer is None:
-                continue
-
-            target_layer = gf.get_layer_tuple(level.derived_layer.layer)
-            background = kdb.Region(component.kdb_cell.bbox())
-            for excluded_layer in getattr(level, "background_exclude_layers", ()):
-                layer_index = component.kcl.layer(*tuple(excluded_layer))
-                background -= kdb.Region(
-                    component.kdb_cell.begin_shapes_rec(layer_index)
-                )
-            derived.remove_layers([target_layer])
-            derived.add_polygon(background, layer=target_layer)
-
-        derived.add_ref(component)
-        return derived
-
     def _resolve_z_ref_extent(
-        self, component: Any | None = None
+        self,
+        component: Any | None = None,
+        stack: Any | None = None,
     ) -> tuple[float, float, str, float | None, bool]:
         """Resolve ``domain.z_ref`` to a vertical reference window.
 
@@ -716,14 +682,14 @@ class Simulation(BaseModel):
         """
         from gsim.meep.ports import _find_highest_n_layer_in_component
 
-        stack = self.geometry.stack
+        stack = stack if stack is not None else self.geometry.stack
         if stack is None:
             raise ValueError("No stack configured for z-crop.")
 
         z_ref = self.domain.z_ref
 
         if z_ref == "stack":
-            extent = self._stack_material_extent()
+            extent = self._stack_material_extent(stack)
             if extent is None:
                 raise ValueError(
                     "Could not detect any non-air layers/dielectrics for "
@@ -737,7 +703,7 @@ class Simulation(BaseModel):
                 stack,
             )
             if layer is None:
-                extent = self._stack_material_extent()
+                extent = self._stack_material_extent(stack)
                 if extent is None:
                     raise ValueError(
                         "Could not detect any drawn optical layer or non-air "
@@ -1284,13 +1250,12 @@ class Simulation(BaseModel):
         if self.geometry.component is None:
             raise ValueError("No geometry set.")
 
-        # Materialize derived PDK layers before inspecting or exporting the
-        # geometry.  A number of PDKs define the physical core as a boolean
-        # expression of fabrication-mask layers; those derived polygons are
-        # not present in an imported GDS until the layer stack evaluates them.
-        original_component = self._component_with_derived_layers(
-            self.geometry.component
-        )
+        from gsim.meep.physical_layers import materialize_physical_layers
+
+        # Keep the fabrication-mask component authoritative until after port
+        # extension. Physical layers are evaluated onto unique simulation-only
+        # tuples so two LayerLevels can never alias through a shared GDS target.
+        original_component = self.geometry.component
 
         # Resolve one authoritative PML-inner Z interval for every simulation
         # with an active Z axis. XY 2D collapses Z and therefore rejects an
@@ -1298,12 +1263,21 @@ class Simulation(BaseModel):
         resolved_z_bounds: tuple[float, float] | None = None
         if is_3d or plane == "xz":
             self._prepare_stack_for_z_crop()
+            if self.geometry.stack is None:  # pragma: no cover - guarded above
+                raise ValueError("Stack resolution failed.")
+            reference_export = materialize_physical_layers(
+                original_component,
+                self.geometry.stack,
+            )
             (
                 resolved_z_bounds,
                 ref_name,
                 ref_n,
                 is_auto,
-            ) = self._resolve_active_z_bounds(original_component)
+            ) = self._resolve_active_z_bounds(
+                reference_export.component,
+                reference_export.stack,
+            )
             self._resolved_z_bounds = resolved_z_bounds
             self._apply_z_crop(
                 resolved_z_bounds[0],
@@ -1321,8 +1295,6 @@ class Simulation(BaseModel):
                 )
 
         import gdsfactory as gf
-
-        stack = self.geometry.stack
 
         # Resolve the XZ cut Y-coordinate ('auto'/None -> bbox center).
         cut = self.solver.resolved_cut()
@@ -1357,16 +1329,27 @@ class Simulation(BaseModel):
                 + domain_cfg.dpml
             )
 
-        # Extend waveguide ports into PML region
+        # Extend source-mask waveguide ports before evaluating physical layers.
+        # Extending an already-materialized component would draw onto the source
+        # tuple and leave the remapped physical core unextended.
         original_bbox: list[float] | None = None
         if extend_length > 0:
             bbox = original_component.dbbox()
             original_bbox = [bbox.left, bbox.bottom, bbox.right, bbox.top]
-            component = gf.components.extend_ports(
+            extended_source_component = gf.components.extend_ports(
                 original_component, length=extend_length
             )
         else:
-            component = original_component
+            extended_source_component = original_component
+
+        if self.geometry.stack is None:  # pragma: no cover - guarded above
+            raise ValueError("Stack resolution failed.")
+        physical_export = materialize_physical_layers(
+            extended_source_component,
+            self.geometry.stack,
+        )
+        component = physical_export.component
+        stack = physical_export.stack
 
         # Build layer stack entries
         layer_stack_entries = []
@@ -1547,6 +1530,8 @@ class Simulation(BaseModel):
             config=sim_config,
             component=component,
             original_component=original_component,
+            stack=stack,
+            gdsfactory_stack=physical_export.gdsfactory_stack,
         )
 
     # -------------------------------------------------------------------------
@@ -2014,10 +1999,11 @@ class Simulation(BaseModel):
 
         return plot_2d(
             component=result.component,
-            stack=self.geometry.stack,
+            stack=result.stack,
             domain_config=result.config.domain,
             source_port=result.config.source.port,
             extend_ports_length=0,
+            gdsfactory_stack=result.gdsfactory_stack,
             port_data=result.config.ports,
             component_bbox=result.config.component_bbox,
             fiber_source=result.config.fiber_source,
@@ -2055,10 +2041,11 @@ class Simulation(BaseModel):
 
         return plot_2d_interactive(
             component=result.component,
-            stack=self.geometry.stack,
+            stack=result.stack,
             domain_config=result.config.domain,
             source_port=result.config.source.port,
             extend_ports_length=0,
+            gdsfactory_stack=result.gdsfactory_stack,
             port_data=result.config.ports,
             component_bbox=result.config.component_bbox,
             fiber_source=result.config.fiber_source,
@@ -2080,8 +2067,9 @@ class Simulation(BaseModel):
 
         return plot_3d(
             component=result.component,
-            stack=self.geometry.stack,
+            stack=result.stack,
             domain_config=result.config.domain,
             extend_ports_length=0,
+            gdsfactory_stack=result.gdsfactory_stack,
             **kwargs,
         )
