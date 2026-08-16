@@ -267,6 +267,7 @@ def _add_polygon_trace(
         go.Scatter(
             x=xs,
             y=ys,
+            mode="lines",
             fill="toself",
             fillcolor=_rgba(color, alpha),
             line=dict(color="black", width=0.5),
@@ -301,6 +302,7 @@ def _add_rect_trace(
         go.Scatter(
             x=xs,
             y=ys,
+            mode="lines",
             fill="toself",
             fillcolor=fillcolor,
             line=dict(color=line_color, width=0.5),

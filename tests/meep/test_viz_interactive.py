@@ -69,6 +69,15 @@ class TestPlot2DInteractive:
         fig = sim.plot_2d_interactive()
         assert len(fig.data) > 0
 
+    def test_filled_shapes_do_not_show_vertex_markers(self):
+        sim = _xz_sim_for_viz()
+
+        fig = sim.plot_2d_interactive()
+
+        filled_shapes = [trace for trace in fig.data if trace.fill == "toself"]
+        assert filled_shapes
+        assert all(trace.mode == "lines" for trace in filled_shapes)
+
     def test_z_slice(self):
         import plotly.graph_objects as go
 
