@@ -78,6 +78,26 @@ class TestPlot2DXZ:
         assert result is ax
         plt.close(fig)
 
+    def test_auto_aspect(self):
+        sim = _xz_sim_for_viz()
+        fig, ax = plt.subplots()
+
+        sim.plot_2d(ax=ax, aspect="auto")
+
+        assert ax.get_aspect() == "auto"
+        plt.close(fig)
+
+    def test_invalid_aspect_raises(self):
+        import pytest
+
+        sim = _xz_sim_for_viz()
+        fig, ax = plt.subplots()
+
+        with pytest.raises(ValueError, match="aspect must be"):
+            sim.plot_2d(ax=ax, aspect="invalid")
+
+        plt.close(fig)
+
     def test_cross_section_omits_undrawn_stack_layers(self):
         """Absent GDS layers must not appear as full-width slabs."""
         from gsim.common.stack import Layer
