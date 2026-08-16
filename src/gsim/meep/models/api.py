@@ -7,6 +7,7 @@ in ``Simulation.write_config()``.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -219,17 +220,34 @@ class Symmetry(BaseModel):
 
 
 class Domain(BaseModel):
-    """Computational domain sizing: PML + margins + symmetries."""
+    """Computational domain sizing: absolute bounds, PML, and symmetries.
+
+    ``z_bounds`` is the sole public control for an active Z axis. ``"auto"``
+    fits the drawn optical geometry with library-owned padding; a numeric pair
+    specifies the exact PML-inner interval in absolute micrometers.
+
+    ``z_ref`` and ``margin_z`` remain temporarily as input-compatibility fields
+    for existing code. They are deprecated and translated to concrete bounds
+    by :meth:`gsim.meep.Simulation.build_config`.
+    """
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
+    z_bounds: tuple[float, float] | Literal["auto"] = Field(
+        default="auto",
+        description=(
+            "PML-inner Z interval in absolute um, or 'auto' to fit the active "
+            "optical geometry with deterministic library padding."
+        ),
+    )
     z_ref: str | None = Field(
         default=None,
+        exclude=True,
         description=(
-            "Vertical crop reference: None = auto (highest-n layer actually "
+            "Deprecated vertical crop reference: None = auto (highest-n layer actually "
             "drawn by the component, i.e. the photonic core), 'stack' = full "
             "non-air material stack, or a specific layer name. "
-            "margin_z is measured from this reference."
+            "margin_z is measured from this reference. Use z_bounds instead."
         ),
     )
     pml: float = Field(default=1.0, ge=0, description="PML thickness in um")
@@ -249,9 +267,10 @@ class Domain(BaseModel):
     )
     margin_z: float | tuple[float, float] = Field(
         default=0.5,
+        exclude=True,
         description=(
-            "Vertical margin around the z_ref reference in um. Scalar = both "
-            "sides equal; (low, high) = (below, above)."
+            "Deprecated vertical margin around z_ref in um. Scalar = both "
+            "sides equal; (low, high) = (below, above). Use z_bounds instead."
         ),
     )
     port_margin: float = Field(
@@ -297,6 +316,42 @@ class Domain(BaseModel):
         if low < 0 or high < 0:
             raise ValueError("margin sides must be >= 0")
         return (float(low), float(high))
+
+    @field_validator("z_bounds", mode="before")
+    @classmethod
+    def _validate_z_bounds(cls, value: Any) -> Any:
+        """Accept ``"auto"`` or a finite, increasing absolute interval."""
+        if value == "auto":
+            return value
+        try:
+            low, high = value
+        except (TypeError, ValueError):
+            raise ValueError(
+                "z_bounds must be 'auto' or a (z_min, z_max) pair"
+            ) from None
+        low = float(low)
+        high = float(high)
+        if not math.isfinite(low) or not math.isfinite(high):
+            raise ValueError("z_bounds values must be finite")
+        if low >= high:
+            raise ValueError("z_bounds requires z_min < z_max")
+        return (low, high)
+
+    @model_validator(mode="after")
+    def _reject_competing_z_controls(self) -> Domain:
+        """Do not allow deprecated sizing inputs with explicit bounds."""
+        if self.z_bounds != "auto" and self.legacy_z_fields_used():
+            raise ValueError(
+                "Choose domain.z_bounds only; deprecated domain.z_ref and "
+                "domain.margin_z cannot be combined with explicit z_bounds."
+            )
+        return self
+
+    def legacy_z_fields_used(self) -> tuple[str, ...]:
+        """Return deprecated vertical fields explicitly set by the caller."""
+        return tuple(
+            name for name in ("z_ref", "margin_z") if name in self.model_fields_set
+        )
 
     @staticmethod
     def _as_pair(v: float | tuple[float, float]) -> tuple[float, float]:

@@ -582,6 +582,51 @@ class TestPublicDomainMargins:
         assert above == 1.1
 
 
+class TestPublicDomainZBounds:
+    """Test the canonical public Z-domain control."""
+
+    def test_default_is_auto(self):
+        from gsim.meep.models.api import Domain
+
+        assert Domain().z_bounds == "auto"
+
+    def test_explicit_bounds_are_normalized(self):
+        from gsim.meep.models.api import Domain
+
+        assert Domain(z_bounds=[-1, 3]).z_bounds == (-1.0, 3.0)  # ty: ignore[invalid-argument-type]
+
+    @pytest.mark.parametrize(
+        "bounds",
+        [(-1.0, -1.0), (2.0, 1.0), (float("nan"), 1.0), (0.0, float("inf"))],
+    )
+    def test_invalid_bounds_rejected(self, bounds):
+        from gsim.meep.models.api import Domain
+
+        with pytest.raises(ValidationError):
+            Domain(z_bounds=bounds)
+
+    def test_explicit_bounds_reject_legacy_inputs(self):
+        from gsim.meep.models.api import Domain
+
+        with pytest.raises(ValidationError, match="cannot be combined"):
+            Domain(z_bounds=(-1.0, 3.0), margin_z=0.5)
+
+    def test_assignment_rejects_legacy_input_after_bounds(self):
+        from gsim.meep.models.api import Domain
+
+        domain = Domain(z_bounds=(-1.0, 3.0))
+        with pytest.raises(ValidationError, match="cannot be combined"):
+            domain.margin_z = (0.2, 0.3)
+
+    def test_legacy_fields_are_not_dumped(self):
+        from gsim.meep.models.api import Domain
+
+        dumped = Domain().model_dump()
+        assert "z_bounds" in dumped
+        assert "z_ref" not in dumped
+        assert "margin_z" not in dumped
+
+
 class TestSimConfigComponentBbox:
     """Test SimConfig.component_bbox field."""
 

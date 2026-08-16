@@ -136,18 +136,22 @@ def build_sim_overlay(
         xy_min_x, xy_min_y = gmin[0], gmin[1]
         xy_max_x, xy_max_y = gmax[0], gmax[1]
 
-    # XY: per-side margins are the gap between geometry bbox and PML
-    # Z: margin_z_low/high is already baked into the geometry bbox via set_z_crop(),
-    #    so only add dpml beyond the geometry z-extent
+    # XY: per-side margins are the gap between geometry bbox and PML.
+    # Z: new configs carry authoritative PML-inner bounds. Fall back to the
+    # cropped geometry extent for legacy configs.
+    if domain_config.z_bounds is not None:
+        z_inner_low, z_inner_high = domain_config.z_bounds
+    else:
+        z_inner_low, z_inner_high = gmin[2], gmax[2]
     cell_min = (
         xy_min_x - mx_lo - dpml,
         xy_min_y - my_lo - dpml,
-        gmin[2] - dpml,
+        z_inner_low - dpml,
     )
     cell_max = (
         xy_max_x + mx_hi + dpml,
         xy_max_y + my_hi + dpml,
-        gmax[2] + dpml,
+        z_inner_high + dpml,
     )
 
     if z_span is None:

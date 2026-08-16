@@ -7,10 +7,18 @@ that gets written as JSON and consumed by the cloud MEEP runner script.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, computed_field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    computed_field,
+    field_validator,
+)
 
 
 class SymmetryEntry(BaseModel):
@@ -23,13 +31,14 @@ class SymmetryEntry(BaseModel):
 
 
 class DomainConfig(BaseModel):
-    """Simulation domain sizing: margins around geometry + PML thickness.
+    """Resolved simulation domain sizing and PML thickness.
 
-    Margins control how much material (from the layer stack) is kept around
-    the vertical crop reference (``domain.z_ref``).  ``margin_z_low`` /
-    ``margin_z_high`` set the crop window below/above that reference.  Along
-    XY the margins are the per-side gaps between the geometry bounding-box and
-    the PML inner edge (``*_low`` = -axis side, ``*_high`` = +axis side).
+    ``z_bounds`` is the authoritative PML-inner Z interval for new configs.
+    The legacy ``margin_z_low`` / ``margin_z_high`` fields remain readable for
+    old generated configs and are omitted when concrete bounds are serialized.
+    Along XY the margins are the per-side gaps between the geometry bounding
+    box and the PML inner edge (``*_low`` = -axis side, ``*_high`` = +axis
+    side).
 
     Cell size formula:
         cell_x = bbox_width  + margin_x_low + margin_x_high + 2*dpml
@@ -41,6 +50,10 @@ class DomainConfig(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
+    z_bounds: tuple[float, float] | None = Field(
+        default=None,
+        description="Resolved absolute PML-inner Z interval in um.",
+    )
     dpml: float = Field(ge=0, description="PML thickness in um")
     margin_x_low: float = Field(
         ge=0, description="XY margin on the -x side (geometry to PML) in um"
@@ -78,6 +91,21 @@ class DomainConfig(BaseModel):
         description="Distance between source and its port monitor (um). "
         "Source-port monitor is placed this far past the source into the device.",
     )
+
+    @field_validator("z_bounds")
+    @classmethod
+    def _validate_z_bounds(
+        cls, value: tuple[float, float] | None
+    ) -> tuple[float, float] | None:
+        """Require a finite, increasing resolved interval."""
+        if value is None:
+            return None
+        low, high = value
+        if not all(math.isfinite(bound) for bound in value):
+            raise ValueError("z_bounds values must be finite")
+        if low >= high:
+            raise ValueError("z_bounds requires z_min < z_max")
+        return (float(low), float(high))
 
 
 class StoppingConfig(BaseModel):
@@ -554,6 +582,10 @@ class SimConfig(BaseModel):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         data = self.model_dump(by_alias=True)
+        domain_data = data.get("domain")
+        if isinstance(domain_data, dict) and domain_data.get("z_bounds") is not None:
+            domain_data.pop("margin_z_low", None)
+            domain_data.pop("margin_z_high", None)
         if self._hints:
             data.update(self._hints)
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")

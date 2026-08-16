@@ -7,6 +7,7 @@ Translates the user-facing declarative API objects into the existing
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -24,6 +25,9 @@ from gsim.meep.models.api import (
 )
 
 logger = logging.getLogger(__name__)
+
+_AUTO_Z_PADDING = 0.5
+_FIBER_FLUX_OFFSET = 0.3
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +316,9 @@ class Simulation(BaseModel):
     # Private: guards against double vertical-cropping when build_config()
     # is called more than once (e.g. plot_2d then run) on the same sim.
     _z_cropped: bool = PrivateAttr(default=False)
+    _z_crop_source_stack: Any | None = PrivateAttr(default=None)
+    _last_cropped_stack: Any | None = PrivateAttr(default=None)
+    _resolved_z_bounds: tuple[float, float] | None = PrivateAttr(default=None)
 
     # Extra hints forwarded into the config JSON (not part of the schema).
     _hints: dict[str, Any] = PrivateAttr(default_factory=dict)
@@ -530,28 +537,121 @@ class Simulation(BaseModel):
             return None
         return min(zmins), max(zmaxs)
 
-    def _expand_margin_z_above_for_fiber(self, ref_top: float) -> None:
-        """Bump the above (high) side of ``margin_z`` to include the fiber plane.
+    def _resolve_mode_solver_z_window(
+        self,
+    ) -> tuple[tuple[float, float], tuple[float, float]]:
+        """Resolve mode-solver bounds and equivalent internal margins."""
+        extent = self._stack_material_extent()
+        if extent is None:
+            raise ValueError("Could not resolve a non-air Z extent for mode solving.")
+        stack_low, stack_high = extent
 
-        When the user configures ``sim.source_fiber(...)`` the Gaussian beam
-        sits at absolute z = ``fs.z``. The z-crop shrinks the stack around
-        the resolved ``z_ref`` top, so the above (high) side of ``margin_z``
-        must be large enough that ``ref_top + margin_z_high`` still sits above
-        the beam plane plus a waist-sized buffer (otherwise the fiber ends up
-        in PML).
+        if self.domain.z_bounds != "auto":
+            z_low, z_high = self.domain.z_bounds
+            if z_low > stack_low or z_high < stack_high:
+                raise ValueError(
+                    "Explicit domain.z_bounds must contain the modeled stack for "
+                    f"mode solving: requested ({z_low}, {z_high}), stack spans "
+                    f"({stack_low}, {stack_high})."
+                )
+            margins = (stack_low - z_low, z_high - stack_high)
+            self._resolved_z_bounds = (z_low, z_high)
+            return (z_low, z_high), margins
 
-        Args:
-            ref_top: Top (zmax) of the resolved vertical-crop reference (um).
+        legacy_fields = self.domain.legacy_z_fields_used()
+        if legacy_fields:
+            margin_low, margin_high = self.domain.resolved_margin_z()
+        else:
+            margin_low = margin_high = _AUTO_Z_PADDING
+        bounds = (stack_low - margin_low, stack_high + margin_high)
+        self._resolved_z_bounds = bounds
+
+        if legacy_fields:
+            field_names = " and ".join(f"domain.{name}" for name in legacy_fields)
+            warnings.warn(
+                f"Use of {field_names} is deprecated and will be removed in a "
+                f"future release; replace it with domain.z_bounds={bounds!r}.",
+                FutureWarning,
+                stacklevel=3,
+            )
+        return bounds, (margin_low, margin_high)
+
+    def _resolve_active_z_bounds(
+        self, component: Any
+    ) -> tuple[tuple[float, float], str, float | None, bool]:
+        """Resolve the public Z-domain setting to one concrete inner window.
+
+        Returns:
+            ``(bounds, reference_name, reference_n, is_auto)``. Explicit bounds
+            are returned unchanged. ``"auto"`` fits the drawn optical layer
+            with deterministic padding and may add fiber-source headroom.
         """
+        if self.domain.z_bounds != "auto":
+            z_low, z_high = self.domain.z_bounds
+            self._validate_fiber_z_bounds(z_low, z_high)
+            return (z_low, z_high), "explicit", None, False
+
+        ref_zmin, ref_zmax, ref_name, ref_n, is_auto_ref = self._resolve_z_ref_extent(
+            component=component
+        )
+        legacy_fields = self.domain.legacy_z_fields_used()
+        if legacy_fields:
+            margin_low, margin_high = self.domain.resolved_margin_z()
+        else:
+            margin_low = margin_high = _AUTO_Z_PADDING
+
+        z_low = ref_zmin - margin_low
+        z_high = ref_zmax + margin_high
+
+        if self.fiber_source is not None:
+            fiber_headroom = max(self.fiber_source.waist / 2.0, _AUTO_Z_PADDING)
+            z_high = max(z_high, self.fiber_source.z + fiber_headroom)
+
+        bounds = (float(z_low), float(z_high))
+        if legacy_fields:
+            field_names = " and ".join(f"domain.{name}" for name in legacy_fields)
+            warnings.warn(
+                f"Use of {field_names} is deprecated and will be removed in a "
+                f"future release; replace it with domain.z_bounds={bounds!r}.",
+                FutureWarning,
+                stacklevel=3,
+            )
+
+        return bounds, ref_name, ref_n, is_auto_ref
+
+    def _validate_fiber_z_bounds(self, z_low: float, z_high: float) -> None:
+        """Require an explicit window to contain all fiber-source headroom."""
         if self.fiber_source is None:
             return
-        fs = self.fiber_source
-        # Room for the beam plane + beam-half-waist so the Gaussian tail
-        # is inside the sim cell before PML.
-        mz_low, mz_high = self.domain.resolved_margin_z()
-        needed = (fs.z - ref_top) + max(fs.waist / 2.0, 0.5)
-        if mz_high < needed:
-            self.domain.margin_z = (mz_low, needed)
+        source = self.fiber_source
+        required_low = source.z - _FIBER_FLUX_OFFSET
+        required_high = source.z + max(source.waist / 2.0, _AUTO_Z_PADDING)
+        if z_low <= required_low and z_high >= required_high:
+            return
+        raise ValueError(
+            "Explicit domain.z_bounds does not contain the fiber source and "
+            f"monitor headroom: requested ({z_low}, {z_high}), requires at "
+            f"least ({required_low}, {required_high}). Expand z_bounds or use "
+            "z_bounds='auto'."
+        )
+
+    def _prepare_stack_for_z_crop(self) -> None:
+        """Restore a fresh stack before resolving and applying each Z crop."""
+        stack = self.geometry.stack
+        if stack is None:
+            raise ValueError("No stack configured for z-crop.")
+
+        if (
+            self._z_cropped
+            and stack is self._last_cropped_stack
+            and self._z_crop_source_stack is not None
+        ):
+            self.geometry.stack = self._z_crop_source_stack.model_copy(deep=True)
+        else:
+            self._z_crop_source_stack = stack.model_copy(deep=True)
+
+        self._z_cropped = False
+        self._last_cropped_stack = None
 
     def _component_with_derived_layers(self, component: Any) -> Any:
         """Return *component* augmented with any active-PDK derived layers.
@@ -660,34 +760,28 @@ class Simulation(BaseModel):
 
     def _apply_z_crop(
         self,
-        ref_zmin: float,
-        ref_zmax: float,
+        z_lo: float,
+        z_hi: float,
         ref_name: str,
         ref_n: float | None,
         is_auto: bool,
     ) -> None:
-        """Crop the stack vertically around the resolved ``z_ref`` window.
+        """Crop the stack to authoritative PML-inner Z bounds.
 
-        Preserves ``[ref_zmin - margin_z_low, ref_zmax + margin_z_high]``
-        and trims/removes layers and dielectrics outside it. Guarded by
-        ``_z_cropped`` so repeat ``build_config`` calls don't re-crop.
+        Trims/removes layers and dielectrics outside the exact interval.
 
         Args:
-            ref_zmin: Bottom of the reference window (um).
-            ref_zmax: Top of the reference window (um).
+            z_lo: Lower PML-inner Z bound (um).
+            z_hi: Upper PML-inner Z bound (um).
             ref_name: Name of the reference ('stack' or a layer name).
             ref_n: Refractive index of the reference layer (or None).
-            is_auto: Whether the reference was auto-detected (``z_ref=None``).
+            is_auto: Whether the reference was auto-detected.
         """
         from gsim.common.stack.extractor import Layer, LayerStack
 
         stack = self.geometry.stack
         if stack is None:
             raise ValueError("No stack configured for z-crop.")
-
-        mz_low, mz_high = self.domain.resolved_margin_z()
-        z_lo = ref_zmin - mz_low
-        z_hi = ref_zmax + mz_high
 
         # Filter and clip layers
         cropped: dict[str, Layer] = {}
@@ -722,6 +816,12 @@ class Simulation(BaseModel):
                 }
             )
 
+        if not cropped and not cropped_dielectrics:
+            raise ValueError(
+                f"domain.z_bounds=({z_lo}, {z_hi}) does not intersect any "
+                "layer or dielectric in the resolved stack."
+            )
+
         self.geometry.stack = LayerStack(
             pdk_name=stack.pdk_name,
             units=stack.units,
@@ -733,12 +833,9 @@ class Simulation(BaseModel):
         if is_auto:
             n_str = f"n={ref_n:.2f}, " if ref_n is not None else ""
             logger.info(
-                "z-crop reference auto-detected: %r (%sz=[%.4g, %.4g]); "
-                "window z=[%.4g, %.4g]",
+                "z-crop reference auto-detected: %r (%swindow z=[%.4g, %.4g])",
                 ref_name,
                 n_str,
-                ref_zmin,
-                ref_zmax,
                 z_lo,
                 z_hi,
             )
@@ -756,6 +853,7 @@ class Simulation(BaseModel):
         # Guard against re-cropping an already-cropped stack on repeat
         # build_config() calls (e.g. plot_2d then run).
         self._z_cropped = True
+        self._last_cropped_stack = self.geometry.stack
 
     # -------------------------------------------------------------------------
     # Internal: translate to config objects
@@ -797,14 +895,15 @@ class Simulation(BaseModel):
             wall_time_max=s.wall_time_max,
         )
 
-    def _domain_config(self) -> Any:
-        """Translate Domain -> DomainConfig."""
+    def _domain_config(self, z_bounds: tuple[float, float] | None = None) -> Any:
+        """Translate Domain to config with optional resolved Z bounds."""
         from gsim.meep.models.config import DomainConfig
 
         mx = self.domain.resolved_margin_x()
         my = self.domain.resolved_margin_y()
         mz = self.domain.resolved_margin_z()
         return DomainConfig(
+            z_bounds=z_bounds,
             dpml=self.domain.pml,
             margin_x_low=mx[0],
             margin_x_high=mx[1],
@@ -953,7 +1052,7 @@ class Simulation(BaseModel):
 
         stack = self.geometry.stack
         component = self.geometry.component
-        domain_cfg = self._domain_config()
+        domain_cfg = self._domain_config(z_bounds=self._resolved_z_bounds)
         port = self.mode_solver.port
         position = self.mode_solver.position
         port_or_pos = port if port is not None else position
@@ -1002,7 +1101,6 @@ class Simulation(BaseModel):
 
         resolution = self.solver.resolution
         pml_thickness = self.domain.pml
-        z_margin = self.domain.resolved_margin_z()
 
         component = self.geometry.component
         where = ms.where
@@ -1040,6 +1138,7 @@ class Simulation(BaseModel):
         stack = self.geometry.stack
         if stack is None:
             raise ValueError("Stack resolution failed.")
+        mode_z_bounds, z_margin = self._resolve_mode_solver_z_window()
 
         background_material = ms.background_material
 
@@ -1133,7 +1232,7 @@ class Simulation(BaseModel):
                     )
                     results.append(mode_result)
 
-        domain_cfg = self._domain_config()
+        domain_cfg = self._domain_config(z_bounds=mode_z_bounds)
         for r in results:
             r.domain_config = domain_cfg
 
@@ -1193,18 +1292,33 @@ class Simulation(BaseModel):
             self.geometry.component
         )
 
-        # Apply z-crop for 3D and XZ 2D (both use the vertical dimension).
-        # XY 2D collapses z entirely so cropping is meaningless. The crop
-        # window comes from domain.z_ref (default: the drawn photonic core).
-        if (is_3d or plane == "xz") and not self._z_cropped:
-            ref_zmin, ref_zmax, ref_name, ref_n, is_auto = self._resolve_z_ref_extent(
-                component=original_component
+        # Resolve one authoritative PML-inner Z interval for every simulation
+        # with an active Z axis. XY 2D collapses Z and therefore rejects an
+        # explicit interval.
+        resolved_z_bounds: tuple[float, float] | None = None
+        if is_3d or plane == "xz":
+            self._prepare_stack_for_z_crop()
+            (
+                resolved_z_bounds,
+                ref_name,
+                ref_n,
+                is_auto,
+            ) = self._resolve_active_z_bounds(original_component)
+            self._resolved_z_bounds = resolved_z_bounds
+            self._apply_z_crop(
+                resolved_z_bounds[0],
+                resolved_z_bounds[1],
+                ref_name,
+                ref_n,
+                is_auto,
             )
-            # When a fiber source is configured in XZ mode, expand the
-            # above (high) side of margin_z so the cropped stack still
-            # contains the beam plane (and PML headroom) — from the ref top.
-            self._expand_margin_z_above_for_fiber(ref_zmax)
-            self._apply_z_crop(ref_zmin, ref_zmax, ref_name, ref_n, is_auto)
+        else:
+            self._resolved_z_bounds = None
+            if self.domain.z_bounds != "auto":
+                raise ValueError(
+                    "Explicit domain.z_bounds requires an active Z axis (3D or "
+                    "XZ 2D). Use solver.z_cut to choose an XY slice."
+                )
 
         import gdsfactory as gf
 
@@ -1222,7 +1336,7 @@ class Simulation(BaseModel):
             y_cut = None
 
         # Build config objects
-        domain_cfg = self._domain_config()
+        domain_cfg = self._domain_config(z_bounds=resolved_z_bounds)
         wl_cfg = self._wavelength_config()
         source_cfg = self._source_config()
         stopping_cfg = self._stopping_config()
@@ -1537,7 +1651,6 @@ class Simulation(BaseModel):
 
         resolution = self.solver.resolution
         pml_thickness = self.domain.pml
-        z_margin = self.domain.resolved_margin_z()
 
         first_wavelength = ms.wavelengths[0]
         _stack, material_data = self._resolve_stack_and_materials(
@@ -1548,6 +1661,7 @@ class Simulation(BaseModel):
             raise ValueError(
                 "Stack resolution failed — set a geometry with stack first"
             )
+        _mode_z_bounds, z_margin = self._resolve_mode_solver_z_window()
 
         if stack.dielectrics:
             dielectrics = [

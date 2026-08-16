@@ -1527,6 +1527,26 @@ def save_epsilon_raw(sim, config, cell_center):
 # Main
 # ---------------------------------------------------------------------------
 
+def resolve_z_cell(domain, z_min, z_max, is_3d, is_xz):
+    """Return ``(cell_span, center)`` for the active Z axis.
+
+    New configs provide exact PML-inner bounds. The material-extent branches
+    remain only for previously generated JSON that predates ``z_bounds``.
+    """
+    dpml = domain["dpml"]
+    resolved_z_bounds = domain.get("z_bounds")
+    if (is_3d or is_xz) and resolved_z_bounds is not None:
+        z_lo, z_hi = resolved_z_bounds
+        return (z_hi - z_lo) + 2 * dpml, (z_hi + z_lo) / 2
+    if is_3d:
+        return (z_max - z_min) + 2 * dpml, (z_max + z_min) / 2
+    if is_xz:
+        z_lo = z_min - domain.get("margin_z_low", 0.0)
+        z_hi = z_max + domain.get("margin_z_high", 0.0)
+        return (z_hi - z_lo) + 2 * dpml, (z_hi + z_lo) / 2
+    return 0.0, 0.0
+
+
 def main():
     """Run MEEP simulation."""
     config_path = "%%CONFIG_FILENAME%%"
@@ -1600,37 +1620,14 @@ def main():
     else:
         z_min, z_max = 0.0, 0.0
 
-    margin_z_below = domain["margin_z_low"]
-    margin_z_above = domain["margin_z_high"]
-
-    if is_3d:
-        # 3D: z-margins are already baked via z_crop; just add dpml.
-        cell_z = (z_max - z_min) + 2 * dpml
-        cell_center = mp.Vector3(
-            center_x,
-            center_y,
-            (z_max + z_min) / 2,
-        )
-    elif is_xz:
-        # XZ 2D: cell_y collapsed; cell_z spans the full stack with
-        # z-margins and PML added (there is no z_crop in 2D).
+    cell_z, center_z = resolve_z_cell(domain, z_min, z_max, is_3d, is_xz)
+    if is_xz:
         cell_y = 0.0
-        z_lo = z_min - margin_z_below
-        z_hi = z_max + margin_z_above
-        cell_z = (z_hi - z_lo) + 2 * dpml
-        cell_center = mp.Vector3(
-            center_x,
-            0.0,
-            (z_hi + z_lo) / 2,
-        )
-    else:
-        # XY 2D: collapse z-dimension entirely.
-        cell_z = 0
-        cell_center = mp.Vector3(
-            center_x,
-            center_y,
-            0,
-        )
+    cell_center = mp.Vector3(
+        center_x,
+        0.0 if is_xz else center_y,
+        center_z,
+    )
 
     logger.info(
         "Cell size: %.2f x %.2f x %.2f um (%s)",
