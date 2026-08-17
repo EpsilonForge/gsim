@@ -46,7 +46,7 @@ jobs:
       env:
         NOTEBOOK: ${{ matrix.notebook }}
       run: |
-        uv sync --locked --no-default-groups --group docs
+        uv sync --no-default-groups --group docs
         case "$NOTEBOOK" in
           nbs/meep_ybranch.ipynb|nbs/meep_ring_coupler.ipynb|nbs/meep_dc.ipynb|nbs/meep_crossing.ipynb)
             uv pip install ubcpdk==3.3.4
