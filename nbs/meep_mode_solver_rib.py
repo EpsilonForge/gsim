@@ -134,7 +134,7 @@ sim.mode_solver.y_span = SLAB_WIDTH
 sim.mode_solver.n_field_y = 300
 sim.mode_solver.n_field_z = 300
 
-sweep = sim.solve_modes()
+sweep = sim.solve_modes(check_cache=True)
 
 # n_eff for every band found at this wavelength
 modes = sorted(sweep.at(WAVELENGTH).results, key=lambda r: r.band_num)

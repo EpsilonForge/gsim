@@ -38,28 +38,11 @@ sync-changelog:
 docs: sync-changelog
   uv run zensical build -f docs/zensical.toml
 
-serve: sync-changelog
-  uv run zensical serve -f docs/zensical.toml -a localhost:8080
-
 # Run a notebook normally (interactive plots): just nbrun nbs/foo.ipynb
 nbrun +notebooks: ipykernel
   for nb in {{notebooks}}; do \
     uv run papermill "$nb" "$nb" -k gsim; \
     jupytext --sync "$nb"; \
-  done
-
-# Run a notebook for docs (with Plotly HTML renderer): just nbrun-docs nbs/foo.ipynb
-nbrun-docs +notebooks: ipykernel
-  for nb in {{notebooks}}; do \
-    PLOTLY_RENDERER=notebook_connected PYVISTA_OFF_SCREEN=true PYVISTA_JUPYTER_BACKEND=static uv run papermill "$nb" "$nb" -k gsim; \
-    uv run python scripts/strip_notebook_paths.py "$nb"; \
-    uv run jupyter nbconvert --to markdown --embed-images "$nb" --output-dir docs/nbs; \
-  done
-
-# Convert notebooks to markdown for docs: just nbdocs nbs/foo.ipynb nbs/bar.ipynb
-nbdocs +notebooks:
-  for nb in {{notebooks}}; do \
-    uv run jupyter nbconvert --to markdown --embed-images "$nb" --output-dir docs/nbs; \
   done
 
 nbclean-all:
@@ -82,7 +65,6 @@ clean: nbclean-all
   rm -rf site docs/site
   rm -rf .venv
   rm -f uv.lock
-  rm -rf docs/nbs/*
   find src -name "*.c" | xargs rm -rf
   find src -name "*.pyc" | xargs rm -rf
   find src -name "*.so" | xargs rm -rf

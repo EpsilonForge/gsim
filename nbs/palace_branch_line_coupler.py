@@ -264,7 +264,7 @@ sim.plot_mesh(show_groups=["metal", "P"])
 
 # %% papermill={"duration": 2449.138372, "end_time": "2026-04-04T06:55:31.154320", "exception": false, "start_time": "2026-04-04T06:14:42.015948", "status": "completed"}
 # Run simulation on GDSFactory+ cloud
-results = sim.run()
+results = sim.run(check_cache=True)
 
 # %% papermill={"duration": 0.185189, "end_time": "2026-04-04T06:55:31.341798", "exception": false, "start_time": "2026-04-04T06:55:31.156609", "status": "completed"}
 results.plot_interactive()

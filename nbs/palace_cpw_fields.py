@@ -99,7 +99,7 @@ sim.mesh(
 
 # %%
 sim.write_config()
-results = sim.run_local()
+results = sim.run(check_cache=True)
 
 # %% [markdown]
 # ### Load results and setup

@@ -109,7 +109,7 @@ print(f"Configured {len(sims)} simulations for wavelengths {wavelengths_um}")
 # ### Upload and start all jobs (non-blocking)
 
 # %% papermill={"duration": 8.135139, "end_time": "2026-07-06T16:49:46.963426", "exception": false, "start_time": "2026-07-06T16:49:38.828287", "status": "completed"}
-job_ids = [sim.run(wait=False) for sim in sims]
+job_ids = [sim.run(wait=False, check_cache=True) for sim in sims]
 print(f"Started {len(job_ids)} jobs: {job_ids}")
 
 # %% [markdown] papermill={"duration": 0.002904, "end_time": "2026-07-06T16:49:46.969885", "exception": false, "start_time": "2026-07-06T16:49:46.966981", "status": "completed"}

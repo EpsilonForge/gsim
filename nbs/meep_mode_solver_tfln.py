@@ -172,7 +172,7 @@ sim.mode_solver.n_field_y = 1000
 sim.mode_solver.n_field_z = 1000
 sim.mode_solver.background_material = "sio2"
 
-sweep = sim.solve_modes()
+sweep = sim.solve_modes(check_cache=True)
 mode = sweep.at(WAVELENGTH).band(1)
 
 print(f"n_eff     = {mode.n_eff}")
@@ -349,7 +349,10 @@ def submit_mode_solve(core_width: float) -> str:
     tmp = Path(tempfile.mkdtemp(prefix="meep_mode_sweep_"))
     try:
         sim.write_mode_solver_config(tmp)
-        job_id = gcloud.upload(tmp, "meep", verbose=False)
+        input_hash, cached_job_id = gcloud.check_cache_for_dir(tmp, "meep")
+        if cached_job_id is not None:
+            return cached_job_id
+        job_id = gcloud.upload(tmp, "meep", verbose=False, input_hash=input_hash)
         gcloud.start(job_id, verbose=False)
         return job_id
     finally:

@@ -94,7 +94,7 @@ sim.solver.resolution = RESOLUTION
 sim.domain.pml = PML
 sim.mode_solver(wavelengths=[WL], num_bands=1, parity="NO_PARITY")
 
-sweep = sim.solve_modes()
+sweep = sim.solve_modes(check_cache=True)
 r = sweep.results[0]
 
 print(f"n_eff   = {r.n_eff:.6f}")
@@ -122,7 +122,7 @@ print(f"band    = {r.band_num}, parity = {r.parity}")
 
 # %% papermill={"duration": 61.220357, "end_time": "2026-07-24T09:49:30.263738", "exception": false, "start_time": "2026-07-24T09:48:29.043381", "status": "completed"}
 sim.mode_solver(n_field_z=n_points)
-sweep = sim.solve_modes()
+sweep = sim.solve_modes(check_cache=True)
 r = sweep.results[0]
 
 for comp, arr in r.fields.items():
@@ -143,7 +143,7 @@ print(f"Index range: {n_profile.min():.4f} - {n_profile.max():.4f}")
 
 # %% papermill={"duration": 33.068149, "end_time": "2026-07-24T09:50:03.349665", "exception": false, "start_time": "2026-07-24T09:49:30.281516", "status": "completed"}
 sim.mode_solver(n_field_z=n_points)
-sweep = sim.solve_modes()
+sweep = sim.solve_modes(check_cache=True)
 r = sweep.results[0]
 
 z_slab = gm.mode_z_grid(stack, n_points=n_points, pml_thickness=PML)
@@ -227,7 +227,7 @@ fig.tight_layout()
 
 # %% papermill={"duration": 33.02967, "end_time": "2026-07-24T09:50:36.652091", "exception": false, "start_time": "2026-07-24T09:50:03.622421", "status": "completed"}
 sim.mode_solver.sweep_wavelength(1.50, 1.60, 7)
-sweep = sim.solve_modes()
+sweep = sim.solve_modes(check_cache=True)
 
 # sweep.results are ordered by wavelength ascending
 wl_results = {r.wavelength: r for r in sweep.results}
@@ -262,7 +262,7 @@ soi_sim.geometry.stack = soi
 soi_sim.solver.resolution = RESOLUTION
 soi_sim.domain.pml = PML
 soi_sim.mode_solver(wavelengths=[WL]).first(4)
-band_sweep = soi_sim.solve_modes()
+band_sweep = soi_sim.solve_modes(check_cache=True)
 
 band_results = {r.band_num: r for r in band_sweep.results}
 for band, r in sorted(band_results.items()):
@@ -276,7 +276,7 @@ for band, r in sorted(band_results.items()):
 
 # %% papermill={"duration": 39.388115, "end_time": "2026-07-24T09:51:59.848424", "exception": false, "start_time": "2026-07-24T09:51:20.460309", "status": "completed"}
 soi_sim.mode_solver(n_field_z=n_points)
-band_sweep = soi_sim.solve_modes()
+band_sweep = soi_sim.solve_modes(check_cache=True)
 band_results = {r.band_num: r for r in band_sweep.results}
 
 zz = gm.mode_z_grid(soi, n_points=n_points, pml_thickness=PML)
@@ -315,7 +315,7 @@ for parity in parities:
         p_sim.solver.resolution = RESOLUTION
         p_sim.domain.pml = PML
         p_sim.mode_solver(wavelengths=[WL], band=1, parity=parity)
-        r = p_sim.solve_modes().results[0]
+        r = p_sim.solve_modes(check_cache=True).results[0]
         tag = "guided" if r.n_eff > _n_sio2(WL) else "leaky"
         print(f"  {parity:10s}: n_eff={r.n_eff:.6f}  ({tag})")
     except RuntimeError as exc:
@@ -539,7 +539,7 @@ meep_sim.geometry.stack = soi
 meep_sim.solver.resolution = RESOLUTION
 meep_sim.domain.pml = PML
 meep_sim.mode_solver(wavelengths=[WL], band=1, parity="EVEN_Y")
-r_meep = meep_sim.solve_modes().results[0]
+r_meep = meep_sim.solve_modes(check_cache=True).results[0]
 
 if 0 in analytical:
     n_analytical = analytical[0]
@@ -552,7 +552,7 @@ else:
 
 # Higher-order modes
 meep_sim.mode_solver(wavelengths=[WL]).first(4).at_slab()
-higher = meep_sim.solve_modes()
+higher = meep_sim.solve_modes(check_cache=True)
 for r in higher.results:
     if r.band_num > 1:
         print(f"\nMEEP  band {r.band_num}: n_eff = {r.n_eff:.6f}")
@@ -649,7 +649,7 @@ for t in thicknesses:
     ts.solver.resolution = RESOLUTION
     ts.domain.pml = PML
     ts.mode_solver(wavelengths=[WL], band=1, parity="NO_PARITY")
-    r = ts.solve_modes().results[0]
+    r = ts.solve_modes(check_cache=True).results[0]
     n_eff_thick.append(r.n_eff)
     n_group_thick.append(r.n_group)
     print(f"  t_Si = {t:.2f} um -> n_eff = {r.n_eff:.6f}, n_group = {r.n_group}")

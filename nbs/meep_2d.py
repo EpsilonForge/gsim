@@ -86,7 +86,7 @@ sim.plot_2d_interactive()
 # ### Run 2D simulation on cloud
 
 # %% papermill={"duration": 130.177283, "end_time": "2026-06-12T07:48:02.774893", "exception": false, "start_time": "2026-06-12T07:45:52.597610", "status": "completed"}
-result = sim.run()
+result = sim.run(check_cache=True)
 
 # %% papermill={"duration": 0.030581, "end_time": "2026-06-12T07:48:02.807369", "exception": false, "start_time": "2026-06-12T07:48:02.776788", "status": "completed"}
 result.plot_interactive()

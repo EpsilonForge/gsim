@@ -7,7 +7,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.2
 #   kernelspec:
-#     display_name: gsim
+#     display_name: gsim (3.12.10)
 #     language: python
 #     name: python3
 # ---
@@ -74,7 +74,13 @@ sim.source_fiber(
 )
 
 sim.monitors = ["o2"]
-sim.domain(pml=1.0, margin_x=0.5, margin_y=0.5, margin_z=(1.5, 0))
+sim.domain(
+    pml=1.0,
+    margin_x=0.5,
+    margin_y=0.5,
+    margin_z=(1.5, 0),
+    extend_into_pml=True,
+)
 sim.num_freqs = 21
 
 print(sim.validate_config())
@@ -83,13 +89,13 @@ print(sim.validate_config())
 # ### Preview the XZ cross-section
 
 # %% papermill={"duration": 0.513783, "end_time": "2026-07-06T15:20:21.805866", "exception": false, "start_time": "2026-07-06T15:20:21.292083", "status": "completed"}
-sim.plot_2d(slices="y")
+sim.plot_2d(slices="y", aspect="auto")
 
 # %% [markdown] papermill={"duration": 0.000872, "end_time": "2026-07-06T15:20:21.808274", "exception": false, "start_time": "2026-07-06T15:20:21.807402", "status": "completed"}
 # ### Run the simulation
 
 # %% papermill={"duration": 264.33169, "end_time": "2026-07-06T15:24:46.140801", "exception": false, "start_time": "2026-07-06T15:20:21.809111", "status": "completed"}
-result = sim.run()
+result = sim.run(check_cache=True)
 
 # %% papermill={"duration": 0.126819, "end_time": "2026-07-06T15:24:46.269650", "exception": false, "start_time": "2026-07-06T15:24:46.142831", "status": "completed"}
 result.plot_interactive()

@@ -135,7 +135,7 @@ sim.plot_mesh(
 # ### Run simulation
 
 # %% papermill={"duration": 97.647775, "end_time": "2026-05-18T13:22:56.162915", "exception": false, "start_time": "2026-05-18T13:21:18.515140", "status": "completed"}
-results = sim.run()
+results = sim.run(check_cache=True)
 
 # %% [markdown] papermill={"duration": 0.002577, "end_time": "2026-05-18T13:22:56.168483", "exception": false, "start_time": "2026-05-18T13:22:56.165906", "status": "completed"}
 # ### Plot S-parameters

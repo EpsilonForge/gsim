@@ -87,7 +87,7 @@ print(f"Configured {len(sims)} simulations")
 # Upload and start all jobs without waiting
 job_ids = []
 for sim in sims:
-    job_id = sim.run(wait=False)
+    job_id = sim.run(wait=False, check_cache=True)
     job_ids.append(job_id)
 
 print(f"Started {len(job_ids)} jobs: {job_ids}")

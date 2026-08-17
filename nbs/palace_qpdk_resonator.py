@@ -196,7 +196,7 @@ sim.plot_mesh(show_groups=["superconductor", "P", "sapphire", "vacuum"])
 
 # %% papermill={"duration": 536.401462, "end_time": "2026-04-04T12:05:49.805289", "exception": false, "start_time": "2026-04-04T11:56:53.403827", "status": "completed"}
 sim.write_config()
-results = sim.run()
+results = sim.run(check_cache=True)
 
 # %% papermill={"duration": 0.186505, "end_time": "2026-04-04T12:05:49.995902", "exception": false, "start_time": "2026-04-04T12:05:49.809397", "status": "completed"}
 results.plot_interactive()

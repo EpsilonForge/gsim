@@ -68,7 +68,7 @@ sim.plot_2d(slices="xyz")
 
 # %% papermill={"duration": 411.550742, "end_time": "2026-04-04T19:32:03.473783", "exception": false, "start_time": "2026-04-04T19:25:11.923041", "status": "completed"}
 # Run on GDSFactory+ cloud
-result = sim.run()
+result = sim.run(check_cache=True)
 
 # %% papermill={"duration": 0.145999, "end_time": "2026-04-04T19:32:03.620766", "exception": false, "start_time": "2026-04-04T19:32:03.474767", "status": "completed"}
 result.plot_interactive()

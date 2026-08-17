@@ -7,7 +7,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.19.2
 #   kernelspec:
-#     display_name: gsim
+#     display_name: gsim (3.12.10)
 #     language: python
 #     name: python3
 # ---
@@ -53,24 +53,22 @@ sim.materials = {
 }
 sim.source(port="o1", wavelength=1.55, wavelength_span=0.04)
 sim.monitors = ["o1", "o2", "o3", "o4"]
-sim.domain(pml=1.0, margin_x=0.5, margin_y=0.5, z_ref="stack")
+sim.domain(pml=1.0, margin_x=0.5, margin_y=0.5, z_ref="stack", extend_into_pml=True)
 sim.solver(resolution=20, save_animation=True, verbose_interval=5.0)
 sim.num_freqs = 21
 sim.solver.stop_when_energy_decayed()
 
 print(sim.validate_config())
 
-xsxs
-
 # %% papermill={"duration": 0.837901, "end_time": "2026-04-22T11:27:13.121534", "exception": false, "start_time": "2026-04-22T11:27:12.283633", "status": "completed"}
-sim.plot_2d(slices="xyz")
+sim.plot_2d(slices="z")
 
 # %% [markdown] papermill={"duration": 0.000831, "end_time": "2026-04-22T11:27:13.123545", "exception": false, "start_time": "2026-04-22T11:27:13.122714", "status": "completed"}
 # ### Run simulation on cloud
 
 # %% papermill={"duration": 202.030979, "end_time": "2026-04-22T11:30:35.155272", "exception": false, "start_time": "2026-04-22T11:27:13.124293", "status": "completed"}
 # Run on GDSFactory+ cloud
-result = sim.run()
+result = sim.run(check_cache=True)
 
 # %% papermill={"duration": 0.12756, "end_time": "2026-04-22T11:30:35.284407", "exception": false, "start_time": "2026-04-22T11:30:35.156847", "status": "completed"}
 result.plot_interactive()
