@@ -190,6 +190,17 @@ def _axis_aligned_orientation(
     return aligned, (round(cos(angle)), round(sin(angle)), 0)
 
 
+def _port_orientation_and_normal(
+    port: Any,
+) -> tuple[float, tuple[int, int, int]]:
+    """Resolve guided-port normals while preserving vertical-port semantics."""
+    port_type = str(getattr(port, "port_type", ""))
+    if port_type.startswith("vertical_"):
+        orientation = 0.0 if port.orientation is None else float(port.orientation)
+        return orientation % 360.0, (0, 0, 1)
+    return _axis_aligned_orientation(port.name, port.orientation)
+
+
 def _port_layer(port: Any) -> tuple[int, int]:
     """Return a concrete GDS tuple for a component port."""
     if isinstance(port.layer, int):
@@ -227,15 +238,17 @@ def _resolved_ports(
     """Map every component port to one resolved physical layer."""
     resolved: dict[str, ResolvedPort] = {}
     for port in component.ports:
-        orientation, normal = _axis_aligned_orientation(port.name, port.orientation)
+        orientation, normal = _port_orientation_and_normal(port)
+        port_type = str(getattr(port, "port_type", ""))
         candidates = _port_candidates(port, layers)
-        if not candidates:
+        is_vertical = port_type.startswith("vertical_")
+        if not candidates and not is_vertical:
             raise UnsupportedPortError(
                 f"Port {port.name!r} on layer {_port_layer(port)} does not map to "
                 "resolved LayerStack geometry."
             )
-        layer = candidates[0]
-        z_lower, z_upper = layer.z_bounds
+        layer = candidates[0] if candidates else None
+        z_lower, z_upper = layer.z_bounds if layer is not None else (0.0, 0.0)
         resolved[port.name] = ResolvedPort(
             name=port.name,
             center=(
@@ -246,8 +259,9 @@ def _resolved_ports(
             width=float(port.width),
             orientation=orientation,
             normal=normal,
-            layer_key=layer.key,
-            material=layer.material,
+            port_type=port_type,
+            layer_key=layer.key if layer is not None else None,
+            material=layer.material if layer is not None else None,
         )
     return resolved
 
@@ -297,7 +311,7 @@ def resolve_passive_pcell(
         raise LayerResolutionError(
             f"Could not evaluate derived layers: {error}"
         ) from error
-    layers = _resolved_layers(derived_component, layer_stack)
+    layers = _resolved_layers(resolved_component, layer_stack)
     project_cards = _resolve_project_cards(pdk_object, pdk_or_module)
     materials = {}
     for material_name in dict.fromkeys(layer.material for layer in layers.values()):

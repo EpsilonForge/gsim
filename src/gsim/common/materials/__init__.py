@@ -8,6 +8,7 @@ from gsim.common.materials.registry import (
 )
 from gsim.common.materials.si_li_293k import SI_LI_293K
 from gsim.common.materials.si_salzberg import SI_SALZBERG
+from gsim.common.materials.sin_luke import SIN_LUKE
 from gsim.common.materials.sio2_malitson import SIO2_MALITSON
 from gsim.common.materials.snapshots import (
     MaterialModelError,
@@ -20,6 +21,7 @@ from gsim.common.materials.snapshots import (
 
 __all__ = [
     "GSIM_MATERIAL_CARDS",
+    "SIN_LUKE",
     "SIO2_MALITSON",
     "SI_LI_293K",
     "SI_SALZBERG",

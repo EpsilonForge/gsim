@@ -138,6 +138,18 @@ def test_preserves_derived_geometry_and_authoritative_layer_fields() -> None:
     assert (10, 0) in result.derived_component.layers
 
 
+def test_preexisting_derived_target_does_not_replace_source_geometry() -> None:
+    component = demo_component()
+    component.add_polygon(
+        [(-10, -10), (10, -10), (10, 10), (-10, 10)],
+        layer=(10, 0),
+    )
+
+    result = resolve_passive_pcell(component, pdk=make_test_pdk())
+
+    assert result.layers["core_key"].geometry.area == pytest.approx(0.875)
+
+
 def test_accepts_callable_and_instantiated_components() -> None:
     pdk = make_test_pdk()
 
@@ -219,6 +231,26 @@ def test_rejects_non_axis_aligned_ports() -> None:
             "demo",
             pdk=make_test_pdk(port_orientation=45),
         )
+
+
+def test_preserves_vertical_port_type_and_in_plane_polarization_angle() -> None:
+    component = demo_component()
+    component.add_port(
+        name="fiber",
+        center=(1.0, 0.1),
+        width=10,
+        orientation=45,
+        layer=(1, 0),
+        port_type="vertical_te",
+    )
+
+    result = resolve_passive_pcell(component, pdk=make_test_pdk())
+
+    fiber = result.ports["fiber"]
+    assert fiber.is_vertical
+    assert fiber.port_type == "vertical_te"
+    assert fiber.orientation == pytest.approx(45)
+    assert fiber.normal == (0, 0, 1)
 
 
 def test_rejects_settings_for_component_instance() -> None:
