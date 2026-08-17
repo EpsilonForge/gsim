@@ -1977,6 +1977,30 @@ class Simulation(BaseModel):
     # Visualization
     # -------------------------------------------------------------------------
 
+    def _add_index_plot_context(
+        self,
+        result: BuildResult,
+        kwargs: dict[str, Any],
+    ) -> None:
+        """Add center-wavelength material and simulation context to a plot."""
+        from gsim.meep.materials import resolve_materials
+
+        used_materials = {entry.material for entry in result.config.layer_stack} | {
+            dielectric["material"] for dielectric in result.config.dielectrics
+        }
+        kwargs["material_data"] = resolve_materials(
+            used_materials,
+            overrides=self._material_overrides(),
+            wavelength_um=result.config.wavelength.wavelength,
+            overlay=self._pdk_overlay,
+        )
+        kwargs["wavelength"] = result.config.wavelength.wavelength
+        kwargs["is_3d"] = result.config.is_3d
+        kwargs["plane"] = result.config.plane
+        kwargs["layer_order"] = [
+            entry.layer_name for entry in result.config.layer_stack
+        ]
+
     def plot_2d(self, **kwargs: Any) -> Any:
         """Plot 2D cross-sections of the geometry.
 
@@ -1985,6 +2009,11 @@ class Simulation(BaseModel):
 
         In XZ 2D mode (``solver.mode='2d'`` with ``y_cut`` set), ``slices``
         defaults to ``"y"`` and ``y`` defaults to the resolved ``y_cut``.
+
+        The default ``kind="index"`` colors resolved material geometry by
+        refractive index at the simulation center wavelength and shows PML,
+        source, and monitor annotations. Pass ``kind="layers"`` for the
+        categorical legacy view.
 
         Accepts the same keyword arguments as :func:`gsim.meep.viz.plot_2d`.
         """
@@ -1996,6 +2025,9 @@ class Simulation(BaseModel):
             kwargs.setdefault("slices", "y")
             if kwargs.get("slices") == "y":
                 kwargs.setdefault("y", result.config.y_cut)
+
+        if kwargs.get("kind", "index") == "index":
+            self._add_index_plot_context(result, kwargs)
 
         return plot_2d(
             component=result.component,
@@ -2024,6 +2056,10 @@ class Simulation(BaseModel):
         In XZ 2D mode (``solver.mode='2d'`` with ``y_cut`` set), ``slices``
         defaults to ``"y"`` and ``y`` defaults to the resolved ``y_cut``.
 
+        The default ``kind="index"`` uses the same refractive-index map and
+        simulation annotations as :meth:`plot_2d`. Pass ``kind="layers"`` for
+        the categorical legacy view.
+
         Accepts the same keyword arguments as
         :func:`gsim.meep.viz.plot_2d_interactive`.
 
@@ -2038,6 +2074,9 @@ class Simulation(BaseModel):
             kwargs.setdefault("slices", "y")
             if kwargs.get("slices") == "y":
                 kwargs.setdefault("y", result.config.y_cut)
+
+        if kwargs.get("kind", "index") == "index":
+            self._add_index_plot_context(result, kwargs)
 
         return plot_2d_interactive(
             component=result.component,
