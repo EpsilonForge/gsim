@@ -247,7 +247,6 @@ def test_interactive_index_plot_is_default():
 
 def test_extended_background_reaches_pml_in_both_index_plots():
     simulation = _xz_sim_for_index_plot()
-    simulation.domain(extend_into_pml=True)
     figure, ax = plt.subplots()
 
     simulation.plot_2d(ax=ax)

@@ -49,7 +49,7 @@ def test_extend_dielectrics_into_adjacent_pml_faces():
 
     extended = extend_dielectrics_into_pml(
         stack,
-        _domain_config(extend_into_pml=True),
+        _domain_config(),
     )
 
     by_name = {dielectric["name"]: dielectric for dielectric in extended.dielectrics}
@@ -63,11 +63,17 @@ def test_extend_dielectrics_into_adjacent_pml_faces():
     assert stack.dielectrics[0]["zmin"] == -1.0
 
 
-def test_extend_dielectrics_is_disabled_by_default():
-    """Preserve existing material extents unless explicitly enabled."""
+def test_extend_dielectrics_can_be_disabled():
+    """Preserve existing material extents when explicitly disabled."""
     stack = _background_stack()
 
-    assert extend_dielectrics_into_pml(stack, _domain_config()) is stack
+    assert (
+        extend_dielectrics_into_pml(
+            stack,
+            _domain_config(extend_into_pml=False),
+        )
+        is stack
+    )
     assert (
         extend_dielectrics_into_pml(
             stack,

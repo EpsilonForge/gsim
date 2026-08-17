@@ -868,7 +868,7 @@ class TestXZAutoCrop:
     def test_extend_into_pml_resolves_runner_and_preview_stack(self):
         """Boundary background extents are shared by config and BuildResult."""
         sim = self._base_sim()
-        sim.domain(z_bounds=(-1.0, 3.0), extend_into_pml=True)
+        sim.domain(z_bounds=(-1.0, 3.0))
 
         result = sim.build_config()
 

@@ -56,7 +56,7 @@ class DomainConfig(BaseModel):
     )
     dpml: float = Field(ge=0, description="PML thickness in um")
     extend_into_pml: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Whether boundary-adjacent background dielectrics were extended "
             "through active Z PML regions."
