@@ -43,9 +43,25 @@ jobs:
     - name: Install UV
       uses: astral-sh/setup-uv@v6
     - name: Create environment
+      env:
+        NOTEBOOK: ${{ matrix.notebook }}
       run: |
-        uv sync --dev --all-extras
-        uv pip install ubcpdk==3.3.4 qpdk==0.2.1 circulax==0.2.3
+        uv sync --locked --no-default-groups --group docs
+        case "$NOTEBOOK" in
+          nbs/meep_ybranch.ipynb|nbs/meep_ring_coupler.ipynb|nbs/meep_dc.ipynb|nbs/meep_crossing.ipynb)
+            uv pip install ubcpdk==3.3.4
+            ;;
+          nbs/palace_qpdk_resonator.ipynb)
+            uv pip install qpdk==0.3.8
+            ;;
+          nbs/palace_inductor.ipynb)
+            uv pip install ihp-gdsfactory==0.2.8 circulax==0.2.3
+            ;;
+          nbs/palace_*.ipynb)
+            uv pip install ihp-gdsfactory==0.2.8
+            ;;
+        esac
+        uv pip check
         uv run --no-sync python -m ipykernel install --user --name gsim --display-name gsim
     - name: Execute notebook
       env:
