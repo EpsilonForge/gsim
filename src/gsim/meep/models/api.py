@@ -251,6 +251,13 @@ class Domain(BaseModel):
         ),
     )
     pml: float = Field(default=1.0, ge=0, description="PML thickness in um")
+    extend_into_pml: bool = Field(
+        default=True,
+        description=(
+            "Extend background dielectric slabs touching an active Z boundary "
+            "through the adjacent PML. Patterned layers and ports are unchanged."
+        ),
+    )
     margin_x: float | tuple[float, float] = Field(
         default=0.5,
         description=(

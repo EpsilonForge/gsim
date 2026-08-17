@@ -245,6 +245,27 @@ def test_interactive_index_plot_is_default():
     assert "Sim cell" not in legend_names
 
 
+def test_extended_background_reaches_pml_in_both_index_plots():
+    simulation = _xz_sim_for_index_plot()
+    figure, ax = plt.subplots()
+
+    simulation.plot_2d(ax=ax)
+    silica_patches = cast(
+        list[Any],
+        [patch for patch in ax.patches if patch.get_gid() == "material:SiO2"],
+    )
+    assert min(patch.get_y() for patch in silica_patches) == pytest.approx(
+        ax.get_ylim()[0]
+    )
+    plt.close(figure)
+
+    interactive = simulation.plot_2d_interactive()
+    silica_traces = [trace for trace in interactive.data if trace.name == "SiO2"]
+    assert min(min(trace.y) for trace in silica_traces) == pytest.approx(
+        interactive.layout.yaxis.range[0]
+    )
+
+
 @pytest.mark.parametrize("angle_deg", [-30.0, -6.0, 25.0])
 def test_interactive_fiber_arrow_is_short_and_perpendicular(angle_deg):
     simulation = _xz_sim_for_index_plot(angle_deg)

@@ -55,6 +55,13 @@ class DomainConfig(BaseModel):
         description="Resolved absolute PML-inner Z interval in um.",
     )
     dpml: float = Field(ge=0, description="PML thickness in um")
+    extend_into_pml: bool = Field(
+        default=True,
+        description=(
+            "Whether boundary-adjacent background dielectrics were extended "
+            "through active Z PML regions."
+        ),
+    )
     margin_x_low: float = Field(
         ge=0, description="XY margin on the -x side (geometry to PML) in um"
     )

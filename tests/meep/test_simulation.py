@@ -865,6 +865,29 @@ class TestXZAutoCrop:
 
         assert result.config.domain.z_bounds == (-1.0, 5.0)
 
+    def test_extend_into_pml_resolves_runner_and_preview_stack(self):
+        """Boundary background extents are shared by config and BuildResult."""
+        sim = self._base_sim()
+        sim.domain(z_bounds=(-1.0, 3.0))
+
+        result = sim.build_config()
+
+        config_box = next(
+            dielectric
+            for dielectric in result.config.dielectrics
+            if dielectric["name"] == "box"
+        )
+        stack_box = next(
+            dielectric
+            for dielectric in result.stack.dielectrics
+            if dielectric["name"] == "box"
+        )
+        assert result.config.domain.extend_into_pml is True
+        assert result.config.domain.z_bounds == (-1.0, 3.0)
+        assert config_box["zmin"] == -2.0
+        assert stack_box["zmin"] == -2.0
+        assert config_box["zmax"] == stack_box["zmax"] == 0.0
+
     def test_explicit_bounds_reject_missing_fiber_headroom(self):
         sim = self._base_sim()
         sim.domain(z_bounds=(-1.0, 3.0))
