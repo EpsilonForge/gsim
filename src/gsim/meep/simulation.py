@@ -871,6 +871,7 @@ class Simulation(BaseModel):
         return DomainConfig(
             z_bounds=z_bounds,
             dpml=self.domain.pml,
+            extend_into_pml=self.domain.extend_into_pml,
             margin_x_low=mx[0],
             margin_x_high=mx[1],
             margin_y_low=my[0],
@@ -1349,7 +1350,12 @@ class Simulation(BaseModel):
             self.geometry.stack,
         )
         component = physical_export.component
-        stack = physical_export.stack
+        from gsim.meep.pml import extend_dielectrics_into_pml
+
+        stack = extend_dielectrics_into_pml(
+            physical_export.stack,
+            domain_cfg,
+        )
 
         # Build layer stack entries
         layer_stack_entries = []
