@@ -55,7 +55,7 @@ jobs:
             uv pip install qpdk==0.3.8
             ;;
           nbs/palace_inductor.ipynb)
-            uv pip install ihp-gdsfactory==0.2.8 circulax==0.2.3
+            uv sync --no-default-groups --group docs --group palace-inductor
             ;;
           nbs/palace_*.ipynb)
             uv pip install ihp-gdsfactory==0.2.8

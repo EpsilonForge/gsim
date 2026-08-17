@@ -635,21 +635,25 @@ class TestExtractAxisSlice:
 class TestLoadFieldContext:
     """Tests for the load_field_context convenience helper."""
 
-    def test_loads_meshes_and_context(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("cloud_layout", [False, True], ids=["local", "cloud"])
+    def test_loads_meshes_and_context(self, tmp_path, monkeypatch, cloud_layout):
         from types import SimpleNamespace
 
         from gsim.palace import fields as fields_mod
 
-        # Build a fake simulation directory layout:
-        #   <sim_dir>/config.json
-        #   <sim_dir>/palace.msh
-        #   <sim_dir>/output/palace/port-S.csv   <- results_dir
         sim_dir = tmp_path / "sim"
-        results_dir = sim_dir / "output" / "palace"
+        if cloud_layout:
+            input_dir = sim_dir / "input"
+            results_dir = sim_dir / "output"
+        else:
+            input_dir = sim_dir
+            results_dir = sim_dir / "output" / "palace"
+
         results_dir.mkdir(parents=True)
+        input_dir.mkdir(parents=True, exist_ok=True)
         (results_dir / "port-S.csv").write_text("f (GHz)\n1.0\n")
-        (sim_dir / "palace.msh").write_text("mesh")
-        (sim_dir / "config.json").write_text(
+        (input_dir / "palace.msh").write_text("mesh")
+        (input_dir / "config.json").write_text(
             json.dumps({"Boundaries": {"PEC": {"Attributes": [1, 2]}}})
         )
 

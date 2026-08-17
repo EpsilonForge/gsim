@@ -6,7 +6,6 @@ dev:
   uv sync --dev
   uv pip install -e .
   uvx pre-commit install
-  git config diff.ipynb.textconv "jupyter nbconvert --to script --stdout"
 
 # Install the release versioning tool.
 tbump:
@@ -42,7 +41,6 @@ docs: sync-changelog
 nbrun +notebooks: ipykernel
   for nb in {{notebooks}}; do \
     uv run papermill "$nb" "$nb" -k gsim; \
-    jupytext --sync "$nb"; \
   done
 
 nbclean-all:
