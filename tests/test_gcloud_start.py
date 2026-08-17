@@ -513,3 +513,51 @@ class TestModuleLevelExports:
 
         assert hasattr(gsim, "wait_for_results")
         assert callable(gsim.wait_for_results)
+
+
+# ---------------------------------------------------------------------------
+# _handle_failed_job
+# ---------------------------------------------------------------------------
+
+
+class TestHandleFailedJob:
+    """Tests for the error raised when a cloud job fails."""
+
+    def _fail(self, tmp_path, **kwargs):
+        """Run _handle_failed_job on a failed job and return the message."""
+        from gsim.gcloud import _handle_failed_job
+
+        job = FakeJob(status=SimStatus.FAILED, **kwargs)
+        with pytest.raises(RuntimeError) as exc:
+            _handle_failed_job(job, tmp_path, verbose=False)
+        return str(exc.value)
+
+    def test_reports_missing_artifacts(self, tmp_path):
+        """An empty download set is stated, not left as an unexplained blank."""
+        message = self._fail(tmp_path, exit_code=1, download_urls={})
+        assert "exit code 1" in message
+        assert "No output artifacts" in message
+
+    def test_explains_signal_exit_code(self, tmp_path):
+        """128+N exit codes get a signal explanation instead of a bare number."""
+        message = self._fail(tmp_path, exit_code=134, download_urls={})
+        assert "SIGABRT" in message
+
+    def test_explains_oom_kill(self, tmp_path):
+        """SIGKILL is called out as a memory limit."""
+        assert "memory limit" in self._fail(tmp_path, exit_code=137, download_urls={})
+
+    def test_no_note_for_plain_failure(self, tmp_path):
+        """An ordinary non-signal exit code gets no signal note."""
+        assert "SIGABRT" not in self._fail(tmp_path, exit_code=1, download_urls={})
+
+    def test_surfaces_unconventionally_named_log(self, tmp_path):
+        """Any *.log among the artifacts is shown when the known names are absent."""
+        log = tmp_path / "solver-run.log"
+        log.write_text("line one\nfatal: mesh is degenerate\n", encoding="utf-8")
+
+        with patch("gsim.gcloud.sim.download_results", return_value={"log": log}):
+            message = self._fail(tmp_path, exit_code=1, download_urls={"a": "url"})
+
+        assert "solver-run.log" in message
+        assert "fatal: mesh is degenerate" in message

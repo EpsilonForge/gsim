@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import contextlib
+import functools
 import importlib
 import io
 import logging
@@ -190,6 +191,19 @@ def _flatten_results(raw_results: dict) -> dict[str, Path]:
     return flat
 
 
+# Container exit codes in the 128+N range mean the process died on signal N.
+# Worth spelling out: these look like solver errors but are usually resource
+# limits, and the solver rarely gets a chance to write a log.
+_SIGNAL_EXIT_CODES = {
+    134: "exit 134 is SIGABRT — an assertion failure or out-of-memory abort. "
+    "Try a coarser mesh, fewer frequency points, or a larger instance.",
+    137: "exit 137 is SIGKILL — almost always the container hitting its "
+    "memory limit. Try a coarser mesh or a larger instance.",
+    139: "exit 139 is SIGSEGV — a solver crash. Please report the mesh and "
+    "config that reproduce it.",
+}
+
+
 def _handle_failed_job(job, output_dir: Path, verbose: bool) -> None:
     """Handle a failed simulation job by downloading logs and raising informative error.
 
@@ -216,30 +230,50 @@ def _handle_failed_job(job, output_dir: Path, verbose: bool) -> None:
     if detail_reason:
         error_parts.append(f"Details: {detail_reason}")
 
+    if exit_code in _SIGNAL_EXIT_CODES:
+        error_parts.append(f"Note: {_SIGNAL_EXIT_CODES[exit_code]}")
+
     # Try to download logs even though job failed
     try:
-        if exit_code is not None and job.download_urls:
+        if exit_code is not None and not job.download_urls:
+            error_parts.append(
+                "No output artifacts were uploaded, so no solver log is "
+                "available — the container most likely died before writing "
+                "any output."
+            )
+        elif exit_code is not None:
             if verbose:
                 print("Downloading logs from failed job...")  # noqa: T201
 
             raw_results = sim.download_results(job, output_dir=output_dir)
             all_files = _flatten_results(raw_results)
 
-            # Look for log files and display them
+            # Look for log files and display them. Fall back to any *.log so a
+            # solver that names its log differently is still surfaced.
             log_files = ["palace.log", "stdout.log", "stderr.log", "output.log"]
-            for log_name in log_files:
-                if log_name in all_files:
-                    content = all_files[log_name].read_text()
-                    error_parts.append(f"\n--- {log_name} (last 100 lines) ---")
-                    lines = content.strip().split("\n")
-                    error_parts.append("\n".join(lines[-100:]))
-                    break
+            log_name = next(
+                (name for name in log_files if name in all_files),
+                next(
+                    (name for name in sorted(all_files) if name.endswith(".log")),
+                    None,
+                ),
+            )
+            if log_name is not None:
+                content = all_files[log_name].read_text()
+                error_parts.append(f"\n--- {log_name} (last 100 lines) ---")
+                lines = content.strip().split("\n")
+                error_parts.append("\n".join(lines[-100:]))
+            else:
+                error_parts.append(
+                    f"No log file among the downloaded artifacts "
+                    f"({', '.join(sorted(all_files)) or 'none'})."
+                )
 
             if verbose and all_files:
                 print(f"Logs downloaded to {output_dir}")  # noqa: T201
 
     except Exception as e:
-        error_parts.append(f"(Failed to download logs: {e})")
+        error_parts.append(f"(Failed to download logs: {type(e).__name__}: {e})")
 
     raise RuntimeError("\n".join(error_parts))
 
@@ -272,12 +306,24 @@ def _sdk_accepts(func: Any, param: str) -> bool:
         return False
 
 
+@functools.cache
+def _warn_cache_unsupported() -> None:
+    """Warn once per process that the installed SDK cannot look up the cache."""
+    logger.warning(
+        "Installed gdsfactoryplus has no check_cache(); cache lookups are "
+        "disabled. Upgrade gdsfactoryplus to reuse completed jobs without "
+        "re-uploading their inputs."
+    )
+
+
 def check_cache(job_type: str, input_hash: str) -> str | None:
     """Look up a previously completed job with identical inputs.
 
     Never raises: a cache lookup is an optimization, so an unsupported SDK,
     a transient network error, or a server error all degrade to a miss and
-    the caller submits the job normally.
+    the caller submits the job normally. Those degraded paths are logged at
+    ``WARNING`` — silently returning a miss makes a permanently broken
+    lookup indistinguishable from a cold cache.
 
     Args:
         job_type: Solver name, e.g. ``"meep"`` or ``"palace"``.
@@ -288,9 +334,7 @@ def check_cache(job_type: str, input_hash: str) -> str | None:
     """
     sdk_check = getattr(sim, "check_cache", None)
     if sdk_check is None:
-        logger.debug(
-            "Installed gdsfactoryplus has no check_cache(); skipping cache lookup"
-        )
+        _warn_cache_unsupported()
         return None
 
     try:
@@ -299,10 +343,16 @@ def check_cache(job_type: str, input_hash: str) -> str | None:
             input_hash=input_hash,
         )
     except Exception as exc:
-        logger.debug("Cache lookup failed (%s); submitting normally", exc)
+        logger.warning(
+            "Cache lookup for %s failed (%s: %s); submitting normally",
+            job_type,
+            type(exc).__name__,
+            exc,
+        )
         return None
 
     if not getattr(result, "cached", False):
+        logger.debug("Cache miss for %s %s", job_type, input_hash)
         return None
     return getattr(result, "job_id", None)
 

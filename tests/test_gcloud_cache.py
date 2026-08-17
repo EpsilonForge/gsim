@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from unittest.mock import MagicMock, create_autospec, patch
 
@@ -64,11 +65,51 @@ class TestCheckCache:
         with patch.object(gcloud.sim, "check_cache", None, create=True):
             assert gcloud.check_cache("meep", "sha256:abc") is None
 
+    def test_unsupported_sdk_warns_once(self, caplog):
+        """An SDK without check_cache warns, but only once per process."""
+        gcloud._warn_cache_unsupported.cache_clear()
+        with (
+            caplog.at_level(logging.WARNING, logger=gcloud.logger.name),
+            patch.object(gcloud.sim, "check_cache", None, create=True),
+        ):
+            gcloud.check_cache("meep", "sha256:abc")
+            gcloud.check_cache("meep", "sha256:def")
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "no check_cache()" in warnings[0].getMessage()
+
     def test_server_error_returns_none(self):
         """A failing lookup degrades to a miss rather than raising."""
         fake = MagicMock(side_effect=RuntimeError("boom"))
         with patch.object(gcloud.sim, "check_cache", fake, create=True):
             assert gcloud.check_cache("meep", "sha256:abc") is None
+
+    def test_server_error_warns(self, caplog):
+        """A failing lookup is visible: a dead endpoint is not a cold cache."""
+        fake = MagicMock(side_effect=RuntimeError("boom"))
+        with (
+            caplog.at_level(logging.WARNING, logger=gcloud.logger.name),
+            patch.object(gcloud.sim, "check_cache", fake, create=True),
+        ):
+            gcloud.check_cache("palace", "sha256:abc")
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        message = warnings[0].getMessage()
+        assert "RuntimeError" in message
+        assert "boom" in message
+
+    def test_miss_does_not_warn(self, caplog):
+        """A genuine cache miss is expected and stays quiet."""
+        fake = MagicMock(return_value=FakeCacheResponse(cached=False))
+        with (
+            caplog.at_level(logging.WARNING, logger=gcloud.logger.name),
+            patch.object(gcloud.sim, "check_cache", fake, create=True),
+        ):
+            assert gcloud.check_cache("meep", "sha256:abc") is None
+
+        assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
 
     def test_unknown_job_type_returns_none(self):
         """An unknown solver name degrades to a miss, not a crash."""
