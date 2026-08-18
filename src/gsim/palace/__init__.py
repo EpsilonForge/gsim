@@ -59,6 +59,9 @@ from gsim.palace.driven import DrivenSim
 from gsim.palace.eigenmode import EigenmodeSim
 from gsim.palace.electrostatic import ElectrostaticSim
 
+# Visualization
+from gsim.palace.field_viz import plot_fields_2d, resolve_physical_groups
+
 # Field-visualization (NaN-free direct mesh rendering)
 from gsim.palace.fields import (
     BoundaryFieldData,
@@ -111,6 +114,7 @@ from gsim.palace.models import (
     ValidationResult,
     WavePortConfig,
 )
+from gsim.palace.plane_section import plot_plane_section
 
 # Port utilities
 from gsim.palace.ports import (
@@ -134,9 +138,15 @@ from gsim.palace.results import (
 
 # Runtime / binary resolution (optional palace-toolkit-cpu dependency)
 from gsim.palace.runtime import resolve_palace_binary, resolve_palace_library_dir
-
-# Visualization
-from gsim.viz import plot_cross_section, plot_mesh
+from gsim.viz import (
+    close_interactive_view,
+    close_interactive_views,
+    interactive_mode,
+    plot_cross_section,
+    plot_mesh,
+    set_interactive_mode,
+    set_trame_backend,
+)
 
 __all__ = [
     "MATERIALS_DB",
@@ -179,6 +189,8 @@ __all__ = [
     "WavePortConfig",
     "activate_vector_component",
     "build_selector_context",
+    "close_interactive_view",
+    "close_interactive_views",
     "configure_cpw_port",
     "configure_inplane_port",
     "configure_via_port",
@@ -194,6 +206,7 @@ __all__ = [
     "get_material_properties",
     "get_port_map",
     "get_stack",
+    "interactive_mode",
     "load_boundary_field_data",
     "load_field_context",
     "load_fields",
@@ -205,6 +218,7 @@ __all__ = [
     "plot_cross_section",
     "plot_fields_2d",
     "plot_mesh",
+    "plot_plane_section",
     "plot_stack",
     "plot_volume_contours",
     "plot_volume_slice",
@@ -216,8 +230,11 @@ __all__ = [
     "resolve_palace_binary",
     "resolve_palace_library_dir",
     "resolve_palace_materials_at_frequency",
+    "resolve_physical_groups",
     "resolve_scalar_field",
     "run_simulation",
+    "set_interactive_mode",
+    "set_trame_backend",
 ]
 
 

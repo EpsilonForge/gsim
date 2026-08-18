@@ -22,6 +22,7 @@ from gsim.palace.models.numerical import NumericalConfig
 from gsim.palace.models.pec import PECBlockConfig
 from gsim.palace.models.ports import (
     CPWPortConfig,
+    ImpedanceBoundaryConfig,
     PortConfig,
     TerminalConfig,
     WavePortConfig,
@@ -45,6 +46,7 @@ __all__ = [
     "EigenmodeConfig",
     "ElectrostaticConfig",
     "GeometryConfig",
+    "ImpedanceBoundaryConfig",
     "MagnetostaticConfig",
     "MaterialConfig",
     "MeshConfig",

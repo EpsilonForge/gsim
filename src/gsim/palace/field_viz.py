@@ -3,16 +3,65 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
 
 import numpy as np
 import pyvista as pv
+from pyvista.plotting._typing import ColormapOptions
 
 from gsim.palace.results import load_fields
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_physical_groups(
+    source: str | Path,
+    group_names: Sequence[str],
+) -> list[int]:
+    """Resolve physical group names to Palace attribute values.
+
+    Reads the mesh file's physical group definitions and returns the
+    numeric attribute values corresponding to the requested group names.
+
+    Args:
+        source: Path to the simulation output directory (containing
+            ``palace.msh``) or directly to the ``.msh`` file.
+        group_names: Physical group names to resolve (e.g.
+            ``["n_rib", "p_rib", "slab90"]``).
+
+    Returns:
+        List of attribute values (integer tags) to use for cell filtering
+        in Palace Paraview output.
+    """
+    import meshio
+
+    path = Path(source)
+    if path.suffix != ".msh":
+        path = path / "palace.msh"
+    if not path.exists():
+        msg = f"Mesh file not found: {path}"
+        raise FileNotFoundError(msg)
+
+    m = meshio.read(str(path))
+    if not hasattr(m, "field_data") or not m.field_data:
+        msg = f"No physical groups found in mesh: {path}"
+        raise ValueError(msg)
+
+    requested = set(group_names)
+    found: list[int] = []
+    missing = set(requested)
+    for name, (tag, _dim) in m.field_data.items():
+        if name in requested:
+            found.append(int(tag))
+            missing.discard(name)
+    if missing:
+        available = sorted(m.field_data.keys())
+        msg = f"Physical group(s) not found: {sorted(missing)}. Available: {available}"
+        raise ValueError(msg)
+    return found
 
 
 Axis = Literal["x", "y", "z"]
@@ -236,99 +285,160 @@ def plot_fields_2d(
     excitation: int = 1,
     cycle: int | None = None,
     boundary: bool = False,
-    grid_resolution: tuple[int, int] = (360, 240),
-    streamplot_density: float = 1.0,
-    streamplot_linewidth: float = 0.9,
-    streamplot_color: str = "lightskyblue",
-    streamplot_show_arrows: bool = True,
-    streamplot_normalize: bool = False,
-    streamplot_seed_from_field: bool = True,
-    streamplot_seed_frac: float = 0.2,
-    streamplot_seed_stride: int = 2,
-    streamplot_mask_weak: bool = False,
-    streamplot_min_frac: float = 0.08,
-    use_targeted_gap_seeds: bool = True,
-    targeted_seed_offset: float = 8.0,
-    streamplot_minlength: float = 0.1,
-    streamplot_maxlength: float = 2.8,
-    cmap: str = "hot",
-    title: str = "In-plane |E_t|",
-    figsize: tuple[float, float] = (10.0, 5.0),
-    dpi: float = 140.0,
+    physical_groups: Sequence[str] | None = None,
+    cmap: ColormapOptions = "hot",
+    clim: tuple[float, float] | None = None,
+    title: str = "|E|",
+    show_edges: bool = False,
+    opacity: float = 1.0,
     show: bool = True,
-) -> tuple[Any, Any, StreamplotInputs2D]:
-    """Plot 2D in-plane field magnitude and streamlines using Matplotlib.
+    interactive: bool | None = None,
+    screenshot: str | Path | None = None,
+    mode: Literal["auto", "live", "static"] = "auto",
+) -> Any:
+    """Plot 2D field using PyVista, rendering directly on the mesh.
 
-    This utility centralizes the notebook plotting workflow and returns
-    ``(fig, ax, stream_inputs)`` for custom post-processing.
+    When *physical_groups* is given, only cells belonging to those mesh
+    physical groups are kept before plotting.  The group names are resolved
+    to attribute values via :func:`resolve_physical_groups`.
+
+    The color scale is clamped to the 98th percentile of the data by
+    default to prevent outlier values (e.g. surface currents on
+    conductors) from washing out the visualization.  Pass *clim* to
+    override.
+
+    Args:
+        source: Simulation output directory, path to ``.pvtu`` / ``.vtu``,
+            or a pre-loaded ``pv.DataSet``.
+        field: Field name to plot (e.g. ``"E_real"``, ``"E_imag"``).
+        normal: Slice normal (``"x"``, ``"y"``, ``"z"``).
+        origin: Slice origin along the normal axis.
+        physical_groups: Optional list of physical group names to
+            restrict the plot to (e.g. ``["n_rib", "p_rib", "slab90"]``).
+        cmap: Colour-map name passed to PyVista.
+        clim: Optional ``(vmin, vmax)`` for the color scale.  If None,
+            ``vmax`` is set to the 98th percentile of the data.
+        title: Plot title.
+        show_edges: Toggle mesh edges on/off.
+        opacity: Opacity of the mesh (0-1).
+        show: If True, display the plot (live view or static image); if
+            False, the plotter is created and returned without rendering.
+        interactive: If ``True``, force an interactive view: in a notebook
+            this renders as a widget on the single shared trame server (so
+            several views can coexist); otherwise it opens a blocking window.
+            ``False`` forces a static PNG.  ``None`` (default) follows the
+            session flag from ``gsim.viz.set_interactive_mode`` — off by
+            default, so plots render statically until it is enabled.
+        screenshot: If given, save a screenshot to this path.
+        mode: Rendering mode: ``"auto"`` (default), ``"live"`` or
+            ``"static"``.  Overrides ``GSIM_VIZ_MODE`` for this call.
+            Interactive views are off by default; enable them globally with
+            ``gsim.viz.set_interactive_mode(True)``.  Close open views with
+            ``gsim.viz.close_interactive_views()``.  The camera always faces
+            the cross-section plane, including for interactive views.
+
+    Returns:
+        The ``pv.Plotter`` instance.
     """
-    import matplotlib.pyplot as plt
+    from gsim.viz import _apply_front_camera, _ensure_pyvista, _show_or_screenshot
 
-    stream_inputs = extract_streamplot_inputs_2d(
+    _ensure_pyvista()
+    import pyvista as pv
+
+    dataset = _source_to_dataset(
         source,
-        field=field,
-        normal=normal,
-        origin=origin,
         excitation=excitation,
         cycle=cycle,
         boundary=boundary,
-        streamplot_density=streamplot_density,
-        streamplot_normalize=streamplot_normalize,
-        streamplot_seed_from_field=streamplot_seed_from_field,
-        streamplot_seed_frac=streamplot_seed_frac,
-        streamplot_seed_stride=streamplot_seed_stride,
-        streamplot_mask_weak=streamplot_mask_weak,
-        streamplot_min_frac=streamplot_min_frac,
-        grid_resolution=grid_resolution,
     )
 
-    x_grid, y_grid = np.meshgrid(stream_inputs.x, stream_inputs.y)
-    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-    et = np.asarray(stream_inputs.et_mag, dtype=float)
-    im = ax.pcolormesh(x_grid, y_grid, et, cmap=cmap, shading="gouraud")
+    if physical_groups is not None:
+        if not isinstance(source, (str, Path)):
+            msg = "physical_groups requires a file path (not a DataSet or dict)"
+            raise TypeError(msg)
+        source_path = Path(source)
+        output_dir = source_path if source_path.is_dir() else source_path.parent
+        attribute_values = resolve_physical_groups(output_dir, physical_groups)
 
-    start_points = stream_inputs.start_points
-    if use_targeted_gap_seeds and start_points.shape[0] >= 2:
-        start_points = np.vstack(
-            [
-                start_points + np.array([0.0, targeted_seed_offset]),
-                start_points + np.array([0.0, -targeted_seed_offset]),
-            ]
+        if "attribute" not in dataset.cell_data:
+            msg = (
+                "Dataset has no cell_data['attribute'] "
+                "— cannot filter by physical group"
+            )
+            raise ValueError(msg)
+        attrs = np.asarray(dataset.cell_data["attribute"])
+        keep = np.where(np.isin(attrs, np.asarray(attribute_values)))[0]
+        if keep.size == 0:
+            msg = (
+                f"No cells found for physical_groups={physical_groups} "
+                f"(attrs={attribute_values})"
+            )
+            raise ValueError(msg)
+        logger.info(
+            "Selected %d / %d cells for physical_groups=%s",
+            len(keep),
+            dataset.n_cells,
+            physical_groups,
         )
-    start_points = _filter_start_points_in_bounds(
-        start_points,
-        x=stream_inputs.x,
-        y=stream_inputs.y,
+        dataset = dataset.extract_cells(keep)
+
+    # Slice to the cross-section plane.
+    sliced, _used_normal, _axis_idx, _axes = _slice_plane(
+        dataset,
+        normal=normal,
+        origin=origin,
     )
 
-    stream_kwargs: dict[str, Any] = {
-        "x": stream_inputs.x,
-        "y": stream_inputs.y,
-        "u": stream_inputs.u,
-        "v": stream_inputs.v,
-        "color": streamplot_color,
-        "density": streamplot_density,
-        "linewidth": streamplot_linewidth,
-        "arrowsize": 1.0 if streamplot_show_arrows else 1e-6,
-        "arrowstyle": "-|>" if streamplot_show_arrows else "-",
-        "minlength": streamplot_minlength,
-        "maxlength": streamplot_maxlength,
-        "integration_direction": "both",
-    }
-    if start_points.shape[0] >= 2:
-        stream_kwargs["start_points"] = start_points
+    if field not in sliced.point_data:
+        available = list(sliced.point_data.keys())
+        msg = f"Field '{field}' not found in dataset. Available: {available}"
+        raise ValueError(msg)
 
-    ax.streamplot(**stream_kwargs)
-    ax.set_title(title)
-    ax.set_aspect("equal")
-    label_h, label_v = _plane_axis_labels(stream_inputs.normal)
-    ax.set_xlabel(label_h)
-    ax.set_ylabel(label_v)
-    fig.colorbar(im, ax=ax, label="E_t")
-    plt.tight_layout()
+    # Determine the 2D scalar to plot (magnitude for vector fields).
+    raw = np.asarray(sliced.point_data[field])
+    if raw.ndim == 2:
+        scalars = np.linalg.norm(raw, axis=1)
+        scalar_name = f"|{field}|"
+        sliced.point_data[scalar_name] = scalars
+    else:
+        scalar_name = field
+
+    # Clamp color scale to 98th percentile (3D-style), unless user overrides.
+    if clim is not None:
+        _clim = clim
+    else:
+        s = np.asarray(sliced.point_data[scalar_name])
+        finite = s[np.isfinite(s)]
+        if finite.size > 0:
+            vmax = float(np.percentile(finite, 98))
+            _clim = (0.0, vmax) if vmax > 0 else None
+        else:
+            _clim = None
+
+    # Camera: face the 2D plane directly (always, not just for zoom).
+    pl = pv.Plotter(window_size=[1200, 900])
+    pl.add_mesh(
+        sliced,
+        scalars=scalar_name,
+        cmap=cmap,
+        clim=_clim,
+        show_edges=show_edges,
+        opacity=opacity,
+        scalar_bar_args={"title": scalar_name, "vertical": True},
+    )
+    pl.add_title(title, font_size=12)
+
+    _apply_front_camera(pl, np.asarray(sliced.points), _axis_idx)
+    if screenshot is not None:
+        pl.screenshot(str(screenshot))
+        pl.close()
+        return pl
+
     if show:
-        plt.show()
-    return fig, ax, stream_inputs
+        _show_or_screenshot(pl, interactive=interactive, mode=mode, reset_camera=False)
+    else:
+        pl.close()
+    return pl
 
 
 def extract_streamplot_inputs_2d(

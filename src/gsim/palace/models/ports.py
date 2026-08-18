@@ -133,6 +133,56 @@ class TerminalConfig(BaseModel):
     layer: str
 
 
+class ImpedanceBoundaryConfig(BaseModel):
+    """Configuration for an Impedance boundary on a dielectric-dielectric interface.
+
+    Specifies a surface impedance boundary condition (Rs, Ls, Cs) applied to
+    the shared boundary curve between two dielectric layers.  Capacitance,
+    resistance, and inductance values are given as *absolute* quantities and
+    are divided by the interface curve length internally to obtain the
+    per-unit-length values (Rs, Ls, Cs) expected by Palace.
+
+    Alternatively, ``attributes`` can be specified directly (with Rs/Ls/Cs
+    already in per-unit-length form) for cases where the user already knows
+    the Palace boundary attribute numbers.
+
+    Attributes:
+        layer_a: Name of the first dielectric layer.
+        layer_b: Name of the second dielectric layer.
+        capacitance: Absolute capacitance [F] (divided by curve length).
+        resistance: Absolute resistance [Ohm] (divided by curve length).
+        inductance: Absolute inductance [H] (divided by curve length).
+        attributes: Direct Palace boundary attribute list (bypasses layer lookup).
+            When set, Rs/Ls/Cs must be in per-unit-length values.
+        name: Optional display name.
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    layer_a: str | None = None
+    layer_b: str | None = None
+    capacitance: float | None = Field(default=None, ge=0, description="Capacitance [F]")
+    resistance: float | None = Field(default=None, ge=0, description="Resistance [Ohm]")
+    inductance: float | None = Field(default=None, ge=0, description="Inductance [H]")
+    attributes: list[int] | None = None
+    name: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_target(self) -> Self:
+        """Validate that exactly one of (layer_a+layer_b) or attributes is set."""
+        if (self.layer_a is None or self.layer_b is None) and self.attributes is None:
+            raise ValueError("Either layer_a+layer_b or attributes must be provided")
+        if (
+            self.layer_a is not None or self.layer_b is not None
+        ) and self.attributes is not None:
+            raise ValueError("Cannot specify both layer_a/layer_b and attributes")
+        if self.layer_a is not None and self.layer_b is None:
+            raise ValueError("Both layer_a and layer_b must be provided together")
+        if self.layer_a is None and self.layer_b is not None:
+            raise ValueError("Both layer_a and layer_b must be provided together")
+        return self
+
+
 class WavePortConfig(BaseModel):
     """Configuration for a wave port (domain boundary with mode solving).
 
@@ -171,6 +221,7 @@ class WavePortConfig(BaseModel):
 
 __all__ = [
     "CPWPortConfig",
+    "ImpedanceBoundaryConfig",
     "PortConfig",
     "TerminalConfig",
     "WavePortConfig",

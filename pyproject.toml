@@ -26,6 +26,20 @@ dependencies = [
   "trame-vuetify",
 ]
 
+[project.optional-dependencies]
+# Interactive 3-D visualization (PyVista + trame server rendering) with the
+# extra packages needed for reliable headless and notebook use.
+visualize = [
+  "jupyter-server-proxy>=4.1.0",
+  "nest-asyncio",
+  "pyvirtualdisplay>=3.0.0",
+  "trame>=3.6.0,<4",
+  "trame-client>=3.6.0,<4",
+  "trame-server>=3.6.0,<4",
+  "trame-vtk>=2.8.0,<3",
+  "trame-vuetify>=2.7.0,<3",
+]
+
 [dependency-groups]
 dev = [
   "build>=1.2.0",
