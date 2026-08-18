@@ -26,7 +26,7 @@ def test_slab_mode_cloud(tmp_path) -> None:
     sim.num_freqs = 1
     sim.monitors = []
     sim.domain.pml = 1.0
-    sim.domain.margin_z = 0.5
+    sim.domain.z_bounds = (-3.5, 6.1)
     sim.solver.resolution = 10
     sim.solver.stop_when_energy_decayed(dt=15.0, decay_by=0.05)
 
