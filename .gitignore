@@ -51,6 +51,7 @@ pip-log.txt
 .DS_Store
 
 # folders
+/exploration/
 .kilo/
 .cursor/
 .eggs/
