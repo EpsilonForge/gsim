@@ -7,6 +7,7 @@ sim_*/
 uv.lock
 
 # files
+nbs/*.py
 *.c
 *.cover
 *.egg
@@ -50,6 +51,7 @@ pip-log.txt
 .DS_Store
 
 # folders
+/exploration/
 .kilo/
 .cursor/
 .eggs/

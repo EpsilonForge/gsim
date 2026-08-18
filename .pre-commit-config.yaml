@@ -45,25 +45,16 @@ repos:
     types_or: [javascript, css, json, html]
 - repo: local
   hooks:
-  - id: nbclean
-    name: nbclean
-    entry: just nbclean
+  - id: nbstripout
+    name: strip notebook outputs
+    entry: uv run --no-sync nbstripout
     language: system
-    files: \.(ipynb)$
-    exclude: ^nbs/
+    types: [jupyter]
   - id: check-cp1252
     name: check-cp1252 (Windows install compat)
-    entry: python scripts/check_cp1252.py
+    entry: uv run --no-sync python scripts/check_cp1252.py
     language: system
     types: [python]
-- repo: https://github.com/mwouts/jupytext
-  rev: v1.19.2
-  hooks:
-  - id: jupytext
-    args: [--sync]
-    files: ^nbs/.*\.(ipynb|py)$
-    additional_dependencies:
-    - jupytext>=1.19.0
 - repo: local
   hooks:
   - id: ty

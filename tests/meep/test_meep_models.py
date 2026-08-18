@@ -1525,6 +1525,81 @@ class TestRender2dOverlay:
 
         plt.close(fig)
 
+    def test_multi_slice_layer_plot_uses_separate_figures(self, monkeypatch):
+        import matplotlib as mpl
+
+        mpl.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        from gsim.common.geometry_model import GeometryModel, Prism
+        from gsim.common.viz.render2d import plot_prism_slices
+
+        geometry_model = GeometryModel(
+            prisms={
+                "core": [
+                    Prism(
+                        vertices=np.array(
+                            [[-2.0, -1.0], [2.0, -1.0], [2.0, 1.0], [-2.0, 1.0]]
+                        ),
+                        z_base=0.0,
+                        z_top=0.22,
+                        layer_name="core",
+                    )
+                ]
+            },
+            bbox=((-2.0, -1.0, 0.0), (2.0, 1.0, 0.22)),
+        )
+        existing_figure_numbers = set(plt.get_fignums())
+        show_calls = []
+        monkeypatch.setattr(plt, "show", lambda: show_calls.append(None))
+
+        result = plot_prism_slices(geometry_model, z=0.11, slices="xyz")
+
+        new_figure_numbers = sorted(
+            set(plt.get_fignums()).difference(existing_figure_numbers)
+        )
+        figures = [plt.figure(number) for number in new_figure_numbers]
+        try:
+            assert result is None
+            assert len(show_calls) == 1
+            assert len(figures) == 3
+            assert [figure.axes[0].get_title()[:2] for figure in figures] == [
+                "YZ",
+                "XZ",
+                "XY",
+            ]
+            assert all(len(figure.axes) == 1 for figure in figures)
+            assert all(figure.axes[0].get_legend() is None for figure in figures)
+            assert all(len(figure.legends) == 1 for figure in figures)
+            assert all(
+                getattr(figure.legends[0], "_outside_loc", None) == "lower"
+                for figure in figures
+            )
+        finally:
+            for figure in figures:
+                plt.close(figure)
+
+    def test_empty_slices_fails_before_creating_a_figure(self):
+        import matplotlib as mpl
+
+        mpl.use("Agg")
+        import matplotlib.pyplot as plt
+
+        from gsim.common.geometry_model import GeometryModel
+        from gsim.common.viz.render2d import plot_prism_slices
+
+        geometry_model = GeometryModel(
+            prisms={},
+            bbox=((-2.0, -1.0, 0.0), (2.0, 1.0, 0.22)),
+        )
+        existing_figure_numbers = set(plt.get_fignums())
+
+        with pytest.raises(ValueError, match="slices must only contain"):
+            plot_prism_slices(geometry_model, slices="")
+
+        assert set(plt.get_fignums()) == existing_figure_numbers
+
     def test_plot_with_dielectric_overlay(self):
         """Verify dielectric overlays render without error."""
         import matplotlib as mpl

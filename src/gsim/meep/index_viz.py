@@ -13,6 +13,7 @@ from matplotlib.colors import ListedColormap, Normalize
 from matplotlib.patches import Polygon, Rectangle
 
 from gsim.common.geometry_model import GeometryModel, Prism
+from gsim.common.viz._matplotlib import add_bottom_legend
 from gsim.meep.index_overlay import draw_index_overlay
 from gsim.meep.models.config import MaterialData
 
@@ -123,14 +124,8 @@ def plot_refractive_index_slices(
         )
         return ax
 
-    figure, axes_array = plt.subplots(
-        len(slices_to_plot),
-        1,
-        constrained_layout=True,
-        squeeze=False,
-    )
-    axes = list(axes_array[:, 0])
-    for plot_axis, slice_axis in zip(axes, slices_to_plot, strict=True):
+    for slice_axis in slices_to_plot:
+        figure, plot_axis = plt.subplots(constrained_layout=True)
         _plot_single_index_slice(
             plot_axis,
             geometry_model,
@@ -145,13 +140,15 @@ def plot_refractive_index_slices(
             layer_order=ordered_layers,
             include_dielectrics=is_3d or plane == "xz",
             aspect=aspect,
-            legend=legend,
+            legend=False,
         )
-    figure.colorbar(
-        scalar_mappable,
-        ax=axes,
-        label=index_colorbar_label(index_component, wavelength),
-    )
+        figure.colorbar(
+            scalar_mappable,
+            ax=plot_axis,
+            label=index_colorbar_label(index_component, wavelength),
+        )
+        if legend:
+            add_bottom_legend(figure, plot_axis)
     plt.show()
     return None
 

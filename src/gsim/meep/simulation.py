@@ -974,7 +974,10 @@ class Simulation(BaseModel):
     # -------------------------------------------------------------------------
 
     def solve_modes(
-        self, *, verbose: Literal["quiet", "status", "full"] = "status"
+        self,
+        *,
+        verbose: Literal["quiet", "status", "full"] = "status",
+        check_cache: bool = False,
     ) -> Any:
         """Solve eigenmodes on the cloud from ``self.mode_solver`` configuration.
 
@@ -988,6 +991,9 @@ class Simulation(BaseModel):
         Args:
             verbose: ``"quiet"`` no output, ``"status"`` status line,
                 ``"full"`` stream solver logs.
+            check_cache: If ``True``, look for a completed cloud job with
+                byte-identical inputs and reuse its results instead of
+                submitting. A lookup failure degrades to a normal submit.
 
         Returns:
             :class:`ModeSweepResult` wrapping all solved :class:`ModeResult`
@@ -1000,7 +1006,19 @@ class Simulation(BaseModel):
         tmp = Path(tempfile.mkdtemp(prefix="meep_mode_solver_"))
         try:
             self.write_mode_solver_config(tmp)
-            job_id = gcloud.upload(tmp, "meep", verbose=False)
+            input_hash = None
+            if check_cache:
+                input_hash, cached_job_id = gcloud.check_cache_for_dir(tmp, "meep")
+                if cached_job_id is not None:
+                    if verbose != "quiet":
+                        print(  # noqa: T201
+                            f"Cache hit: reusing job {cached_job_id}"
+                        )
+                    result = gcloud.wait_for_results(cached_job_id, verbose=verbose)
+                    self._enrich_mode_results(result)
+                    return result
+
+            job_id = gcloud.upload(tmp, "meep", verbose=False, input_hash=input_hash)
             gcloud.start(job_id, verbose=verbose != "quiet")
             result = gcloud.wait_for_results(job_id, verbose=verbose)
             self._enrich_mode_results(result)
