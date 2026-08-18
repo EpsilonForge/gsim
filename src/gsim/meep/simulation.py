@@ -543,6 +543,42 @@ class Simulation(BaseModel):
             return None
         return min(zmins), max(zmaxs)
 
+    def _resolve_xy_background_material(self, component: Any, stack: Any) -> str:
+        """Resolve the blanket medium represented by a collapsed XY Z cut."""
+        if self.solver.resolved_plane() != "xy":
+            return "air"
+
+        cut = self.solver.resolved_cut()
+        if isinstance(cut, int | float):
+            cut_z = float(cut)
+        else:
+            from gsim.meep.ports import _find_highest_n_layer_in_component
+
+            reference_layer, _ = _find_highest_n_layer_in_component(component, stack)
+            if reference_layer is None:
+                logger.warning(
+                    "Could not resolve a drawn layer for XY 2D z_cut='auto'; "
+                    "using air as the background material."
+                )
+                return "air"
+            cut_z = (reference_layer.zmin + reference_layer.zmax) / 2.0
+
+        containing_dielectrics = [
+            dielectric
+            for dielectric in stack.dielectrics
+            if dielectric.get("material") != "air"
+            and float(dielectric["zmin"]) <= cut_z <= float(dielectric["zmax"])
+        ]
+        if not containing_dielectrics:
+            return "air"
+
+        # At a shared interface, the region starting at the cut takes priority.
+        background = max(
+            containing_dielectrics,
+            key=lambda dielectric: float(dielectric["zmin"]),
+        )
+        return str(background["material"])
+
     def _resolve_mode_solver_z_window(
         self,
     ) -> tuple[tuple[float, float], tuple[float, float]]:
@@ -1374,6 +1410,7 @@ class Simulation(BaseModel):
             physical_export.stack,
             domain_cfg,
         )
+        background_material = self._resolve_xy_background_material(component, stack)
 
         # Build layer stack entries
         layer_stack_entries = []
@@ -1535,6 +1572,7 @@ class Simulation(BaseModel):
             ports=port_infos,
             monitor_z_span=monitor_z_span,
             materials=material_data,
+            background_material=background_material,
             wavelength=wl_cfg,
             source=source_for_config,
             stopping=stopping_cfg,
@@ -2021,6 +2059,7 @@ class Simulation(BaseModel):
         kwargs["wavelength"] = result.config.wavelength.wavelength
         kwargs["is_3d"] = result.config.is_3d
         kwargs["plane"] = result.config.plane
+        kwargs["background_material"] = result.config.background_material
         kwargs["layer_order"] = [
             entry.layer_name for entry in result.config.layer_stack
         ]

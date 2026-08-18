@@ -1690,6 +1690,16 @@ def main():
     spx_tol = accuracy["subpixel_tol"]
     if spx_tol != 1e-4:
         sim_kwargs["subpixel_tol"] = spx_tol
+    if not is_3d and plane == "xy":
+        background_name = config.get("background_material", "air")
+        default_medium = materials.get(background_name)
+        if default_medium is None:
+            logger.warning(
+                "XY 2D background material %r is unavailable; using air",
+                background_name,
+            )
+            default_medium = mp.Medium()
+        sim_kwargs["default_material"] = default_medium
     sim = mp.Simulation(**sim_kwargs)
 
     # --- Diagnostics & preview mode ---

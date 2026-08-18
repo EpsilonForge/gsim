@@ -456,6 +456,7 @@ def plot_2d_interactive(
     wavelength: float | None = None,
     is_3d: bool = True,
     plane: Literal["xy", "xz"] = "xy",
+    background_material: str = "air",
     layer_order: Sequence[str] | None = None,
 ) -> Any:
     """Plot an interactive 2D cross-section using Plotly.
@@ -495,6 +496,7 @@ def plot_2d_interactive(
         wavelength: Wavelength represented by the index view in um.
         is_3d: Whether background slabs follow 3D simulation semantics.
         plane: Resolved 2D simulation plane.
+        background_material: Default medium used by top-down XY 2D simulations.
         layer_order: Geometry precedence order used by the MEEP runner.
 
     Returns:
@@ -557,6 +559,7 @@ def plot_2d_interactive(
             layer_order=layer_order,
             is_3d=is_3d,
             plane=plane,
+            background_material=background_material,
             index_component=index_component,
             cmap=cmap,
             x=x,
@@ -593,6 +596,7 @@ def plot_2d(
     wavelength: float | None = None,
     is_3d: bool = True,
     plane: Literal["xy", "xz"] = "xy",
+    background_material: str = "air",
     layer_order: Sequence[str] | None = None,
 ) -> plt.Axes | None:
     """Plot 2D cross-sections of the MEEP geometry.
@@ -626,6 +630,7 @@ def plot_2d(
         wavelength: Wavelength represented by the index view in um.
         is_3d: Whether background slabs follow 3D simulation semantics.
         plane: Resolved 2D simulation plane.
+        background_material: Default medium used by top-down XY 2D simulations.
         layer_order: Geometry precedence order used by the MEEP runner.
 
     Returns:
@@ -669,6 +674,7 @@ def plot_2d(
             layer_order=layer_order,
             is_3d=is_3d,
             plane=plane,
+            background_material=background_material,
             index_component=index_component,
             cmap=cmap,
             x=x,

@@ -60,6 +60,55 @@ def _xz_sim_for_index_plot(angle_deg: float = -6.0):
     return simulation
 
 
+def _xy_sim_for_index_plot():
+    import gdsfactory as gf
+
+    from gsim.common.stack import Layer, LayerStack
+    from gsim.meep.simulation import Simulation
+
+    component = gf.Component()
+    component.add_polygon(
+        [(-5, -0.25), (5, -0.25), (5, 0.25), (-5, 0.25)],
+        layer=(1, 0),
+    )
+    component.add_port(
+        name="o1",
+        center=(-5.0, 0.0),
+        orientation=180.0,
+        width=0.5,
+        layer=(1, 0),
+    )
+    component.add_port(
+        name="o2",
+        center=(5.0, 0.0),
+        orientation=0.0,
+        width=0.5,
+        layer=(1, 0),
+    )
+    stack = LayerStack(
+        pdk_name="test",
+        layers={
+            "core": Layer(
+                name="core",
+                gds_layer=(1, 0),
+                zmin=0.0,
+                zmax=0.22,
+                thickness=0.22,
+                material="si",
+                layer_type="dielectric",
+            ),
+        },
+        dielectrics=[{"name": "clad", "zmin": -2.0, "zmax": 2.0, "material": "SiO2"}],
+    )
+    simulation = Simulation()
+    simulation.geometry(component=component, stack=stack)
+    simulation.materials = {"si": 12.0, "SiO2": 2.1}
+    simulation.source(port="o1", wavelength=1.55, wavelength_span=0.01)
+    simulation.monitors = ["o1", "o2"]
+    simulation.solver(mode="2d", z_cut="auto")
+    return simulation
+
+
 def test_material_refractive_indices_support_tensor_components():
     from gsim.meep.index_viz import material_refractive_indices
     from gsim.meep.models.config import MaterialData
@@ -166,6 +215,18 @@ def test_index_plot_uses_requested_tensor_component():
     simulation.plot_2d(kind="index", index_component="z", ax=ax)
 
     assert "n_z" in figure.axes[1].get_ylabel()
+    plt.close(figure)
+
+
+def test_xy_2d_index_plot_uses_resolved_background_material():
+    simulation = _xy_sim_for_index_plot()
+    figure, ax = plt.subplots()
+
+    simulation.plot_2d(ax=ax)
+
+    material_ids = {patch.get_gid() for patch in ax.patches if patch.get_gid()}
+    assert "material:SiO2" in material_ids
+    assert "material:air" not in material_ids
     plt.close(figure)
 
 
@@ -309,6 +370,24 @@ def test_interactive_index_plot_is_default():
     legend_names = {trace.name for trace in figure.data if trace.showlegend}
     assert {"PML", "Source", "Monitor"} <= legend_names
     assert "Sim cell" not in legend_names
+    assert figure.layout.legend.orientation == "h"
+    assert figure.layout.legend.xanchor == "center"
+    assert figure.layout.legend.y < 0
+    assert figure.layout.margin.b >= 100
+    colorbar_trace = next(trace for trace in figure.data if trace.marker.showscale)
+    colorbar = colorbar_trace.marker.colorbar
+    assert colorbar.x > 1
+    assert colorbar.title.side == "right"
+
+
+def test_xy_2d_interactive_plot_uses_resolved_background_material():
+    simulation = _xy_sim_for_index_plot()
+
+    figure = simulation.plot_2d_interactive()
+
+    background_trace = figure.data[0]
+    assert background_trace.name == "SiO2"
+    assert background_trace.fillcolor != "#ffffff"
 
 
 def test_extended_background_reaches_pml_in_both_index_plots():

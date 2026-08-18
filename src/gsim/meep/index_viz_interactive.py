@@ -35,6 +35,7 @@ def plot_refractive_index_interactive(
     layer_order: Sequence[str] | None = None,
     is_3d: bool = True,
     plane: Literal["xy", "xz"] = "xy",
+    background_material: str = "air",
     index_component: IndexComponent = "mean",
     cmap: str = "Blues",
     x: float | str | None = None,
@@ -61,14 +62,18 @@ def plot_refractive_index_interactive(
     plot_min, plot_max = view_bounds(geometry_model, overlay, slice_axis)
     figure = go.Figure()
 
+    resolved_background = (
+        background_material if background_material in indices else "air"
+    )
+    background_index = indices.get(resolved_background, _AIR_INDEX)
     _add_material_rectangle(
         figure,
         plot_min[0],
         plot_min[1],
         plot_max[0] - plot_min[0],
         plot_max[1] - plot_min[1],
-        material="air",
-        refractive_index=_AIR_INDEX,
+        material=resolved_background,
+        refractive_index=background_index,
         normalization=normalization,
         colormap=colormap,
     )
@@ -280,7 +285,11 @@ def _add_colorbar(
                 "cmax": normalization.vmax,
                 "colorscale": _plotly_colorscale(colormap),
                 "showscale": True,
-                "colorbar": {"title": title},
+                "colorbar": {
+                    "title": {"text": title, "side": "right"},
+                    "x": 1.02,
+                    "xanchor": "left",
+                },
             },
             showlegend=False,
             hoverinfo="skip",
@@ -318,6 +327,7 @@ def _configure_layout(
     if aspect == "equal":
         xaxis.update({"scaleanchor": "y", "scaleratio": 1})
         yaxis["constrain"] = "domain"
+
     figure.update_layout(
         title=(
             f"Refractive index · {plane_name} cross section at "
@@ -326,9 +336,14 @@ def _configure_layout(
         xaxis=xaxis,
         yaxis=yaxis,
         legend={
-            "title": "Simulation",
+            "orientation": "h",
+            "x": 0.5,
+            "xanchor": "center",
+            "y": -0.2,
+            "yanchor": "top",
             "itemclick": "toggle",
             "itemdoubleclick": "toggleothers",
         },
+        margin={"b": 110, "r": 140},
         hovermode="closest",
     )

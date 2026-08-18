@@ -1054,11 +1054,16 @@ class TestSimConfig2D:
         assert cfg.is_3d is False
 
     def test_json_roundtrip_2d(self, tmp_path, sim_kwargs):
-        cfg = SimConfig(**sim_kwargs, is_3d=False)
+        cfg = SimConfig(
+            **sim_kwargs,
+            is_3d=False,
+            background_material="SiO2",
+        )
         path = tmp_path / "config.json"
         cfg.to_json(path)
         data = json.loads(path.read_text())
         assert data["is_3d"] is False
+        assert data["background_material"] == "SiO2"
 
     def test_json_roundtrip_3d(self, tmp_path, sim_kwargs):
         cfg = SimConfig(**sim_kwargs, is_3d=True)
@@ -1401,6 +1406,14 @@ class TestScriptDomainConfig:
         assert "build_background_slabs" in script
         assert "mp.Block" in script
         assert "mp.inf" in script
+
+    def test_script_sets_xy_2d_default_material(self):
+        """XY 2D must replace collapsed dielectric slabs with one medium."""
+        from gsim.meep.script import generate_meep_script
+
+        script = generate_meep_script()
+        assert 'config.get("background_material", "air")' in script
+        assert 'sim_kwargs["default_material"] = default_medium' in script
 
     def test_script_handles_component_bbox(self):
         """Verify the runner script uses component_bbox for cell sizing."""

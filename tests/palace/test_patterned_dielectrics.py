@@ -1,4 +1,4 @@
-"""Tests for patterned dielectric mesh support and stack dielectric toggles."""
+"""Tests for patterned dielectric mesh support and synthetic oxide control."""
 
 from __future__ import annotations
 
@@ -36,28 +36,26 @@ def _fake_gf_stack():
     )
 
 
-def test_extract_layer_stack_can_disable_synthetic_dielectrics():
-    """Synthetic oxide/passivation can be disabled explicitly."""
+def test_extract_layer_stack_can_disable_synthetic_oxide():
+    """Synthetic oxide can be disabled explicitly."""
     stack = extract_layer_stack(
         _fake_gf_stack(),
         pdk_name="test-pdk",
         add_oxide_dielectric=False,
-        add_passivation_dielectric=False,
     )
 
     names = [d["name"] for d in stack.dielectrics]
     assert names == []
     assert stack.simulation["add_oxide_dielectric"] is False
-    assert stack.simulation["add_passivation_dielectric"] is False
 
 
-def test_extract_layer_stack_defaults_keep_synthetic_dielectrics():
-    """Defaults preserve synthetic oxide/passive dielectric regions."""
+def test_extract_layer_stack_defaults_to_synthetic_oxide_only():
+    """Defaults add synthetic oxide but never synthetic passivation."""
     stack = extract_layer_stack(_fake_gf_stack(), pdk_name="test-pdk")
 
     names = [d["name"] for d in stack.dielectrics]
     assert "oxide" in names
-    assert "passive" in names
+    assert "passive" not in names
     assert "air_box" not in names
 
 

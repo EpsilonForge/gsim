@@ -489,6 +489,58 @@ class TestConfigTranslation:
 # ---------------------------------------------------------------------------
 
 
+def _xy_background_simulation(z_cut="auto"):
+    """Build an XY 2D simulation with distinct BOX and cladding materials."""
+    import gdsfactory as gf
+
+    from gsim.common.stack import Layer, LayerStack
+
+    component = gf.Component()
+    component.add_polygon(
+        [(-5, -0.25), (5, -0.25), (5, 0.25), (-5, 0.25)],
+        layer=(1, 0),
+    )
+    component.add_port(
+        name="o1",
+        center=(-5.0, 0.0),
+        orientation=180.0,
+        width=0.5,
+        layer=(1, 0),
+    )
+    component.add_port(
+        name="o2",
+        center=(5.0, 0.0),
+        orientation=0.0,
+        width=0.5,
+        layer=(1, 0),
+    )
+    stack = LayerStack(
+        pdk_name="test",
+        layers={
+            "core": Layer(
+                name="core",
+                gds_layer=(1, 0),
+                zmin=0.0,
+                zmax=0.22,
+                thickness=0.22,
+                material="si",
+                layer_type="dielectric",
+            ),
+        },
+        dielectrics=[
+            {"name": "box", "zmin": -2.0, "zmax": 0.0, "material": "SiO2"},
+            {"name": "clad", "zmin": 0.0, "zmax": 1.0, "material": "polymer"},
+        ],
+    )
+    simulation = Simulation()
+    simulation.geometry(component=component, stack=stack)
+    simulation.materials = {"si": 12.0, "SiO2": 2.1, "polymer": 2.25}
+    simulation.source(port="o1", wavelength=1.55, wavelength_span=0.01)
+    simulation.monitors = ["o1", "o2"]
+    simulation.solver(mode="2d", z_cut=z_cut)
+    return simulation
+
+
 class Test2DMode:
     """Tests for 2D simulation mode (mode='2d')."""
 
@@ -547,6 +599,26 @@ class Test2DMode:
         result = sim.build_config()
         assert result.config.is_3d is False
 
+    def test_auto_z_cut_uses_background_at_drawn_core(self):
+        simulation = _xy_background_simulation()
+
+        result = simulation.build_config()
+
+        assert result.config.background_material == "polymer"
+
+    @pytest.mark.parametrize(
+        ("z_cut", "expected_material"),
+        [(-1.0, "SiO2"), (2.0, "air")],
+    )
+    def test_numeric_z_cut_selects_containing_background(
+        self, z_cut, expected_material
+    ):
+        simulation = _xy_background_simulation(z_cut=z_cut)
+
+        result = simulation.build_config()
+
+        assert result.config.background_material == expected_material
+
     def test_build_config_3d_default(self):
         """Default build_config should be 3D."""
         import gdsfactory as gf
@@ -586,6 +658,7 @@ class Test2DMode:
         out = sim.write_config(tmp_path / "sim2d")
         config_data = json.loads((out / "sim_config.json").read_text())
         assert config_data["is_3d"] is False
+        assert config_data["background_material"] == "sio2"
         # Ports should have z=0
         for port in config_data["ports"]:
             assert port["center"][2] == 0.0
