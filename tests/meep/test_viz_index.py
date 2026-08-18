@@ -169,6 +169,72 @@ def test_index_plot_uses_requested_tensor_component():
     plt.close(figure)
 
 
+def test_multi_slice_index_plot_uses_separate_figures(monkeypatch):
+    simulation = _xz_sim_for_index_plot()
+    existing_figure_numbers = set(plt.get_fignums())
+    show_calls = []
+    monkeypatch.setattr(plt, "show", lambda: show_calls.append(None))
+
+    result = simulation.plot_2d(slices="xyz")
+
+    new_figure_numbers = sorted(
+        set(plt.get_fignums()).difference(existing_figure_numbers)
+    )
+    figures = [plt.figure(number) for number in new_figure_numbers]
+    try:
+        assert result is None
+        assert len(show_calls) == 1
+        assert len(figures) == 3
+        assert [
+            figure.axes[0].get_title().split(" · ")[1][:2] for figure in figures
+        ] == [
+            "YZ",
+            "XZ",
+            "XY",
+        ]
+
+        colorbar_bounds = set()
+        for figure in figures:
+            assert len(figure.axes) == 2
+            plot_axis, colorbar_axis = figure.axes
+            assert plot_axis.get_legend() is None
+            assert "Refractive index" in colorbar_axis.get_ylabel()
+            assert len(figure.legends) == 1
+            legend = figure.legends[0]
+            assert getattr(legend, "_outside_loc", None) == "lower"
+
+            expected_labels = list(
+                dict.fromkeys(plot_axis.get_legend_handles_labels()[1])
+            )
+            assert [text.get_text() for text in legend.get_texts()] == expected_labels
+
+            colorbar_norm = colorbar_axis.collections[0].norm
+            colorbar_bounds.add((colorbar_norm.vmin, colorbar_norm.vmax))
+
+        assert len(colorbar_bounds) == 1
+    finally:
+        for figure in figures:
+            plt.close(figure)
+
+
+def test_multi_slice_index_plot_can_hide_bottom_legends(monkeypatch):
+    simulation = _xz_sim_for_index_plot()
+    existing_figure_numbers = set(plt.get_fignums())
+    monkeypatch.setattr(plt, "show", lambda: None)
+
+    simulation.plot_2d(slices="xy", legend=False)
+
+    new_figure_numbers = set(plt.get_fignums()).difference(existing_figure_numbers)
+    figures = [plt.figure(number) for number in new_figure_numbers]
+    try:
+        assert len(figures) == 2
+        assert all(len(figure.axes) == 2 for figure in figures)
+        assert all(not figure.legends for figure in figures)
+    finally:
+        for figure in figures:
+            plt.close(figure)
+
+
 @pytest.mark.parametrize("angle_deg", [-30.0, -6.0, 25.0])
 def test_index_plot_draws_fiber_waist_at_configured_angle(angle_deg):
     simulation = _xz_sim_for_index_plot(angle_deg)

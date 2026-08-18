@@ -18,6 +18,7 @@ import numpy as np
 from matplotlib.patches import Polygon, Rectangle
 
 from gsim.common.geometry_model import GeometryModel
+from gsim.common.viz._matplotlib import add_bottom_legend
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -43,7 +44,8 @@ def plot_prism_slices(
         x: X-coordinate (or layer name) for the slice plane.
         y: Y-coordinate (or layer name) for the slice plane.
         z: Z-coordinate (or layer name) for the slice plane.
-        ax: Axes to draw on.  If ``None``, a new figure is created.
+        ax: Axes to draw on. If ``None``, one figure is created for each
+            requested slice.
         legend: Whether to show the legend.
         slices: Which slice(s) to plot -- "x", "y", "z", or combinations
             like "xy", "xz", "yz", "xyz".
@@ -59,7 +61,7 @@ def plot_prism_slices(
         raise ValueError(f"aspect must be 'equal' or 'auto'. Got: {aspect!r}")
 
     slices_to_plot = sorted(set(slices.lower()))
-    if not all(s in "xyz" for s in slices_to_plot):
+    if not slices_to_plot or not all(s in "xyz" for s in slices_to_plot):
         raise ValueError(f"slices must only contain 'x', 'y', 'z'. Got: {slices}")
 
     if ax is not None:
@@ -102,7 +104,7 @@ def plot_prism_slices(
                 overlay=overlay,
             )
 
-    _plot_multi_view(
+    _plot_separate_views(
         geometry_model,
         slices_to_plot,
         x,
@@ -120,7 +122,7 @@ def plot_prism_slices(
 # ---------------------------------------------------------------------------
 
 
-def _plot_multi_view(
+def _plot_separate_views(
     geometry_model: GeometryModel,
     slices_to_plot: list[str],
     x: float | str | None,
@@ -130,14 +132,9 @@ def _plot_multi_view(
     aspect: Literal["equal", "auto"] = "equal",
     overlay: Any | None = None,
 ) -> None:
-    """Create multi-view plot with a shared legend panel."""
-    num_plots = len(slices_to_plot)
-    fig = plt.figure(constrained_layout=True)
-    gs = fig.add_gridspec(ncols=2, nrows=num_plots, width_ratios=(3, 1))
-
-    axes: list[plt.Axes] = [fig.add_subplot(gs[i, 0]) for i in range(num_plots)]
-
-    for ax_i, slice_axis in zip(axes, slices_to_plot, strict=True):
+    """Create one figure per requested slice."""
+    for slice_axis in slices_to_plot:
+        figure, plot_axis = plt.subplots(constrained_layout=True)
         if slice_axis == "x":
             x_val = x if x is not None else "core"
             _plot_single_prism_slice(
@@ -145,7 +142,7 @@ def _plot_multi_view(
                 x=x_val,
                 y=None,
                 z=None,
-                ax=ax_i,
+                ax=plot_axis,
                 legend=False,
                 aspect=aspect,
                 overlay=overlay,
@@ -157,7 +154,7 @@ def _plot_multi_view(
                 x=None,
                 y=y_val,
                 z=None,
-                ax=ax_i,
+                ax=plot_axis,
                 legend=False,
                 aspect=aspect,
                 overlay=overlay,
@@ -168,30 +165,13 @@ def _plot_multi_view(
                 x=None,
                 y=None,
                 z=z,
-                ax=ax_i,
+                ax=plot_axis,
                 legend=False,
                 aspect=aspect,
                 overlay=overlay,
             )
-
-    if show_legend:
-        all_handles: list = []
-        all_labels: list[str] = []
-        seen: set[str] = set()
-
-        for ax in axes:
-            handles, labels = ax.get_legend_handles_labels()
-            for handle, label in zip(handles, labels, strict=True):
-                if label not in seen:
-                    all_handles.append(handle)
-                    all_labels.append(label)
-                    seen.add(label)
-
-        legend_row = num_plots // 2
-        axl = fig.add_subplot(gs[legend_row, 1])
-        if all_handles:
-            axl.legend(all_handles, all_labels, loc="center")
-        axl.axis("off")
+        if show_legend:
+            add_bottom_legend(figure, plot_axis)
 
     plt.show()
 
