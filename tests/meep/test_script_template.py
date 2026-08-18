@@ -30,6 +30,30 @@ def test_runner_has_fiber_source_path():
     assert "GaussianBeamSource" in _MEEP_RUNNER_TEMPLATE
 
 
+def test_resolved_z_bounds_are_identical_in_3d_and_xz():
+    """Canonical bounds must bypass the legacy XZ margin path."""
+    resolve_z_cell = _extract_runner_func("resolve_z_cell")
+    domain = {
+        "dpml": 1.0,
+        "z_bounds": [-1.0, 3.0],
+        # Deliberately large legacy values: canonical bounds must win.
+        "margin_z_low": 10.0,
+        "margin_z_high": 20.0,
+    }
+
+    assert resolve_z_cell(domain, -0.5, 0.22, True, False) == (6.0, 1.0)
+    assert resolve_z_cell(domain, -0.5, 0.22, False, True) == (6.0, 1.0)
+
+
+def test_legacy_xz_margins_are_applied_once():
+    """Old configs retain one margin expansion, not the new canonical path."""
+    resolve_z_cell = _extract_runner_func("resolve_z_cell")
+    domain = {"dpml": 1.0, "margin_z_low": 0.5, "margin_z_high": 1.0}
+
+    # Inner bounds are [-1, 3], outer bounds are [-2, 4].
+    assert resolve_z_cell(domain, -0.5, 2.0, False, True) == (6.0, 1.0)
+
+
 def _extract_runner_func(name: str):
     """Exec a single pure-Python helper from the runner template in isolation.
 

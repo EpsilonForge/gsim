@@ -1,13 +1,27 @@
-"""Tests for patterned dielectric mesh support and stack dielectric toggles."""
+"""Tests for patterned dielectric mesh support and synthetic oxide control."""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from gdsfactory.technology import LayerLevel
 
 from gsim.common.stack.extractor import Layer, LayerStack, extract_layer_stack
 from gsim.palace.mesh.geometry import build_entities
+
+
+@pytest.fixture
+def gmsh_session():
+    """Provide an isolated Gmsh session and always release it."""
+    import gmsh
+
+    gmsh.initialize()
+    try:
+        yield gmsh
+    finally:
+        gmsh.clear()
+        gmsh.finalize()
 
 
 def _fake_gf_stack():
@@ -22,29 +36,35 @@ def _fake_gf_stack():
     )
 
 
-def test_extract_layer_stack_can_disable_synthetic_dielectrics():
-    """Synthetic oxide/passivation can be disabled explicitly."""
+def test_extract_layer_stack_can_disable_synthetic_oxide():
+    """Synthetic oxide can be disabled explicitly."""
     stack = extract_layer_stack(
         _fake_gf_stack(),
         pdk_name="test-pdk",
         add_oxide_dielectric=False,
-        add_passivation_dielectric=False,
     )
 
     names = [d["name"] for d in stack.dielectrics]
     assert names == []
     assert stack.simulation["add_oxide_dielectric"] is False
-    assert stack.simulation["add_passivation_dielectric"] is False
 
 
-def test_extract_layer_stack_defaults_keep_synthetic_dielectrics():
-    """Defaults preserve synthetic oxide/passive dielectric regions."""
+def test_extract_layer_stack_defaults_to_synthetic_oxide_only():
+    """Defaults add synthetic oxide but never synthetic passivation."""
     stack = extract_layer_stack(_fake_gf_stack(), pdk_name="test-pdk")
 
     names = [d["name"] for d in stack.dielectrics]
     assert "oxide" in names
-    assert "passive" in names
+    assert "passive" not in names
     assert "air_box" not in names
+
+
+def test_synthetic_oxide_does_not_use_silicon_as_cladding():
+    """A silicon core is not a valid fallback material for blanket oxide."""
+    stack = extract_layer_stack(_fake_gf_stack(), pdk_name="test-pdk")
+
+    oxide = next(d for d in stack.dielectrics if d["name"] == "oxide")
+    assert oxide["material"] == "SiO2"
 
 
 def test_build_entities_prioritizes_patterned_dielectrics_over_background_boxes():
@@ -91,7 +111,7 @@ def test_build_entities_prioritizes_patterned_dielectrics_over_background_boxes(
     assert orders["air"] == 4
 
 
-def test_add_patterned_dielectrics_skips_covered_dielectric_layers():
+def test_add_patterned_dielectrics_skips_covered_dielectric_layers(gmsh_session):
     """Layers covered by bulk dielectric boxes must not be re-extruded."""
     import gdsfactory as gf
     import klayout.db as kdb
@@ -155,9 +175,7 @@ def test_add_patterned_dielectrics_skips_covered_dielectric_layers():
 
     geometry = extract_geometry(c, stack)
 
-    import gmsh
-
-    gmsh.initialize()
+    gmsh = gmsh_session
     gmsh.option.setNumber("General.Verbosity", 0)
     gmsh.model.add("test")
     kernel = gmsh.model.occ

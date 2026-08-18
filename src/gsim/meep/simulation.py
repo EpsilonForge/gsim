@@ -7,6 +7,7 @@ Translates the user-facing declarative API objects into the existing
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -25,6 +26,9 @@ from gsim.meep.models.api import (
 
 logger = logging.getLogger(__name__)
 
+_AUTO_Z_PADDING = 0.5
+_FIBER_FLUX_OFFSET = 0.3
+
 
 # ---------------------------------------------------------------------------
 # BuildResult
@@ -39,11 +43,15 @@ class BuildResult:
         config: Full serializable SimConfig.
         component: Extended component (what meep actually simulates).
         original_component: Original component before port extension.
+        stack: Simulation stack remapped to the component's physical layers.
+        gdsfactory_stack: Direct-layer stack used to visualize the component.
     """
 
     config: Any  # SimConfig
     component: Any  # gdsfactory Component (extended)
     original_component: Any  # gdsfactory Component (original)
+    stack: Any  # gsim LayerStack (cropped and remapped)
+    gdsfactory_stack: Any  # gdsfactory LayerStack (direct physical layers)
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +320,9 @@ class Simulation(BaseModel):
     # Private: guards against double vertical-cropping when build_config()
     # is called more than once (e.g. plot_2d then run) on the same sim.
     _z_cropped: bool = PrivateAttr(default=False)
+    _z_crop_source_stack: Any | None = PrivateAttr(default=None)
+    _last_cropped_stack: Any | None = PrivateAttr(default=None)
+    _resolved_z_bounds: tuple[float, float] | None = PrivateAttr(default=None)
 
     # Extra hints forwarded into the config JSON (not part of the schema).
     _hints: dict[str, Any] = PrivateAttr(default_factory=dict)
@@ -319,6 +330,7 @@ class Simulation(BaseModel):
     # Cloud job state (set by upload/run)
     _job_id: str | None = PrivateAttr(default=None)
     _config_dir: Path | None = PrivateAttr(default=None)
+    _input_hash: str | None = PrivateAttr(default=None)
 
     # PDK overlay (foundry-specific material values, loaded from YAML)
     _pdk_overlay: dict[str, Any] | None = PrivateAttr(default=None)
@@ -504,7 +516,9 @@ class Simulation(BaseModel):
     # Internal: fiber-aware z margin
     # -------------------------------------------------------------------------
 
-    def _stack_material_extent(self) -> tuple[float, float] | None:
+    def _stack_material_extent(
+        self, stack: Any | None = None
+    ) -> tuple[float, float] | None:
         """Return (zmin, zmax) spanning all non-air layers and dielectrics.
 
         This is the reference used by auto z-crop and by the fiber-aware
@@ -512,7 +526,7 @@ class Simulation(BaseModel):
         core, cladding, passive, ...) and trims only the synthetic air
         padding added by the extractor.
         """
-        stack = self.geometry.stack
+        stack = stack if stack is not None else self.geometry.stack
         if stack is None:
             return None
         zmins: list[float] = []
@@ -529,30 +543,164 @@ class Simulation(BaseModel):
             return None
         return min(zmins), max(zmaxs)
 
-    def _expand_margin_z_above_for_fiber(self, ref_top: float) -> None:
-        """Bump the above (high) side of ``margin_z`` to include the fiber plane.
+    def _resolve_xy_background_material(self, component: Any, stack: Any) -> str:
+        """Resolve the blanket medium represented by a collapsed XY Z cut."""
+        if self.solver.resolved_plane() != "xy":
+            return "air"
 
-        When the user configures ``sim.source_fiber(...)`` the Gaussian beam
-        sits at absolute z = ``fs.z``. The z-crop shrinks the stack around
-        the resolved ``z_ref`` top, so the above (high) side of ``margin_z``
-        must be large enough that ``ref_top + margin_z_high`` still sits above
-        the beam plane plus a waist-sized buffer (otherwise the fiber ends up
-        in PML).
+        cut = self.solver.resolved_cut()
+        if isinstance(cut, int | float):
+            cut_z = float(cut)
+        else:
+            from gsim.meep.ports import _find_highest_n_layer_in_component
 
-        Args:
-            ref_top: Top (zmax) of the resolved vertical-crop reference (um).
+            reference_layer, _ = _find_highest_n_layer_in_component(component, stack)
+            if reference_layer is None:
+                logger.warning(
+                    "Could not resolve a drawn layer for XY 2D z_cut='auto'; "
+                    "using air as the background material."
+                )
+                return "air"
+            cut_z = (reference_layer.zmin + reference_layer.zmax) / 2.0
+
+        containing_dielectrics = [
+            dielectric
+            for dielectric in stack.dielectrics
+            if dielectric.get("material") != "air"
+            and float(dielectric["zmin"]) <= cut_z <= float(dielectric["zmax"])
+        ]
+        if not containing_dielectrics:
+            return "air"
+
+        # At a shared interface, the region starting at the cut takes priority.
+        background = max(
+            containing_dielectrics,
+            key=lambda dielectric: float(dielectric["zmin"]),
+        )
+        return str(background["material"])
+
+    def _resolve_mode_solver_z_window(
+        self,
+    ) -> tuple[tuple[float, float], tuple[float, float]]:
+        """Resolve mode-solver bounds and equivalent internal margins."""
+        extent = self._stack_material_extent()
+        if extent is None:
+            raise ValueError("Could not resolve a non-air Z extent for mode solving.")
+        stack_low, stack_high = extent
+
+        if self.domain.z_bounds != "auto":
+            z_low, z_high = self.domain.z_bounds
+            if z_low > stack_low or z_high < stack_high:
+                raise ValueError(
+                    "Explicit domain.z_bounds must contain the modeled stack for "
+                    f"mode solving: requested ({z_low}, {z_high}), stack spans "
+                    f"({stack_low}, {stack_high})."
+                )
+            margins = (stack_low - z_low, z_high - stack_high)
+            self._resolved_z_bounds = (z_low, z_high)
+            return (z_low, z_high), margins
+
+        legacy_fields = self.domain.legacy_z_fields_used()
+        if legacy_fields:
+            margin_low, margin_high = self.domain.resolved_margin_z()
+        else:
+            margin_low = margin_high = _AUTO_Z_PADDING
+        bounds = (stack_low - margin_low, stack_high + margin_high)
+        self._resolved_z_bounds = bounds
+
+        if legacy_fields:
+            field_names = " and ".join(f"domain.{name}" for name in legacy_fields)
+            warnings.warn(
+                f"Use of {field_names} is deprecated and will be removed in a "
+                f"future release; replace it with domain.z_bounds={bounds!r}.",
+                FutureWarning,
+                stacklevel=3,
+            )
+        return bounds, (margin_low, margin_high)
+
+    def _resolve_active_z_bounds(
+        self, component: Any, stack: Any | None = None
+    ) -> tuple[tuple[float, float], str, float | None, bool]:
+        """Resolve the public Z-domain setting to one concrete inner window.
+
+        Returns:
+            ``(bounds, reference_name, reference_n, is_auto)``. Explicit bounds
+            are returned unchanged. ``"auto"`` fits the drawn optical layer
+            with deterministic padding and may add fiber-source headroom.
         """
+        if self.domain.z_bounds != "auto":
+            z_low, z_high = self.domain.z_bounds
+            self._validate_fiber_z_bounds(z_low, z_high)
+            return (z_low, z_high), "explicit", None, False
+
+        ref_zmin, ref_zmax, ref_name, ref_n, is_auto_ref = self._resolve_z_ref_extent(
+            component=component,
+            stack=stack,
+        )
+        legacy_fields = self.domain.legacy_z_fields_used()
+        if legacy_fields:
+            margin_low, margin_high = self.domain.resolved_margin_z()
+        else:
+            margin_low = margin_high = _AUTO_Z_PADDING
+
+        z_low = ref_zmin - margin_low
+        z_high = ref_zmax + margin_high
+
+        if self.fiber_source is not None:
+            fiber_headroom = max(self.fiber_source.waist / 2.0, _AUTO_Z_PADDING)
+            z_high = max(z_high, self.fiber_source.z + fiber_headroom)
+
+        bounds = (float(z_low), float(z_high))
+        if legacy_fields:
+            field_names = " and ".join(f"domain.{name}" for name in legacy_fields)
+            warnings.warn(
+                f"Use of {field_names} is deprecated and will be removed in a "
+                f"future release; replace it with domain.z_bounds={bounds!r}.",
+                FutureWarning,
+                stacklevel=3,
+            )
+
+        return bounds, ref_name, ref_n, is_auto_ref
+
+    def _validate_fiber_z_bounds(self, z_low: float, z_high: float) -> None:
+        """Require an explicit window to contain all fiber-source headroom."""
         if self.fiber_source is None:
             return
-        fs = self.fiber_source
-        # Room for the beam plane + beam-half-waist so the Gaussian tail
-        # is inside the sim cell before PML.
-        mz_low, mz_high = self.domain.resolved_margin_z()
-        needed = (fs.z - ref_top) + max(fs.waist / 2.0, 0.5)
-        if mz_high < needed:
-            self.domain.margin_z = (mz_low, needed)
+        source = self.fiber_source
+        required_low = source.z - _FIBER_FLUX_OFFSET
+        required_high = source.z + max(source.waist / 2.0, _AUTO_Z_PADDING)
+        if z_low <= required_low and z_high >= required_high:
+            return
+        raise ValueError(
+            "Explicit domain.z_bounds does not contain the fiber source and "
+            f"monitor headroom: requested ({z_low}, {z_high}), requires at "
+            f"least ({required_low}, {required_high}). Expand z_bounds or use "
+            "z_bounds='auto'."
+        )
 
-    def _resolve_z_ref_extent(self) -> tuple[float, float, str, float | None, bool]:
+    def _prepare_stack_for_z_crop(self) -> None:
+        """Restore a fresh stack before resolving and applying each Z crop."""
+        stack = self.geometry.stack
+        if stack is None:
+            raise ValueError("No stack configured for z-crop.")
+
+        if (
+            self._z_cropped
+            and stack is self._last_cropped_stack
+            and self._z_crop_source_stack is not None
+        ):
+            self.geometry.stack = self._z_crop_source_stack.model_copy(deep=True)
+        else:
+            self._z_crop_source_stack = stack.model_copy(deep=True)
+
+        self._z_cropped = False
+        self._last_cropped_stack = None
+
+    def _resolve_z_ref_extent(
+        self,
+        component: Any | None = None,
+        stack: Any | None = None,
+    ) -> tuple[float, float, str, float | None, bool]:
         """Resolve ``domain.z_ref`` to a vertical reference window.
 
         Single source of truth for both the fiber-margin expansion and the
@@ -570,14 +718,14 @@ class Simulation(BaseModel):
         """
         from gsim.meep.ports import _find_highest_n_layer_in_component
 
-        stack = self.geometry.stack
+        stack = stack if stack is not None else self.geometry.stack
         if stack is None:
             raise ValueError("No stack configured for z-crop.")
 
         z_ref = self.domain.z_ref
 
         if z_ref == "stack":
-            extent = self._stack_material_extent()
+            extent = self._stack_material_extent(stack)
             if extent is None:
                 raise ValueError(
                     "Could not detect any non-air layers/dielectrics for "
@@ -587,10 +735,11 @@ class Simulation(BaseModel):
 
         if z_ref is None:
             layer, n = _find_highest_n_layer_in_component(
-                self.geometry.component, stack
+                component if component is not None else self.geometry.component,
+                stack,
             )
             if layer is None:
-                extent = self._stack_material_extent()
+                extent = self._stack_material_extent(stack)
                 if extent is None:
                     raise ValueError(
                         "Could not detect any drawn optical layer or non-air "
@@ -613,34 +762,28 @@ class Simulation(BaseModel):
 
     def _apply_z_crop(
         self,
-        ref_zmin: float,
-        ref_zmax: float,
+        z_lo: float,
+        z_hi: float,
         ref_name: str,
         ref_n: float | None,
         is_auto: bool,
     ) -> None:
-        """Crop the stack vertically around the resolved ``z_ref`` window.
+        """Crop the stack to authoritative PML-inner Z bounds.
 
-        Preserves ``[ref_zmin - margin_z_low, ref_zmax + margin_z_high]``
-        and trims/removes layers and dielectrics outside it. Guarded by
-        ``_z_cropped`` so repeat ``build_config`` calls don't re-crop.
+        Trims/removes layers and dielectrics outside the exact interval.
 
         Args:
-            ref_zmin: Bottom of the reference window (um).
-            ref_zmax: Top of the reference window (um).
+            z_lo: Lower PML-inner Z bound (um).
+            z_hi: Upper PML-inner Z bound (um).
             ref_name: Name of the reference ('stack' or a layer name).
             ref_n: Refractive index of the reference layer (or None).
-            is_auto: Whether the reference was auto-detected (``z_ref=None``).
+            is_auto: Whether the reference was auto-detected.
         """
         from gsim.common.stack.extractor import Layer, LayerStack
 
         stack = self.geometry.stack
         if stack is None:
             raise ValueError("No stack configured for z-crop.")
-
-        mz_low, mz_high = self.domain.resolved_margin_z()
-        z_lo = ref_zmin - mz_low
-        z_hi = ref_zmax + mz_high
 
         # Filter and clip layers
         cropped: dict[str, Layer] = {}
@@ -675,6 +818,12 @@ class Simulation(BaseModel):
                 }
             )
 
+        if not cropped and not cropped_dielectrics:
+            raise ValueError(
+                f"domain.z_bounds=({z_lo}, {z_hi}) does not intersect any "
+                "layer or dielectric in the resolved stack."
+            )
+
         self.geometry.stack = LayerStack(
             pdk_name=stack.pdk_name,
             units=stack.units,
@@ -686,12 +835,9 @@ class Simulation(BaseModel):
         if is_auto:
             n_str = f"n={ref_n:.2f}, " if ref_n is not None else ""
             logger.info(
-                "z-crop reference auto-detected: %r (%sz=[%.4g, %.4g]); "
-                "window z=[%.4g, %.4g]",
+                "z-crop reference auto-detected: %r (%swindow z=[%.4g, %.4g])",
                 ref_name,
                 n_str,
-                ref_zmin,
-                ref_zmax,
                 z_lo,
                 z_hi,
             )
@@ -709,6 +855,7 @@ class Simulation(BaseModel):
         # Guard against re-cropping an already-cropped stack on repeat
         # build_config() calls (e.g. plot_2d then run).
         self._z_cropped = True
+        self._last_cropped_stack = self.geometry.stack
 
     # -------------------------------------------------------------------------
     # Internal: translate to config objects
@@ -750,15 +897,17 @@ class Simulation(BaseModel):
             wall_time_max=s.wall_time_max,
         )
 
-    def _domain_config(self) -> Any:
-        """Translate Domain -> DomainConfig."""
+    def _domain_config(self, z_bounds: tuple[float, float] | None = None) -> Any:
+        """Translate Domain to config with optional resolved Z bounds."""
         from gsim.meep.models.config import DomainConfig
 
         mx = self.domain.resolved_margin_x()
         my = self.domain.resolved_margin_y()
         mz = self.domain.resolved_margin_z()
         return DomainConfig(
+            z_bounds=z_bounds,
             dpml=self.domain.pml,
+            extend_into_pml=self.domain.extend_into_pml,
             margin_x_low=mx[0],
             margin_x_high=mx[1],
             margin_y_low=my[0],
@@ -861,7 +1010,10 @@ class Simulation(BaseModel):
     # -------------------------------------------------------------------------
 
     def solve_modes(
-        self, *, verbose: Literal["quiet", "status", "full"] = "status"
+        self,
+        *,
+        verbose: Literal["quiet", "status", "full"] = "status",
+        check_cache: bool = False,
     ) -> Any:
         """Solve eigenmodes on the cloud from ``self.mode_solver`` configuration.
 
@@ -875,6 +1027,9 @@ class Simulation(BaseModel):
         Args:
             verbose: ``"quiet"`` no output, ``"status"`` status line,
                 ``"full"`` stream solver logs.
+            check_cache: If ``True``, look for a completed cloud job with
+                byte-identical inputs and reuse its results instead of
+                submitting. A lookup failure degrades to a normal submit.
 
         Returns:
             :class:`ModeSweepResult` wrapping all solved :class:`ModeResult`
@@ -887,7 +1042,19 @@ class Simulation(BaseModel):
         tmp = Path(tempfile.mkdtemp(prefix="meep_mode_solver_"))
         try:
             self.write_mode_solver_config(tmp)
-            job_id = gcloud.upload(tmp, "meep", verbose=False)
+            input_hash = None
+            if check_cache:
+                input_hash, cached_job_id = gcloud.check_cache_for_dir(tmp, "meep")
+                if cached_job_id is not None:
+                    if verbose != "quiet":
+                        print(  # noqa: T201
+                            f"Cache hit: reusing job {cached_job_id}"
+                        )
+                    result = gcloud.wait_for_results(cached_job_id, verbose=verbose)
+                    self._enrich_mode_results(result)
+                    return result
+
+            job_id = gcloud.upload(tmp, "meep", verbose=False, input_hash=input_hash)
             gcloud.start(job_id, verbose=verbose != "quiet")
             result = gcloud.wait_for_results(job_id, verbose=verbose)
             self._enrich_mode_results(result)
@@ -906,7 +1073,7 @@ class Simulation(BaseModel):
 
         stack = self.geometry.stack
         component = self.geometry.component
-        domain_cfg = self._domain_config()
+        domain_cfg = self._domain_config(z_bounds=self._resolved_z_bounds)
         port = self.mode_solver.port
         position = self.mode_solver.position
         port_or_pos = port if port is not None else position
@@ -955,7 +1122,6 @@ class Simulation(BaseModel):
 
         resolution = self.solver.resolution
         pml_thickness = self.domain.pml
-        z_margin = self.domain.resolved_margin_z()
 
         component = self.geometry.component
         where = ms.where
@@ -993,6 +1159,7 @@ class Simulation(BaseModel):
         stack = self.geometry.stack
         if stack is None:
             raise ValueError("Stack resolution failed.")
+        mode_z_bounds, z_margin = self._resolve_mode_solver_z_window()
 
         background_material = ms.background_material
 
@@ -1086,7 +1253,7 @@ class Simulation(BaseModel):
                     )
                     results.append(mode_result)
 
-        domain_cfg = self._domain_config()
+        domain_cfg = self._domain_config(z_bounds=mode_z_bounds)
         for r in results:
             r.domain_config = domain_cfg
 
@@ -1138,21 +1305,51 @@ class Simulation(BaseModel):
         if self.geometry.component is None:
             raise ValueError("No geometry set.")
 
-        # Apply z-crop for 3D and XZ 2D (both use the vertical dimension).
-        # XY 2D collapses z entirely so cropping is meaningless. The crop
-        # window comes from domain.z_ref (default: the drawn photonic core).
-        if (is_3d or plane == "xz") and not self._z_cropped:
-            ref_zmin, ref_zmax, ref_name, ref_n, is_auto = self._resolve_z_ref_extent()
-            # When a fiber source is configured in XZ mode, expand the
-            # above (high) side of margin_z so the cropped stack still
-            # contains the beam plane (and PML headroom) — from the ref top.
-            self._expand_margin_z_above_for_fiber(ref_zmax)
-            self._apply_z_crop(ref_zmin, ref_zmax, ref_name, ref_n, is_auto)
+        from gsim.meep.physical_layers import materialize_physical_layers
+
+        # Keep the fabrication-mask component authoritative until after port
+        # extension. Physical layers are evaluated onto unique simulation-only
+        # tuples so two LayerLevels can never alias through a shared GDS target.
+        original_component = self.geometry.component
+
+        # Resolve one authoritative PML-inner Z interval for every simulation
+        # with an active Z axis. XY 2D collapses Z and therefore rejects an
+        # explicit interval.
+        resolved_z_bounds: tuple[float, float] | None = None
+        if is_3d or plane == "xz":
+            self._prepare_stack_for_z_crop()
+            if self.geometry.stack is None:  # pragma: no cover - guarded above
+                raise ValueError("Stack resolution failed.")
+            reference_export = materialize_physical_layers(
+                original_component,
+                self.geometry.stack,
+            )
+            (
+                resolved_z_bounds,
+                ref_name,
+                ref_n,
+                is_auto,
+            ) = self._resolve_active_z_bounds(
+                reference_export.component,
+                reference_export.stack,
+            )
+            self._resolved_z_bounds = resolved_z_bounds
+            self._apply_z_crop(
+                resolved_z_bounds[0],
+                resolved_z_bounds[1],
+                ref_name,
+                ref_n,
+                is_auto,
+            )
+        else:
+            self._resolved_z_bounds = None
+            if self.domain.z_bounds != "auto":
+                raise ValueError(
+                    "Explicit domain.z_bounds requires an active Z axis (3D or "
+                    "XZ 2D). Use solver.z_cut to choose an XY slice."
+                )
 
         import gdsfactory as gf
-
-        original_component = self.geometry.component.copy()
-        stack = self.geometry.stack
 
         # Resolve the XZ cut Y-coordinate ('auto'/None -> bbox center).
         cut = self.solver.resolved_cut()
@@ -1166,7 +1363,7 @@ class Simulation(BaseModel):
             y_cut = None
 
         # Build config objects
-        domain_cfg = self._domain_config()
+        domain_cfg = self._domain_config(z_bounds=resolved_z_bounds)
         wl_cfg = self._wavelength_config()
         source_cfg = self._source_config()
         stopping_cfg = self._stopping_config()
@@ -1187,16 +1384,33 @@ class Simulation(BaseModel):
                 + domain_cfg.dpml
             )
 
-        # Extend waveguide ports into PML region
+        # Extend source-mask waveguide ports before evaluating physical layers.
+        # Extending an already-materialized component would draw onto the source
+        # tuple and leave the remapped physical core unextended.
         original_bbox: list[float] | None = None
         if extend_length > 0:
             bbox = original_component.dbbox()
             original_bbox = [bbox.left, bbox.bottom, bbox.right, bbox.top]
-            component = gf.components.extend_ports(
+            extended_source_component = gf.components.extend_ports(
                 original_component, length=extend_length
             )
         else:
-            component = original_component
+            extended_source_component = original_component
+
+        if self.geometry.stack is None:  # pragma: no cover - guarded above
+            raise ValueError("Stack resolution failed.")
+        physical_export = materialize_physical_layers(
+            extended_source_component,
+            self.geometry.stack,
+        )
+        component = physical_export.component
+        from gsim.meep.pml import extend_dielectrics_into_pml
+
+        stack = extend_dielectrics_into_pml(
+            physical_export.stack,
+            domain_cfg,
+        )
+        background_material = self._resolve_xy_background_material(component, stack)
 
         # Build layer stack entries
         layer_stack_entries = []
@@ -1358,6 +1572,7 @@ class Simulation(BaseModel):
             ports=port_infos,
             monitor_z_span=monitor_z_span,
             materials=material_data,
+            background_material=background_material,
             wavelength=wl_cfg,
             source=source_for_config,
             stopping=stopping_cfg,
@@ -1377,6 +1592,8 @@ class Simulation(BaseModel):
             config=sim_config,
             component=component,
             original_component=original_component,
+            stack=stack,
+            gdsfactory_stack=physical_export.gdsfactory_stack,
         )
 
     # -------------------------------------------------------------------------
@@ -1398,6 +1615,8 @@ class Simulation(BaseModel):
         Raises:
             ValueError: If config is invalid.
         """
+        import klayout.db as kdb
+
         from gsim.meep.script import generate_meep_script
 
         output_dir = Path(output_dir)
@@ -1405,8 +1624,30 @@ class Simulation(BaseModel):
 
         result = self.build_config()
 
-        # Write extended component GDS
-        result.component.write_gds(output_dir / "layout.gds")
+        # The solver only consumes polygons, so write a canonical flattened
+        # layout without metadata, hierarchy names, or timestamps. Those GDS
+        # details do not affect the simulation but would change the cache key.
+        gds_path = output_dir / "layout.gds"
+        save_options = kdb.SaveLayoutOptions()
+        save_options.gds2_write_timestamps = False
+        result.component.write_gds(
+            gds_path,
+            save_options=save_options,
+            with_metadata=False,
+        )
+
+        canonical_layout = kdb.Layout()
+        canonical_layout.read(str(gds_path))
+        top_cells = canonical_layout.top_cells()
+        if len(top_cells) != 1:  # pragma: no cover - write_gds emits one top cell
+            raise RuntimeError(f"Expected one top GDS cell, found {len(top_cells)}")
+        top_cell = top_cells[0]
+        top_cell.flatten(True)
+        top_cell.name = "layout"
+        save_options.select_this_cell(top_cell.cell_index())
+        save_options.gds2_write_cell_properties = False
+        save_options.gds2_write_file_properties = False
+        canonical_layout.write(str(gds_path), save_options)
 
         # Write JSON config
         result.config.to_json(output_dir / "sim_config.json")
@@ -1457,7 +1698,6 @@ class Simulation(BaseModel):
 
         resolution = self.solver.resolution
         pml_thickness = self.domain.pml
-        z_margin = self.domain.resolved_margin_z()
 
         first_wavelength = ms.wavelengths[0]
         _stack, material_data = self._resolve_stack_and_materials(
@@ -1468,6 +1708,7 @@ class Simulation(BaseModel):
             raise ValueError(
                 "Stack resolution failed — set a geometry with stack first"
             )
+        _mode_z_bounds, z_margin = self._resolve_mode_solver_z_window()
 
         if stack.dielectrics:
             dielectrics = [
@@ -1548,6 +1789,19 @@ class Simulation(BaseModel):
     # Cloud: fine-grained control
     # -------------------------------------------------------------------------
 
+    def _prepare_upload_dir(self) -> Path:
+        """Write the config files to a fresh temp directory for upload.
+
+        Returns:
+            Path to the temp directory, also recorded on ``_config_dir``.
+        """
+        import tempfile
+
+        tmp = Path(tempfile.mkdtemp(prefix="meep_"))
+        self.write_config(tmp)
+        self._config_dir = tmp
+        return tmp
+
     def upload(self, *, verbose: bool = True) -> str:
         """Write config and upload to the cloud. Does NOT start execution.
 
@@ -1558,14 +1812,14 @@ class Simulation(BaseModel):
             ``job_id`` string for use with :meth:`start`, :meth:`get_status`,
             or :func:`gsim.wait_for_results`.
         """
-        import tempfile
-
         from gsim import gcloud
+        from gsim.hashing import compute_input_hash
 
-        tmp = Path(tempfile.mkdtemp(prefix="meep_"))
-        self.write_config(tmp)
-        self._config_dir = tmp
-        self._job_id = gcloud.upload(tmp, "meep", verbose=verbose)
+        tmp = self._prepare_upload_dir()
+        self._input_hash = compute_input_hash(tmp, "meep")
+        self._job_id = gcloud.upload(
+            tmp, "meep", verbose=verbose, input_hash=self._input_hash
+        )
         return self._job_id
 
     def start(self, *, verbose: bool = True) -> None:
@@ -1633,6 +1887,7 @@ class Simulation(BaseModel):
         *,
         verbose: Literal["quiet", "status", "full"] = "status",
         wait: bool = True,
+        check_cache: bool = False,
     ) -> Any:
         """Run MEEP simulation on the cloud.
 
@@ -1643,13 +1898,32 @@ class Simulation(BaseModel):
                 ``"full"`` stream solver logs.
             wait: If ``True`` (default), block until results are ready.
                 If ``False``, upload + start and return the ``job_id``.
+            check_cache: If ``True``, look for a completed cloud job with
+                byte-identical inputs and reuse its results instead of
+                submitting. A lookup failure degrades to a normal submit.
 
         Returns:
             ``SParameterResult`` when ``wait=True``, or ``job_id`` string
             when ``wait=False``.
         """
+        from gsim import gcloud
+
         self._run_verbose = verbose
-        self.upload(verbose=False)
+        if check_cache:
+            tmp = self._prepare_upload_dir()
+            self._input_hash, cached_job_id = gcloud.check_cache_for_dir(tmp, "meep")
+            if cached_job_id is not None:
+                self._job_id = cached_job_id
+                if verbose != "quiet":
+                    print(f"Cache hit: reusing job {cached_job_id}")  # noqa: T201
+                if not wait:
+                    return self._job_id
+                return self.wait_for_results(verbose=verbose, parent_dir=parent_dir)
+            self._job_id = gcloud.upload(
+                tmp, "meep", verbose=False, input_hash=self._input_hash
+            )
+        else:
+            self.upload(verbose=False)
         self.start(verbose=verbose != "quiet")
         if not wait:
             return self._job_id
@@ -1765,6 +2039,31 @@ class Simulation(BaseModel):
     # Visualization
     # -------------------------------------------------------------------------
 
+    def _add_index_plot_context(
+        self,
+        result: BuildResult,
+        kwargs: dict[str, Any],
+    ) -> None:
+        """Add center-wavelength material and simulation context to a plot."""
+        from gsim.meep.materials import resolve_materials
+
+        used_materials = {entry.material for entry in result.config.layer_stack} | {
+            dielectric["material"] for dielectric in result.config.dielectrics
+        }
+        kwargs["material_data"] = resolve_materials(
+            used_materials,
+            overrides=self._material_overrides(),
+            wavelength_um=result.config.wavelength.wavelength,
+            overlay=self._pdk_overlay,
+        )
+        kwargs["wavelength"] = result.config.wavelength.wavelength
+        kwargs["is_3d"] = result.config.is_3d
+        kwargs["plane"] = result.config.plane
+        kwargs["background_material"] = result.config.background_material
+        kwargs["layer_order"] = [
+            entry.layer_name for entry in result.config.layer_stack
+        ]
+
     def plot_2d(self, **kwargs: Any) -> Any:
         """Plot 2D cross-sections of the geometry.
 
@@ -1773,6 +2072,11 @@ class Simulation(BaseModel):
 
         In XZ 2D mode (``solver.mode='2d'`` with ``y_cut`` set), ``slices``
         defaults to ``"y"`` and ``y`` defaults to the resolved ``y_cut``.
+
+        The default ``kind="index"`` colors resolved material geometry by
+        refractive index at the simulation center wavelength and shows PML,
+        source, and monitor annotations. Pass ``kind="layers"`` for the
+        categorical legacy view.
 
         Accepts the same keyword arguments as :func:`gsim.meep.viz.plot_2d`.
         """
@@ -1785,12 +2089,16 @@ class Simulation(BaseModel):
             if kwargs.get("slices") == "y":
                 kwargs.setdefault("y", result.config.y_cut)
 
+        if kwargs.get("kind", "index") == "index":
+            self._add_index_plot_context(result, kwargs)
+
         return plot_2d(
             component=result.component,
-            stack=self.geometry.stack,
+            stack=result.stack,
             domain_config=result.config.domain,
             source_port=result.config.source.port,
             extend_ports_length=0,
+            gdsfactory_stack=result.gdsfactory_stack,
             port_data=result.config.ports,
             component_bbox=result.config.component_bbox,
             fiber_source=result.config.fiber_source,
@@ -1811,6 +2119,10 @@ class Simulation(BaseModel):
         In XZ 2D mode (``solver.mode='2d'`` with ``y_cut`` set), ``slices``
         defaults to ``"y"`` and ``y`` defaults to the resolved ``y_cut``.
 
+        The default ``kind="index"`` uses the same refractive-index map and
+        simulation annotations as :meth:`plot_2d`. Pass ``kind="layers"`` for
+        the categorical legacy view.
+
         Accepts the same keyword arguments as
         :func:`gsim.meep.viz.plot_2d_interactive`.
 
@@ -1826,12 +2138,16 @@ class Simulation(BaseModel):
             if kwargs.get("slices") == "y":
                 kwargs.setdefault("y", result.config.y_cut)
 
+        if kwargs.get("kind", "index") == "index":
+            self._add_index_plot_context(result, kwargs)
+
         return plot_2d_interactive(
             component=result.component,
-            stack=self.geometry.stack,
+            stack=result.stack,
             domain_config=result.config.domain,
             source_port=result.config.source.port,
             extend_ports_length=0,
+            gdsfactory_stack=result.gdsfactory_stack,
             port_data=result.config.ports,
             component_bbox=result.config.component_bbox,
             fiber_source=result.config.fiber_source,
@@ -1853,8 +2169,9 @@ class Simulation(BaseModel):
 
         return plot_3d(
             component=result.component,
-            stack=self.geometry.stack,
+            stack=result.stack,
             domain_config=result.config.domain,
             extend_ports_length=0,
+            gdsfactory_stack=result.gdsfactory_stack,
             **kwargs,
         )

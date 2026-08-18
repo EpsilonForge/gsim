@@ -963,6 +963,89 @@ class TestSimulationSolveModes:
         assert sim.mode_solver.num_bands == 3
 
 
+class TestSimulationSolveModesCache:
+    """Cache behavior for cloud mode solves."""
+
+    @staticmethod
+    def _simulation_with_stub_config(monkeypatch):
+        from gsim.meep import Simulation
+
+        def write_config(_simulation, output_dir):
+            (output_dir / "config.json").write_text("{}")
+
+        monkeypatch.setattr(Simulation, "write_mode_solver_config", write_config)
+        return Simulation()
+
+    def test_cache_hit_reuses_completed_job(self, monkeypatch):
+        """A cache hit skips upload and start."""
+        from gsim import gcloud
+
+        simulation = self._simulation_with_stub_config(monkeypatch)
+        expected_result = object()
+
+        monkeypatch.setattr(
+            gcloud,
+            "check_cache_for_dir",
+            lambda *_args: ("sha256:cached", "cached-job"),
+        )
+        monkeypatch.setattr(
+            gcloud,
+            "upload",
+            lambda *_args, **_kwargs: pytest.fail("cache hit uploaded a new job"),
+        )
+        monkeypatch.setattr(
+            gcloud,
+            "start",
+            lambda *_args, **_kwargs: pytest.fail("cache hit started a new job"),
+        )
+        monkeypatch.setattr(
+            gcloud,
+            "wait_for_results",
+            lambda job_id, **_kwargs: expected_result
+            if job_id == "cached-job"
+            else pytest.fail("unexpected job id"),
+        )
+
+        result = simulation.solve_modes(check_cache=True, verbose="quiet")
+
+        assert result is expected_result
+
+    def test_cache_miss_uploads_with_input_hash(self, monkeypatch):
+        """A cache miss submits a hash-tagged job for future reuse."""
+        from gsim import gcloud
+
+        simulation = self._simulation_with_stub_config(monkeypatch)
+        expected_result = object()
+        upload_arguments = {}
+
+        monkeypatch.setattr(
+            gcloud,
+            "check_cache_for_dir",
+            lambda *_args: ("sha256:new", None),
+        )
+
+        def upload(_input_dir, job_type, **kwargs):
+            upload_arguments.update(job_type=job_type, **kwargs)
+            return "new-job"
+
+        monkeypatch.setattr(gcloud, "upload", upload)
+        monkeypatch.setattr(gcloud, "start", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            gcloud,
+            "wait_for_results",
+            lambda *_args, **_kwargs: expected_result,
+        )
+
+        result = simulation.solve_modes(check_cache=True, verbose="quiet")
+
+        assert result is expected_result
+        assert upload_arguments == {
+            "job_type": "meep",
+            "verbose": False,
+            "input_hash": "sha256:new",
+        }
+
+
 class TestSimulationSolveModesIntegration:
     """Simulation.solve_modes_local() integration tests (meep_local)."""
 

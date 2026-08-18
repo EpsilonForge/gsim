@@ -21,7 +21,7 @@ class FakeJob:
     id: str = "job-abc123"
     job_name: str = "palace-abc123"
     job_def_name: str = "prod-palace-simulation"
-    status: SimStatus = SimStatus.COMPLETED
+    status: str | SimStatus = SimStatus.COMPLETED
     exit_code: int | None = 0
     download_urls: dict | None = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -121,6 +121,36 @@ class TestResultParserRegistry:
 
 
 # ---------------------------------------------------------------------------
+# SDK layout compatibility
+# ---------------------------------------------------------------------------
+
+
+class TestSdkLayoutCompatibility:
+    """Tests for SDK helpers that moved between 1.x and 2.x."""
+
+    @patch("gsim.gcloud.sim")
+    def test_get_job_logs_from_sdk_1_module(self, mock_sim):
+        """SDK 1.x exposes the log fetcher directly on sim."""
+        from gsim.gcloud import _get_job_logs_callable
+
+        fetch_logs = MagicMock()
+        mock_sim._get_job_logs = fetch_logs
+
+        assert _get_job_logs_callable() is fetch_logs
+
+    @patch("gsim.gcloud.sim")
+    def test_get_job_logs_from_sdk_2_web_module(self, mock_sim):
+        """SDK 2.x exposes the log fetcher from the nested web module."""
+        from gsim.gcloud import _get_job_logs_callable
+
+        fetch_logs = MagicMock()
+        mock_sim._get_job_logs = None
+        mock_sim.web._get_job_logs = fetch_logs
+
+        assert _get_job_logs_callable() is fetch_logs
+
+
+# ---------------------------------------------------------------------------
 # upload()
 # ---------------------------------------------------------------------------
 
@@ -193,6 +223,15 @@ class TestGetStatus:
         assert status == "running"
         mock_sim.get_job.assert_called_once_with("job-abc")
 
+    @patch("gsim.gcloud.sim")
+    def test_returns_sdk_2_string_status(self, mock_sim):
+        """SDK 2.x string statuses are returned without enum conversion."""
+        from gsim.gcloud import get_status
+
+        mock_sim.get_job.return_value = FakeJob(status="running")
+
+        assert get_status("job-abc") == "running"
+
 
 # ---------------------------------------------------------------------------
 # wait_for_results() — single job
@@ -228,6 +267,47 @@ class TestWaitForResultsSingle:
             assert "result.csv" in result["files"]
         finally:
             del _RESULT_PARSERS["palace"]
+
+    @patch("gsim.gcloud.sim")
+    def test_already_completed_with_sdk_2_string_status(self, mock_sim, tmp_path):
+        """SDK 2.x string terminal statuses are recognized."""
+        from gsim.gcloud import wait_for_results
+
+        mock_sim.SimStatus = SimStatus
+        mock_sim.get_job.return_value = FakeJob(
+            job_def_name="unknown", status="completed"
+        )
+        output_file = tmp_path / "result.csv"
+        output_file.write_text("data")
+        mock_sim.download_results.return_value = {"output": output_file}
+
+        result = wait_for_results("job-1", verbose="quiet", parent_dir=tmp_path)
+
+        assert "result.csv" in result.files
+
+    @patch("gsim.gcloud.sim")
+    def test_failed_before_start_reports_backend_reason(self, mock_sim, tmp_path):
+        """Pre-start failures raise their backend reason without downloading."""
+        from gsim.gcloud import wait_for_results
+
+        mock_sim.SimStatus = SimStatus
+        mock_sim.get_job.return_value = FakeJob(
+            status="failed",
+            exit_code=None,
+            download_urls={"results": "https://example.com/missing-results.tar.gz"},
+            status_reason="CannotPullContainerError",
+            detail_reason="no space left on device",
+        )
+
+        with pytest.raises(RuntimeError) as exc_info:
+            wait_for_results("job-1", verbose="quiet", parent_dir=tmp_path)
+
+        message = str(exc_info.value)
+        assert "Simulation failed before producing an exit code" in message
+        assert "Status: failed" in message
+        assert "Reason: CannotPullContainerError" in message
+        assert "Details: no space left on device" in message
+        mock_sim.download_results.assert_not_called()
 
     @patch("gsim.gcloud.sim")
     def test_list_input(self, mock_sim, tmp_path):
@@ -373,6 +453,44 @@ class TestRunSimulationBackwardCompat:
         assert result.job_name == "palace-bc"
         assert "result.csv" in result.files
 
+    @patch("gsim.gcloud.sim")
+    def test_pre_start_failure_reports_backend_reason(self, mock_sim, tmp_path):
+        """Legacy API reports infrastructure failures without downloading."""
+        from gsim.gcloud import run_simulation
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "config.json").write_text("{}")
+
+        pre_job = PreJob(job_id="job-bc", job_name="palace-bc")
+        mock_sim.upload_simulation.return_value = pre_job
+        mock_sim.JobDefinition.PALACE = "palace"
+
+        started_job = FakeJob(
+            id="job-bc", job_name="palace-bc", status=SimStatus.RUNNING
+        )
+        mock_sim.start_simulation.return_value = started_job
+        mock_sim.wait_for_simulation.return_value = FakeJob(
+            id="job-bc",
+            job_name="palace-bc",
+            status="failed",
+            exit_code=None,
+            download_urls={"results": "https://example.com/missing-results.tar.gz"},
+            status_reason="CannotPullContainerError",
+            detail_reason="no space left on device",
+        )
+
+        with pytest.raises(RuntimeError, match="CannotPullContainerError") as exc_info:
+            run_simulation(
+                config_dir=config_dir,
+                job_type="palace",
+                verbose=False,
+                parent_dir=tmp_path,
+            )
+
+        assert "Details: no space left on device" in str(exc_info.value)
+        mock_sim.download_results.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Module-level exports
@@ -395,3 +513,51 @@ class TestModuleLevelExports:
 
         assert hasattr(gsim, "wait_for_results")
         assert callable(gsim.wait_for_results)
+
+
+# ---------------------------------------------------------------------------
+# _handle_failed_job
+# ---------------------------------------------------------------------------
+
+
+class TestHandleFailedJob:
+    """Tests for the error raised when a cloud job fails."""
+
+    def _fail(self, tmp_path, **kwargs):
+        """Run _handle_failed_job on a failed job and return the message."""
+        from gsim.gcloud import _handle_failed_job
+
+        job = FakeJob(status=SimStatus.FAILED, **kwargs)
+        with pytest.raises(RuntimeError) as exc:
+            _handle_failed_job(job, tmp_path, verbose=False)
+        return str(exc.value)
+
+    def test_reports_missing_artifacts(self, tmp_path):
+        """An empty download set is stated, not left as an unexplained blank."""
+        message = self._fail(tmp_path, exit_code=1, download_urls={})
+        assert "exit code 1" in message
+        assert "No output artifacts" in message
+
+    def test_explains_signal_exit_code(self, tmp_path):
+        """128+N exit codes get a signal explanation instead of a bare number."""
+        message = self._fail(tmp_path, exit_code=134, download_urls={})
+        assert "SIGABRT" in message
+
+    def test_explains_oom_kill(self, tmp_path):
+        """SIGKILL is called out as a memory limit."""
+        assert "memory limit" in self._fail(tmp_path, exit_code=137, download_urls={})
+
+    def test_no_note_for_plain_failure(self, tmp_path):
+        """An ordinary non-signal exit code gets no signal note."""
+        assert "SIGABRT" not in self._fail(tmp_path, exit_code=1, download_urls={})
+
+    def test_surfaces_unconventionally_named_log(self, tmp_path):
+        """Any *.log among the artifacts is shown when the known names are absent."""
+        log = tmp_path / "solver-run.log"
+        log.write_text("line one\nfatal: mesh is degenerate\n", encoding="utf-8")
+
+        with patch("gsim.gcloud.sim.download_results", return_value={"log": log}):
+            message = self._fail(tmp_path, exit_code=1, download_urls={"a": "url"})
+
+        assert "solver-run.log" in message
+        assert "fatal: mesh is degenerate" in message

@@ -114,6 +114,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         *,
         verbose: Literal["quiet", "status", "full"] = "status",
         wait: bool = True,
+        check_cache: bool = False,
     ) -> SParams | str:
         """Run the driven sim on GDSFactory+ cloud.
 
@@ -128,7 +129,9 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         """
         from gsim.palace.results import SParams as _SParams
 
-        result = super().run(parent_dir, verbose=verbose, wait=wait)
+        result = super().run(
+            parent_dir, verbose=verbose, wait=wait, check_cache=check_cache
+        )
         if isinstance(result, (_SParams, str)):
             return result
         msg = (

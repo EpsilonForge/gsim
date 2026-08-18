@@ -1,7 +1,7 @@
 [project]
 name = "gsim"
-version = "0.1.0"
-description = ""
+version = "0.3.0"
+description = "Electromagnetic simulation for photonics and electronics, powered by GDSFactory."
 readme = "README.md"
 requires-python = "~=3.12.0"
 license = { text = "Apache-2.0" }
@@ -13,11 +13,12 @@ classifiers = [
 ]
 dependencies = [
   "gdsfactory>=9,<10",
-  "gdsfactoryplus>=1.6.4,<2",
+  "gdsfactoryplus>=1.8.20,<3",
   "gmsh",
   "meshio>=5.0.0",
   "nbformat>=4.2.0",
   "nest_asyncio2",
+  "pdk-schema==0.0.2",
   "plotly",
   "pyvista>=0.43.0",
   "trame",
@@ -26,13 +27,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Prebuilt Palace CPU binary distribution (palacetoolkit-palace-cpu).
-# This is a pure binary wheel — no mfem build required — distributed via
-# GitHub Releases. Currently only Linux x86_64 wheels are available, so
-# the extra is platform-marked accordingly.
-palace-toolkit-cpu = [
-  "palacetoolkit-palace-cpu @ https://github.com/EpsilonForge/PalaceToolkit/releases/download/palace-cpu-v0.17.0/palacetoolkit_palace_cpu-0.17.0-py3-none-linux_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64'",
-]
 # Interactive 3-D visualization (PyVista + trame server rendering) with the
 # extra packages needed for reliable headless and notebook use.
 visualize = [
@@ -69,13 +63,17 @@ docs = [
   "zensical>=0.0.46"
 ]
 lint = [
-  "jupytext>=1.16.0",
   "mkinit>=1.1.0",
   "mypy>=1.15.0",
   "pre-commit>=4.1.0",
   "pyright>=1.1.0",
   "ruff>=0.9.0",
   "ty>=0.0.25"
+]
+palace-inductor = [
+  "circulax==0.2.3",
+  "ihp-gdsfactory==0.2.8",
+  "klujax==0.5.0",
 ]
 test = [
   "ihp-gdsfactory>=0.2.8",
@@ -89,18 +87,6 @@ test = [
 [build-system]
 requires = ["build", "setuptools>=61", "uv", "wheel"]
 build-backend = "setuptools.build_meta"
-
-[[tool.bver.file]]
-src = "README.md"
-
-[[tool.bver.file]]
-src = "pyproject.toml"
-
-[[tool.bver.file]]
-src = "src/gsim/__init__.py"
-
-[tool.bver.git]
-commit-template = "Release {new-version}"
 
 [tool.codespell]
 ignore-words-list = "doubleclick,euclidian,te"
@@ -116,9 +102,6 @@ ignore-overloaded-functions = true
 ignore-regex = ["^test_.*"]
 omit-covered-files = true
 verbose = 2
-
-[tool.jupytext]
-formats = "nbs///ipynb,nbs///py:percent"
 
 [tool.mypy]
 mypy_path = ["src"]
@@ -274,26 +257,6 @@ select = ["ALL"]
   "S101",  # assert
   "SLF001",  # private-member-access
   "T201",  # print
-]
-"nbs/*.py" = [
-  "ANN",  # flake8-annotations
-  "ARG001",  # unused-function-argument
-  "B018",  # useless-expression (cell display)
-  "B905",  # zip-without-explicit-strict
-  "D",  # pydocstyle
-  "E402",  # module-import-not-at-top-of-file
-  "E501",  # line-too-long
-  "EXE001",  # shebang-present-but-not-executable
-  "F821",  # undefined-name
-  "FBT003",  # boolean-positional-value-in-call
-  "INP001",  # implicit-namespace-package
-  "N816",  # mixed-case-variable-in-global-scope
-  "NPY",  # numpy (allow legacy RNG calls in notebooks)
-  "PLC2401",  # non-ascii-name
-  "RUF003",  # ambiguous-unicode-character-comment
-  "S101",  # assert
-  "SLF001",  # private-member-access
-  "T201",  # print (natural in scripts)
 ]
 "scripts/*.py" = [
   "ANN",  # flake8-annotations

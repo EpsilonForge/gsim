@@ -11,13 +11,14 @@ When a ``SimOverlay`` is provided, the plot also draws:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Polygon, Rectangle
 
 from gsim.common.geometry_model import GeometryModel
+from gsim.common.viz._matplotlib import add_bottom_legend
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -33,6 +34,7 @@ def plot_prism_slices(
     legend: bool = True,
     slices: str = "z",
     *,
+    aspect: Literal["equal", "auto"] = "equal",
     overlay: Any | None = None,
 ) -> plt.Axes | None:
     """Plot cross sections of a GeometryModel with multi-view support.
@@ -42,18 +44,24 @@ def plot_prism_slices(
         x: X-coordinate (or layer name) for the slice plane.
         y: Y-coordinate (or layer name) for the slice plane.
         z: Z-coordinate (or layer name) for the slice plane.
-        ax: Axes to draw on.  If ``None``, a new figure is created.
+        ax: Axes to draw on. If ``None``, one figure is created for each
+            requested slice.
         legend: Whether to show the legend.
         slices: Which slice(s) to plot -- "x", "y", "z", or combinations
             like "xy", "xz", "yz", "xyz".
+        aspect: Axis aspect ratio. Use ``"equal"`` to preserve physical
+            proportions or ``"auto"`` to fill the available plotting area.
         overlay: Optional SimOverlay with sim cell / PML / port metadata.
 
     Returns:
         ``plt.Axes`` when *ax* was provided, otherwise ``None``
         (the figure is shown directly).
     """
+    if aspect not in {"equal", "auto"}:
+        raise ValueError(f"aspect must be 'equal' or 'auto'. Got: {aspect!r}")
+
     slices_to_plot = sorted(set(slices.lower()))
-    if not all(s in "xyz" for s in slices_to_plot):
+    if not slices_to_plot or not all(s in "xyz" for s in slices_to_plot):
         raise ValueError(f"slices must only contain 'x', 'y', 'z'. Got: {slices}")
 
     if ax is not None:
@@ -69,6 +77,7 @@ def plot_prism_slices(
                 z=None,
                 ax=ax,
                 legend=legend,
+                aspect=aspect,
                 overlay=overlay,
             )
         if slice_axis == "y":
@@ -80,6 +89,7 @@ def plot_prism_slices(
                 z=None,
                 ax=ax,
                 legend=legend,
+                aspect=aspect,
                 overlay=overlay,
             )
         if slice_axis == "z":
@@ -90,16 +100,18 @@ def plot_prism_slices(
                 z=z,
                 ax=ax,
                 legend=legend,
+                aspect=aspect,
                 overlay=overlay,
             )
 
-    _plot_multi_view(
+    _plot_separate_views(
         geometry_model,
         slices_to_plot,
         x,
         y,
         z,
         show_legend=legend,
+        aspect=aspect,
         overlay=overlay,
     )
     return None
@@ -110,23 +122,19 @@ def plot_prism_slices(
 # ---------------------------------------------------------------------------
 
 
-def _plot_multi_view(
+def _plot_separate_views(
     geometry_model: GeometryModel,
     slices_to_plot: list[str],
     x: float | str | None,
     y: float | str | None,
     z: float | str | None,
     show_legend: bool = True,
+    aspect: Literal["equal", "auto"] = "equal",
     overlay: Any | None = None,
 ) -> None:
-    """Create multi-view plot with a shared legend panel."""
-    num_plots = len(slices_to_plot)
-    fig = plt.figure(constrained_layout=True)
-    gs = fig.add_gridspec(ncols=2, nrows=num_plots, width_ratios=(3, 1))
-
-    axes: list[plt.Axes] = [fig.add_subplot(gs[i, 0]) for i in range(num_plots)]
-
-    for ax_i, slice_axis in zip(axes, slices_to_plot, strict=True):
+    """Create one figure per requested slice."""
+    for slice_axis in slices_to_plot:
+        figure, plot_axis = plt.subplots(constrained_layout=True)
         if slice_axis == "x":
             x_val = x if x is not None else "core"
             _plot_single_prism_slice(
@@ -134,8 +142,9 @@ def _plot_multi_view(
                 x=x_val,
                 y=None,
                 z=None,
-                ax=ax_i,
+                ax=plot_axis,
                 legend=False,
+                aspect=aspect,
                 overlay=overlay,
             )
         elif slice_axis == "y":
@@ -145,8 +154,9 @@ def _plot_multi_view(
                 x=None,
                 y=y_val,
                 z=None,
-                ax=ax_i,
+                ax=plot_axis,
                 legend=False,
+                aspect=aspect,
                 overlay=overlay,
             )
         elif slice_axis == "z":
@@ -155,29 +165,13 @@ def _plot_multi_view(
                 x=None,
                 y=None,
                 z=z,
-                ax=ax_i,
+                ax=plot_axis,
                 legend=False,
+                aspect=aspect,
                 overlay=overlay,
             )
-
-    if show_legend:
-        all_handles: list = []
-        all_labels: list[str] = []
-        seen: set[str] = set()
-
-        for ax in axes:
-            handles, labels = ax.get_legend_handles_labels()
-            for handle, label in zip(handles, labels, strict=True):
-                if label not in seen:
-                    all_handles.append(handle)
-                    all_labels.append(label)
-                    seen.add(label)
-
-        legend_row = num_plots // 2
-        axl = fig.add_subplot(gs[legend_row, 1])
-        if all_handles:
-            axl.legend(all_handles, all_labels, loc="center")
-        axl.axis("off")
+        if show_legend:
+            add_bottom_legend(figure, plot_axis)
 
     plt.show()
 
@@ -194,6 +188,7 @@ def _plot_single_prism_slice(
     z: float | str | None = None,
     ax: plt.Axes | None = None,
     legend: bool = True,
+    aspect: Literal["equal", "auto"] = "equal",
     overlay: Any | None = None,
 ) -> plt.Axes:
     """Plot a single cross-section using generic Prisms."""
@@ -455,7 +450,7 @@ def _plot_single_prism_slice(
     ax.set_ylabel(ylabel)
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
-    ax.set_aspect("equal")
+    ax.set_aspect(aspect)
 
     if legend:
         ax.legend(fancybox=True, framealpha=1.0)

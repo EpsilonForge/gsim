@@ -18,7 +18,6 @@ nav = [
   ] },
   { "FEM for RF" = [
     { "CPW (Lumped Ports)" = "nbs/palace_cpw_lumped.md" },
-    { "CPW (Wave Ports)" = "nbs/palace_cpw_waveport.md" },
     { "Microstrip" = "nbs/palace_microstrip.md" },
     { "Branch Line Coupler" = "nbs/palace_branch_line_coupler.md" },
     { "Parallel Simulations: Width Sweep" = "nbs/palace_width_sweep.md" },
@@ -29,6 +28,7 @@ nav = [
   ] },
   { "Changelog" = "CHANGELOG.md" },
   { "API Reference" = [
+    { "GDSFactory FDTD" = "api/fdtd.md" },
     { "Palace" = "api/palace.md" },
     { "Meep" = "api/meep.md" },
     { "Common" = "api/common.md" },

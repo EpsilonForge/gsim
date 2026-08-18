@@ -76,8 +76,6 @@ def get_stack(
               When False, omits substrate for RF simulation.
             - add_oxide_dielectric: Add synthetic oxide dielectric background
               region (default: True).
-            - add_passivation_dielectric: Add synthetic passivation dielectric
-              cap (default: True).
 
     Returns:
         LayerStack object

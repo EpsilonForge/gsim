@@ -1,4 +1,4 @@
-# gsim 0.1.0
+# gsim 0.3.0
 
 > Electromagnetic simulation for photonics and electronics, powered by [GDSFactory+](https://gdsfactory.com)
 
@@ -14,6 +14,7 @@ with minimal boilerplate.
 
 | Module        | Solver                                      | Method | Use Case                                               |
 | ------------- | ------------------------------------------- | ------ | ------------------------------------------------------ |
+| `gsim.fdtd`   | GDSFactory FDTD                             | FDTD   | PDK-native mesh and runtime configuration generation   |
 | `gsim.palace` | [Palace](https://awslabs.github.io/palace/) | FEM    | RF/microwave, impedance extraction, driven simulations |
 | `gsim.meep`   | [Meep](https://meep.readthedocs.io/)        | FDTD   | Photonic components, S-parameters, mode propagation    |
 
@@ -29,6 +30,12 @@ with minimal boilerplate.
 
 ```bash
 pip install gsim
+```
+
+For local Palace execution on Linux x86_64, install the optional prebuilt binary separately:
+
+```bash
+pip install "palacetoolkit-palace-cpu @ https://github.com/EpsilonForge/PalaceToolkit/releases/download/palace-cpu-v0.1.2/palacetoolkit_palace_cpu-0.1.0-py3-none-linux_x86_64.whl"
 ```
 
 For development (requires [uv](https://docs.astral.sh/uv/)):

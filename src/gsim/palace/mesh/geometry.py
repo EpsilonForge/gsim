@@ -271,7 +271,7 @@ def extract_geometry(
     # Build layer_index -> GDS tuple mapping
     layout = component.kcl.layout
     index_to_gds = {}
-    for layer_index in range(layout.layers()):
+    for layer_index in layout.layer_indexes():
         if layout.is_valid_layer(layer_index):
             info = layout.get_info(layer_index)
             index_to_gds[layer_index] = (info.layer, info.datatype)
@@ -1184,7 +1184,7 @@ def extract_pec_polygons(component, gds_layer: tuple[int, int]) -> list:
 
     layout = component.kcl.layout
     index_to_gds = {}
-    for layer_index in range(layout.layers()):
+    for layer_index in layout.layer_indexes():
         if layout.is_valid_layer(layer_index):
             info = layout.get_info(layer_index)
             index_to_gds[layer_index] = (info.layer, info.datatype)

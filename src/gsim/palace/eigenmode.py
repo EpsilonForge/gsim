@@ -103,6 +103,7 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
         *,
         verbose: Literal["quiet", "status", "full"] = "status",
         wait: bool = True,
+        check_cache: bool = False,
     ) -> dict[str, Path] | str:
         """Run the eigenmode sim on GDSFactory+ cloud.
 
@@ -113,7 +114,9 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
         """
         from gsim.palace.results import SParams
 
-        result = super().run(parent_dir, verbose=verbose, wait=wait)
+        result = super().run(
+            parent_dir, verbose=verbose, wait=wait, check_cache=check_cache
+        )
         if isinstance(result, SParams):
             msg = (
                 "EigenmodeSim.run got SParams from the cloud, but an "

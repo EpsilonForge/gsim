@@ -17,12 +17,12 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class PortOverlay:
-    """Port location metadata for 2D overlay rendering.
+    """Waveguide-plane metadata for 2D overlay rendering.
 
     Attributes:
         name: Port name (e.g. "o1").
-        center: (x, y, z) center of the port monitor.
-        width: Transverse width of the port monitor in um.
+        center: (x, y, z) center of the source or monitor plane.
+        width: Transverse width of the plane in um.
         normal_axis: 0 for x-normal, 1 for y-normal.
         direction: "+" or "-" along the normal axis.
         is_source: Whether this port is the excitation source.
@@ -82,7 +82,9 @@ class SimOverlay:
         cell_min: (xmin, ymin, zmin) of the full simulation cell.
         cell_max: (xmax, ymax, zmax) of the full simulation cell.
         dpml: PML absorber thickness in um.
-        ports: List of port overlays for rendering.
+        ports: Legacy port-center overlays for the layer view.
+        sources: Source planes at the positions used by the runner.
+        monitors: Monitor planes at the positions used by the runner.
         dielectrics: List of background dielectric slabs for rendering.
         fiber: Optional Gaussian-beam fiber source overlay (XZ 2D only).
     """
@@ -91,8 +93,33 @@ class SimOverlay:
     cell_max: tuple[float, float, float]
     dpml: float
     ports: list[PortOverlay] = field(default_factory=list)
+    sources: list[PortOverlay] = field(default_factory=list)
+    monitors: list[PortOverlay] = field(default_factory=list)
     dielectrics: list[DielectricOverlay] = field(default_factory=list)
     fiber: FiberOverlay | None = None
+
+
+def _shifted_port_overlay(
+    port: PortData,
+    *,
+    offset: float,
+    width: float,
+    z_span: float,
+    is_source: bool,
+) -> PortOverlay:
+    """Create a source/monitor overlay shifted into the device."""
+    center = [float(value) for value in port.center]
+    direction_sign = 1.0 if port.direction == "+" else -1.0
+    center[port.normal_axis] += direction_sign * offset
+    return PortOverlay(
+        name=port.name,
+        center=(center[0], center[1], center[2]),
+        width=width,
+        normal_axis=port.normal_axis,
+        direction=port.direction,
+        is_source=is_source,
+        z_span=z_span,
+    )
 
 
 def build_sim_overlay(
@@ -136,18 +163,22 @@ def build_sim_overlay(
         xy_min_x, xy_min_y = gmin[0], gmin[1]
         xy_max_x, xy_max_y = gmax[0], gmax[1]
 
-    # XY: per-side margins are the gap between geometry bbox and PML
-    # Z: margin_z_low/high is already baked into the geometry bbox via set_z_crop(),
-    #    so only add dpml beyond the geometry z-extent
+    # XY: per-side margins are the gap between geometry bbox and PML.
+    # Z: new configs carry authoritative PML-inner bounds. Fall back to the
+    # cropped geometry extent for legacy configs.
+    if domain_config.z_bounds is not None:
+        z_inner_low, z_inner_high = domain_config.z_bounds
+    else:
+        z_inner_low, z_inner_high = gmin[2], gmax[2]
     cell_min = (
         xy_min_x - mx_lo - dpml,
         xy_min_y - my_lo - dpml,
-        gmin[2] - dpml,
+        z_inner_low - dpml,
     )
     cell_max = (
         xy_max_x + mx_hi + dpml,
         xy_max_y + my_hi + dpml,
-        gmax[2] + dpml,
+        z_inner_high + dpml,
     )
 
     if z_span is None:
@@ -166,6 +197,33 @@ def build_sim_overlay(
             z_span=z_span,
         )
         for p in port_data
+    ]
+
+    sources = [
+        _shifted_port_overlay(
+            port,
+            offset=domain_config.source_port_offset,
+            width=port.width + 2 * port_margin,
+            z_span=z_span,
+            is_source=True,
+        )
+        for port in port_data
+        if port.is_source
+    ]
+    monitors = [
+        _shifted_port_overlay(
+            port,
+            offset=(
+                domain_config.source_port_offset
+                + domain_config.distance_source_to_monitors
+                if port.is_source
+                else domain_config.source_port_offset
+            ),
+            width=port.width + 2 * port_margin,
+            z_span=z_span,
+            is_source=False,
+        )
+        for port in port_data
     ]
 
     diel_overlays: list[DielectricOverlay] = []
@@ -195,6 +253,8 @@ def build_sim_overlay(
         cell_max=cell_max,
         dpml=dpml,
         ports=ports,
+        sources=sources,
+        monitors=monitors,
         dielectrics=diel_overlays,
         fiber=fiber_overlay,
     )
