@@ -507,7 +507,8 @@ class SimConfig(BaseModel):
         description=(
             "True for full 3D FDTD, False for effective-index 2D. "
             "When False the runner collapses cell_z to 0, skips "
-            "background slabs, places geometry at z=0, and uses "
+            "vertical background slabs, places geometry at z=0, uses "
+            "background_material as the default XY medium, and uses "
             "transverse-electric parity (EVEN_Y+ODD_Z) for "
             "eigenmode sources."
         ),
@@ -552,6 +553,14 @@ class SimConfig(BaseModel):
         ),
     )
     materials: dict[str, MaterialData]
+    background_material: str = Field(
+        default="air",
+        description=(
+            "Default medium for top-down XY 2D simulations. Resolved from the "
+            "background dielectric containing the selected Z cut. Ignored by "
+            "3D and XZ simulations, which model dielectric slabs explicitly."
+        ),
+    )
     wavelength: WavelengthConfig = Field(serialization_alias="fdtd")
     source: SourceConfig
     stopping: StoppingConfig

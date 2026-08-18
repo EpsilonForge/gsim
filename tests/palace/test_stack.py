@@ -261,7 +261,7 @@ class TestExtractor:
         assert air["zmin"] == 3.0
         assert air["zmax"] == 13.0
 
-    def test_no_synthetic_passivation_when_pdk_has_none(self):
+    def test_no_passivation_when_pdk_has_none(self):
         gf_stack = cast(
             Any,
             SimpleNamespace(

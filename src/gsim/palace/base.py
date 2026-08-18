@@ -130,7 +130,6 @@ class PalaceSimMixin:
         substrate_thickness: float = 2.0,
         include_substrate: bool = False,
         add_oxide_dielectric: bool = True,
-        add_passivation_dielectric: bool = True,
         **kwargs,
     ) -> None:
         """Configure the layer stack.
@@ -157,7 +156,6 @@ class PalaceSimMixin:
             substrate_thickness: Thickness below z=0 in um.
             include_substrate: Include lossy silicon substrate.
             add_oxide_dielectric: Add synthetic oxide background dielectric.
-            add_passivation_dielectric: Add synthetic passivation dielectric.
             **kwargs: Additional args passed to extract_layer_stack.
 
         Example:
@@ -181,7 +179,6 @@ class PalaceSimMixin:
             "substrate_thickness": substrate_thickness,
             "include_substrate": include_substrate,
             "add_oxide_dielectric": add_oxide_dielectric,
-            "add_passivation_dielectric": add_passivation_dielectric,
             **kwargs,
         }
         # Stack will be resolved lazily during mesh() or simulate()

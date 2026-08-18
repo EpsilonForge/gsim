@@ -74,6 +74,7 @@ def plot_refractive_index_slices(
     layer_order: Sequence[str] | None = None,
     is_3d: bool = True,
     plane: Literal["xy", "xz"] = "xy",
+    background_material: str = "air",
     index_component: IndexComponent = "mean",
     cmap: str = "Blues",
     x: float | str | None = None,
@@ -114,6 +115,7 @@ def plot_refractive_index_slices(
             overlay=overlay,
             layer_order=ordered_layers,
             include_dielectrics=is_3d or plane == "xz",
+            background_material=background_material,
             aspect=aspect,
             legend=legend,
         )
@@ -139,6 +141,7 @@ def plot_refractive_index_slices(
             overlay=overlay,
             layer_order=ordered_layers,
             include_dielectrics=is_3d or plane == "xz",
+            background_material=background_material,
             aspect=aspect,
             legend=False,
         )
@@ -193,20 +196,25 @@ def _plot_single_index_slice(
     overlay: Any | None,
     layer_order: Sequence[str],
     include_dielectrics: bool,
+    background_material: str,
     aspect: Literal["equal", "auto"],
     legend: bool,
 ) -> None:
     """Render one refractive-index slice on an axes."""
     coordinate = resolve_slice_coordinate(geometry_model, slice_axis, x=x, y=y, z=z)
     view_min, view_max = view_bounds(geometry_model, overlay, slice_axis)
+    resolved_background = (
+        background_material if background_material in indices else "air"
+    )
+    background_index = indices.get(resolved_background, _AIR_INDEX)
     _add_material_rectangle(
         ax,
         view_min[0],
         view_min[1],
         view_max[0] - view_min[0],
         view_max[1] - view_min[1],
-        material="air",
-        refractive_index=_AIR_INDEX,
+        material=resolved_background,
+        refractive_index=background_index,
         norm=norm,
         cmap=cmap,
         zorder=-20,
