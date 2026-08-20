@@ -110,26 +110,30 @@ def _set_executable(path: Path) -> None:
 
 
 def install_palace_runtime(force: bool = False, timeout: float = 180.0) -> Path:
-    """Download and cache the prebuilt Palace CPU runtime.
+    """Return a Palace runtime, downloading and caching it if needed.
+
+    An already-cached runtime is returned on any platform; only the download
+    itself is restricted to Linux x86_64 (the only platform the prebuilt
+    Palace CPU wheel is provided for).
 
     Returns:
         Path to the cached ``palace`` launcher executable.
 
     Raises:
-        RuntimeError: If the platform is unsupported or the download/install
-            fails.
+        RuntimeError: If no runtime is cached, the platform is unsupported,
+            or the download/install fails.
     """
-    if not _is_linux_x86_64():
-        raise RuntimeError(
-            "Prebuilt runtime download is only supported on Linux x86_64"
-        )
-
     tag = _binary_tag()
     prefix = _cached_runtime_prefix(tag)
     bin_palace = prefix / "bin" / "palace"
     lib_dir = prefix / "lib"
     if not force and bin_palace.is_file() and lib_dir.is_dir():
         return bin_palace
+
+    if not _is_linux_x86_64():
+        raise RuntimeError(
+            "Prebuilt runtime download is only supported on Linux x86_64"
+        )
 
     prefix.mkdir(parents=True, exist_ok=True)
     downloads = _runtime_cache_dir() / "downloads"

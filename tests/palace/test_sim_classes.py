@@ -739,10 +739,13 @@ class TestInstallPalaceRuntime:
             assert result == bin_palace
 
     @pytest.mark.usefixtures("_mock_gcloud")
-    def test_raises_on_non_linux_x86_64(self) -> None:
+    def test_raises_on_non_linux_x86_64(self, tmp_path: Path) -> None:
         import gsim.palace.runtime as rt
 
         with pytest.MonkeyPatch().context() as mp:
+            # Use an empty cache dir so the fallthrough to the platform guard
+            # is deterministic regardless of what is cached on the host.
+            mp.setattr(rt, "_runtime_cache_dir", lambda: tmp_path)
             mp.setattr(rt, "_is_linux_x86_64", lambda: False)
             with pytest.raises(RuntimeError):
                 rt.install_palace_runtime()
