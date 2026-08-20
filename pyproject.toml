@@ -275,6 +275,8 @@ select = ["ALL"]
 ]
 "tests/**/*.py" = [
   "ANN",  # flake8-annotations
+  "ARG001",  # unused-function-argument
+  "ARG005",  # unused-lambda-argument (test stubs)
   "D",  # pydocstyle
   "INP001",  # implicit-namespace-package
   "PLC0415",  # allow imports inside tests
