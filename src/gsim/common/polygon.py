@@ -55,7 +55,8 @@ def fuse_polygons(
     Returns:
         Merged Shapely Polygon or MultiPolygon
     """
-    layer_region = layer.get_shapes(component)
+    source_layer = getattr(layer, "layer", layer)
+    layer_region = source_layer.get_shapes(component)
 
     shapely_polygons = []
     for klayout_polygon in layer_region.each_merged():
@@ -100,15 +101,13 @@ def cleanup_component(
     Returns:
         Dict mapping layer name to merged Shapely polygon
     """
-    layer_stack_dict = layer_stack.to_dict()
-
     return {
         layername: fuse_polygons(
             component,
-            layer["layer"],
+            layer,
             round_tol=round_tol,
             simplify_tol=simplify_tol,
         )
-        for layername, layer in layer_stack_dict.items()
-        if layer["layer"] is not None
+        for layername, layer in layer_stack.layers.items()
+        if layer.layer is not None
     }

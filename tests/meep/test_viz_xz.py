@@ -77,3 +77,50 @@ class TestPlot2DXZ:
         result = sim.plot_2d(ax=ax)
         assert result is ax
         plt.close(fig)
+
+    def test_auto_aspect(self):
+        sim = _xz_sim_for_viz()
+        fig, ax = plt.subplots()
+
+        sim.plot_2d(ax=ax, aspect="auto")
+
+        assert ax.get_aspect() == "auto"
+        plt.close(fig)
+
+    def test_invalid_aspect_raises(self):
+        import pytest
+
+        sim = _xz_sim_for_viz()
+        fig, ax = plt.subplots()
+
+        with pytest.raises(ValueError, match="aspect must be"):
+            sim.plot_2d(ax=ax, aspect="invalid")
+
+        plt.close(fig)
+
+    def test_cross_section_omits_undrawn_stack_layers(self):
+        """Absent GDS layers must not appear as full-width slabs."""
+        from gsim.common.stack import Layer
+        from gsim.meep.viz import build_cross_section_rectangles
+
+        sim = _xz_sim_for_viz()
+        assert sim.geometry.component is not None
+        assert sim.geometry.stack is not None
+        sim.geometry.stack.layers["undrawn_metal"] = Layer(
+            name="undrawn_metal",
+            gds_layer=(99, 0),
+            zmin=1.0,
+            zmax=3.0,
+            thickness=2.0,
+            material="aluminum",
+            layer_type="conductor",
+        )
+
+        rectangles = build_cross_section_rectangles(
+            sim.geometry.component,
+            sim.geometry.stack,
+            slice_axis="y",
+            slice_coord=0.0,
+        )
+
+        assert [rectangle["layer_name"] for rectangle in rectangles] == ["core"]

@@ -6,12 +6,15 @@ This module handles generating Palace config.json and collecting mesh statistics
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import gmsh
 
 from gsim.palace.ports.config import PortType
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from gsim.common.stack import LayerStack
@@ -24,6 +27,94 @@ if TYPE_CHECKING:
     )
     from gsim.palace.models.ports import TerminalConfig
     from gsim.palace.ports.config import PalacePort
+
+
+def _resolve_impedance_boundaries(
+    hints: dict[str, Any] | None,
+    groups: dict,
+) -> list[dict[str, object]]:
+    """Resolve impedance boundary configs from hints into Palace format entries.
+
+    For interface-based entries (layer_a + layer_b), looks up the interface
+    physical group and divides absolute values by the stored curve length.
+    For attribute-based entries, uses the values as-is.
+
+    Returns:
+        List of dicts suitable for the Palace ``Impedance`` boundary section.
+    """
+    from gsim.palace.models.ports import ImpedanceBoundaryConfig
+
+    raw = (hints or {}).get("_impedance_boundaries")
+    if not raw:
+        return []
+
+    entries: list[dict[str, object]] = []
+    for ib in raw:
+        if not isinstance(ib, ImpedanceBoundaryConfig):
+            continue
+
+        if ib.attributes is not None:
+            # Attribute-based: use values directly (already per-unit-length).
+            entry: dict[str, object] = {
+                "Attributes": sorted(ib.attributes),
+            }
+            if ib.resistance is not None:
+                entry["Rs"] = ib.resistance
+            if ib.inductance is not None:
+                entry["Ls"] = ib.inductance
+            if ib.capacitance is not None:
+                entry["Cs"] = ib.capacitance
+            entries.append(entry)
+            continue
+
+        # Interface-based: look up the interface physical group.
+        candidates = [
+            f"interface_{ib.layer_a}_{ib.layer_b}",
+            f"interface_{ib.layer_b}_{ib.layer_a}",
+        ]
+        group_info = None
+        for name in candidates:
+            info = groups.get("interface_surfaces", {}).get(name)
+            if info is not None:
+                group_info = info
+                break
+
+        if group_info is None:
+            logger.warning(
+                "Impedance boundary interface '%s' / '%s' not found in mesh. "
+                "Available interfaces: %s",
+                ib.layer_a,
+                ib.layer_b,
+                ", ".join(sorted(groups.get("interface_surfaces", {}).keys())),
+            )
+            continue
+
+        entry: dict[str, object] = {
+            "Attributes": [group_info["phys_group"]],
+        }
+
+        # Convert absolute values to per-unit-length using the stored length.
+        length_um = group_info.get("length_um", 0.0)
+        if length_um <= 0.0:
+            logger.warning(
+                "Interface '%s' / '%s' has zero or unknown length; "
+                "using absolute values directly.",
+                ib.layer_a,
+                ib.layer_b,
+            )
+            length_um = 1.0  # fallback: treat as 1 um
+
+        length_m = length_um * 1e-6
+        if ib.resistance is not None:
+            entry["Rs"] = ib.resistance / length_m
+        if ib.inductance is not None:
+            entry["Ls"] = ib.inductance / length_m
+        if ib.capacitance is not None:
+            entry["Cs"] = ib.capacitance / length_m
+
+        entries.append(entry)
+
+    return entries
 
 
 def generate_palace_config(
@@ -179,13 +270,23 @@ def generate_palace_config(
     }
 
     # Build domains section
-    # Evaluate dispersion models at the center frequency of the sweep band
+    # Evaluate dispersion models at the problem's target frequency. Driven
+    # simulations use the sweep center frequency; boundary mode (2D waveguide
+    # cross-section) uses its single operating frequency so optical modes are
+    # computed with the true frequency-resolved permittivity (e.g. Sellmeier
+    # silicon at 1550 nm) rather than the RF constant values.
     stack_materials = stack.materials
     if driven_config is not None:
         from gsim.palace.materials import resolve_palace_materials_at_frequency
 
         stack_materials = resolve_palace_materials_at_frequency(
             stack.materials, driven_config.center_frequency
+        )
+    elif boundary_mode_config is not None:
+        from gsim.palace.materials import resolve_palace_materials_at_frequency
+
+        stack_materials = resolve_palace_materials_at_frequency(
+            stack.materials, boundary_mode_config.freq
         )
 
     # Support material keys with different capitalization conventions
@@ -237,6 +338,15 @@ def generate_palace_config(
                 mat_entry["LossTan"] = lt
             else:
                 mat_entry["LossTan"] = 0.0
+
+            # Finite-conductivity shaped dielectrics (e.g. doped silicon)
+            # need a Conductivity entry so Palace treats them as lossy
+            # semiconductors rather than ideal dielectrics.
+            sigma = mat_props.get("conductivity", 0.0)
+            if (isinstance(sigma, (int, float)) and sigma > 0) or isinstance(
+                sigma, list
+            ):
+                mat_entry["Conductivity"] = sigma
 
             if "permeability" in mat_props:
                 mat_entry["Permeability"] = mat_props["permeability"]
@@ -293,7 +403,7 @@ def generate_palace_config(
     pec_attrs: list[int] = [
         info["phys_group"] for info in groups.get("pec_surfaces", {}).values()
     ]
-    boundaries: dict[str, object]
+    boundaries: dict[str, Any]
 
     is_electrostatic = simulation_type in ("electrostatic", "electrostatics")
 
@@ -368,7 +478,7 @@ def generate_palace_config(
                     ground_attrs.extend(via_pgs)
                     break
 
-        boundaries: dict[str, object] = {
+        boundaries: dict[str, Any] = {
             "Terminal": terminal_entries,
         }
         if ground_attrs:
@@ -499,7 +609,7 @@ def generate_palace_config(
             synthetic_idx += 1
         lumped_ports.extend(passive_reactive_ports)
 
-        boundaries: dict[str, object] = {
+        boundaries: dict[str, Any] = {
             "Conductivity": conductors,
             "LumpedPort": lumped_ports,
             "WavePort": wave_ports,
@@ -565,11 +675,17 @@ def generate_palace_config(
             ],
         }
 
+    # Process impedance boundaries from hints (interface-based or attribute-based)
+    impedance_entries = _resolve_impedance_boundaries(hints, groups)
+    if impedance_entries:
+        boundaries.setdefault("Impedance", []).extend(impedance_entries)
+
     config["Boundaries"] = boundaries
 
-    # Merge any extra hints into the config
+    # Merge any extra hints into the config (strip internal keys first)
     if hints:
-        config.update(hints)
+        clean_hints = {k: v for k, v in hints.items() if not k.startswith("_")}
+        config.update(clean_hints)
 
     # Write config file
     config_path = output_path / "config.json"

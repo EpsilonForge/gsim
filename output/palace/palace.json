@@ -1,0 +1,7 @@
+{
+  "GitTag": "v0.16.1-51-g4f2e2d97",
+  "Problem": {
+    "MPISize": 4,
+    "OpenMPThreads": 1
+  }
+}

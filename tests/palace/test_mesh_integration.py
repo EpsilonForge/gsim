@@ -11,6 +11,7 @@ from pathlib import Path
 
 import gdsfactory as gf
 import pytest
+from scipy.constants import c as C0  # noqa: N812
 
 from gsim.common import Layer, LayerStack
 from gsim.palace import BoundaryModeSim, DrivenSim
@@ -162,6 +163,63 @@ class TestBoundaryModeNative2D:
         assert any(p > 1.1 for p in perms), (
             "Expected at least one non-air dielectric material in BoundaryMode "
             "Domains/Materials"
+        )
+
+
+class TestBoundaryModeBackgroundMaterial:
+    """set_airbox(material=...) retunes the 2D background away from air."""
+
+    @staticmethod
+    def _build(tmp_path, material, freq):
+        component = _make_cpw_component()
+        sim = BoundaryModeSim()
+        sim.set_output_dir(str(tmp_path / "palace-sim-bg"))
+        sim.set_geometry(component)
+        sim.set_stack(substrate_thickness=2.0)
+        sim.set_airbox(
+            material=material,
+            margin_x=5.0,
+            margin_y=5.0,
+            z_above=5.0,
+            z_below=5.0,
+        )
+        sim.set_cross_section("x=0")
+        sim.set_boundary_mode(freq=freq, num_modes=1, save=0)
+        sim.mesh(preset="coarse", verbose=False)
+        return sim
+
+    def test_default_background_is_air(self, tmp_path):
+        """Without a custom material the background volume is named 'air'."""
+        sim = self._build(tmp_path, "air", 10e9)
+        assert "air" in sim._last_mesh_result.groups["volumes"]
+
+    def test_sio2_background_replaces_air(self, tmp_path):
+        """material='sio2' names the background 'sio2' and drops the air volume."""
+        sim = self._build(tmp_path, "sio2", 10e9)
+        volumes = sim._last_mesh_result.groups["volumes"]
+        assert "sio2" in volumes
+        assert "air" not in volumes
+
+    def test_sio2_background_resolves_optical_permittivity(self, tmp_path):
+        """The SiO2 background resolves to the Sellmeier value at 1550 nm."""
+        sim = self._build(tmp_path, "sio2", C0 / 1.55e-6)
+        sim.write_config()
+        config = json.loads((Path(sim._output_dir) / "config.json").read_text())
+
+        volumes = sim._last_mesh_result.groups["volumes"]
+        bg_pg = volumes["sio2"]["phys_group"]
+        materials = config["Domains"]["Materials"]
+        bg_entry = next(m for m in materials if bg_pg in m.get("Attributes", []))
+        assert bg_entry["Permittivity"] == pytest.approx(2.085, abs=0.01)
+
+        # No leftover eps=1.0 background remains.
+        eps_values = [
+            float(m.get("Permittivity", 1.0))
+            for m in materials
+            if isinstance(m.get("Permittivity"), int | float)
+        ]
+        assert not any(abs(e - 1.0) < 1e-9 for e in eps_values), (
+            "Expected no air (eps=1.0) material in the SiO2-clad config"
         )
 
 

@@ -7,7 +7,8 @@ Called directly by ``Simulation.plot_2d()`` / ``plot_3d()`` — no legacy
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import matplotlib.pyplot as plt
 
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 
     from gsim.common import LayerStack
     from gsim.common.geometry_model import GeometryModel
-    from gsim.meep.models.config import DomainConfig
+    from gsim.meep.models.config import DomainConfig, MaterialData
 
 
 # ---------------------------------------------------------------------------
@@ -29,12 +30,13 @@ def build_geometry_model(
     stack: LayerStack | None,
     domain_config: DomainConfig,
     extend_ports_length: float | None = None,
+    gdsfactory_stack: Any | None = None,
 ) -> GeometryModel:
     """Build a GeometryModel from a component + stack for visualization.
 
-    Uses the gdsfactory LayerStack from the active PDK (not the gsim
-    LayerStack), because ``LayeredComponentBase`` needs gdsfactory's
-    ``LayerStack`` for polygon extraction via ``DerivedLayer.get_shapes()``.
+    ``Simulation.build_config`` supplies a direct-layer GDSFactory stack that
+    is remapped to the materialized component. Standalone callers fall back to
+    the active PDK stack for backward compatibility.
 
     When ``domain_config.extend_ports`` is configured, the waveguide
     ports are extended into the PML region so the visualization matches
@@ -48,6 +50,7 @@ def build_geometry_model(
             when the component has already been extended by
             :meth:`Simulation.build_config`. ``None`` (default) computes
             the length from *domain_config* as before.
+        gdsfactory_stack: Optional direct-layer stack matching *component*.
 
     Returns:
         GeometryModel ready for visualization.
@@ -60,8 +63,11 @@ def build_geometry_model(
     from gsim.common.geometry_model import extract_geometry_model
     from gsim.common.layered_component import LayeredComponentBase
 
-    pdk = gf.get_active_pdk()
-    gf_layer_stack = pdk.layer_stack
+    if gdsfactory_stack is not None:
+        gf_layer_stack = gdsfactory_stack
+    else:
+        pdk = gf.get_active_pdk()
+        gf_layer_stack = pdk.layer_stack
     if gf_layer_stack is None:
         raise ValueError(
             "Active PDK has no layer_stack. Activate a PDK with a layer stack first."
@@ -254,9 +260,8 @@ def build_cross_section_rectangles(
     directly so cross-section geometry for custom material stacks
     (e.g. TFLN) is rendered correctly.
 
-    Layers that have no GDS polygons at all (``_layer_has_any_polygon``
-    returns ``False``) are skipped, since their boundaries are already
-    implicit from adjacent layers.
+    Layers that have no GDS polygons are skipped, since their boundaries are
+    already implicit from adjacent layers.
 
     Args:
         component: gdsfactory Component with GDS polygons.
@@ -274,23 +279,6 @@ def build_cross_section_rectangles(
 
     if not stack.layers:
         return []
-
-    def _has_any_polygon(layer: object) -> bool:
-        gds = getattr(layer, "gds_layer", None)
-        if gds is None:
-            return False
-        try:
-            polys = component.get_polygons_points(layers=(gds,), merge=True)
-        except Exception:
-            return False
-        else:
-            if not isinstance(polys, dict):
-                return False
-            for v in polys.values():
-                items = v if isinstance(v, list) else [v]
-                if len(items) > 0:
-                    return True
-            return False
 
     if slice_axis == "y":
         cut_line = LineString([(-1e6, slice_coord), (1e6, slice_coord)])
@@ -327,21 +315,9 @@ def build_cross_section_rectangles(
                 poly_items.extend(items)
 
         if not poly_items:
-            if _has_any_polygon(layer):
-                continue
-            rectangles.append(
-                {
-                    "h_min": -float("inf"),
-                    "h_max": float("inf"),
-                    "z_min": layer.zmin,
-                    "z_max": layer.zmax,
-                    "layer_name": layer.name,
-                    "material": layer.material,
-                    "sidewall_angle": float(
-                        getattr(layer, "sidewall_angle", 0.0) or 0.0
-                    ),
-                }
-            )
+            # The component does not draw this stack layer.  Do not turn it
+            # into an infinite slab: the runner likewise emits no geometry
+            # for a layer with no GDS polygons.
             continue
 
         for poly in poly_items:
@@ -423,6 +399,7 @@ def plot_3d(
     domain_config: DomainConfig,
     backend: str = "open3d",
     extend_ports_length: float | None = None,
+    gdsfactory_stack: Any | None = None,
     **kwargs: Any,
 ) -> Any:
     """Create interactive 3D visualization of MEEP geometry.
@@ -434,6 +411,7 @@ def plot_3d(
         backend: "open3d" (Jupyter/VS Code) or "pyvista" (desktop).
         extend_ports_length: Override port extension length (pass 0 if
             the component is already extended).
+        gdsfactory_stack: Optional direct-layer stack matching *component*.
         **kwargs: Extra args forwarded to the backend renderer.
 
     Returns:
@@ -442,7 +420,11 @@ def plot_3d(
     from gsim.common.viz import plot_prisms_3d, plot_prisms_3d_open3d
 
     gm = build_geometry_model(
-        component, stack, domain_config, extend_ports_length=extend_ports_length
+        component,
+        stack,
+        domain_config,
+        extend_ports_length=extend_ports_length,
+        gdsfactory_stack=gdsfactory_stack,
     )
     if backend == "pyvista":
         return plot_prisms_3d(gm, **kwargs)
@@ -465,6 +447,17 @@ def plot_2d_interactive(
     component_bbox: list[float] | tuple[float, ...] | None = None,
     fiber_source: Any = None,
     monitor_z_span: float | None = None,
+    aspect: Literal["equal", "auto"] = "equal",
+    gdsfactory_stack: Any | None = None,
+    kind: Literal["layers", "index"] = "index",
+    index_component: Literal["mean", "x", "y", "z"] = "mean",
+    cmap: str = "Blues",
+    material_data: Mapping[str, MaterialData] | None = None,
+    wavelength: float | None = None,
+    is_3d: bool = True,
+    plane: Literal["xy", "xz"] = "xy",
+    background_material: str = "air",
+    layer_order: Sequence[str] | None = None,
 ) -> Any:
     """Plot an interactive 2D cross-section using Plotly.
 
@@ -492,10 +485,26 @@ def plot_2d_interactive(
             (for correct cell boundary computation with extended ports).
         fiber_source: Pre-computed fiber source config (for overlay).
         monitor_z_span: Port monitor z-span override.
+        aspect: Axis aspect ratio. Use ``"equal"`` to preserve physical
+            proportions or ``"auto"`` to fill the available plotting area.
+        gdsfactory_stack: Optional direct-layer stack matching *component*.
+        kind: ``"index"`` for the refractive-index map or ``"layers"`` for
+            the categorical legacy view.
+        index_component: Permittivity tensor component used by the index view.
+        cmap: Matplotlib colormap used to build the interactive color scale.
+        material_data: Center-wavelength material data for the index view.
+        wavelength: Wavelength represented by the index view in um.
+        is_3d: Whether background slabs follow 3D simulation semantics.
+        plane: Resolved 2D simulation plane.
+        background_material: Default medium used by top-down XY 2D simulations.
+        layer_order: Geometry precedence order used by the MEEP runner.
 
     Returns:
         ``plotly.graph_objects.Figure``.
     """
+    if kind not in {"layers", "index"}:
+        raise ValueError(f"kind must be 'layers' or 'index'. Got: {kind!r}")
+
     from gsim.common.viz import plot_prism_slices_interactive
 
     slices_to_plot = sorted(set(slices.lower()))
@@ -505,7 +514,11 @@ def plot_2d_interactive(
         )
 
     gm = build_geometry_model(
-        component, stack, domain_config, extend_ports_length=extend_ports_length
+        component,
+        stack,
+        domain_config,
+        extend_ports_length=extend_ports_length,
+        gdsfactory_stack=gdsfactory_stack,
     )
     overlay = build_overlay(
         gm,
@@ -519,7 +532,7 @@ def plot_2d_interactive(
         monitor_z_span=monitor_z_span,
     )
 
-    slice_dir = slices_to_plot[0]
+    slice_dir = cast(Literal["x", "y", "z"], slices_to_plot[0])
     kw: dict[str, Any] = {}
     if slice_dir == "x":
         kw["x"] = x if x is not None else "core"
@@ -528,7 +541,34 @@ def plot_2d_interactive(
     else:
         kw["z"] = z if z is not None else "core"
 
-    return plot_prism_slices_interactive(gm, overlay=overlay, **kw)
+    if kind == "index":
+        if material_data is None or wavelength is None:
+            raise ValueError(
+                "kind='index' requires center-wavelength material_data and wavelength"
+            )
+        from gsim.meep.index_viz_interactive import (
+            plot_refractive_index_interactive,
+        )
+
+        return plot_refractive_index_interactive(
+            gm,
+            material_data,
+            wavelength=wavelength,
+            overlay=overlay,
+            slice_axis=slice_dir,
+            layer_order=layer_order,
+            is_3d=is_3d,
+            plane=plane,
+            background_material=background_material,
+            index_component=index_component,
+            cmap=cmap,
+            x=x,
+            y=y,
+            z=z if z is not None else "core",
+            aspect=aspect,
+        )
+
+    return plot_prism_slices_interactive(gm, aspect=aspect, overlay=overlay, **kw)
 
 
 def plot_2d(
@@ -547,6 +587,17 @@ def plot_2d(
     component_bbox: list[float] | tuple[float, ...] | None = None,
     fiber_source: Any = None,
     monitor_z_span: float | None = None,
+    aspect: Literal["equal", "auto"] = "equal",
+    gdsfactory_stack: Any | None = None,
+    kind: Literal["layers", "index"] = "index",
+    index_component: Literal["mean", "x", "y", "z"] = "mean",
+    cmap: str = "Blues",
+    material_data: Mapping[str, MaterialData] | None = None,
+    wavelength: float | None = None,
+    is_3d: bool = True,
+    plane: Literal["xy", "xz"] = "xy",
+    background_material: str = "air",
+    layer_order: Sequence[str] | None = None,
 ) -> plt.Axes | None:
     """Plot 2D cross-sections of the MEEP geometry.
 
@@ -566,14 +617,36 @@ def plot_2d(
         port_data: Pre-computed port data (skips re-extraction).
         component_bbox: Original component bbox ``[xmin, ymin, xmax, ymax]``
             (for correct cell boundary computation with extended ports).
+        fiber_source: Pre-computed fiber source config (for overlay).
+        monitor_z_span: Port monitor z-span override.
+        aspect: Axis aspect ratio. Use ``"equal"`` to preserve physical
+            proportions or ``"auto"`` to fill the available plotting area.
+        kind: ``"layers"`` for the existing categorical layer view or
+            ``"index"`` for a refractive-index map.
+        index_component: Permittivity tensor component used by the index view.
+            ``"mean"`` plots ``sqrt(mean(epsilon_diag))``.
+        cmap: Matplotlib colormap for the index view.
+        material_data: Center-wavelength material data for the index view.
+        wavelength: Wavelength represented by the index view in um.
+        is_3d: Whether background slabs follow 3D simulation semantics.
+        plane: Resolved 2D simulation plane.
+        background_material: Default medium used by top-down XY 2D simulations.
+        layer_order: Geometry precedence order used by the MEEP runner.
 
     Returns:
         ``plt.Axes`` when *ax* was provided, otherwise ``None``.
     """
+    if kind not in {"layers", "index"}:
+        raise ValueError(f"kind must be 'layers' or 'index'. Got: {kind!r}")
+
     from gsim.common.viz import plot_prism_slices
 
     gm = build_geometry_model(
-        component, stack, domain_config, extend_ports_length=extend_ports_length
+        component,
+        stack,
+        domain_config,
+        extend_ports_length=extend_ports_length,
+        gdsfactory_stack=gdsfactory_stack,
     )
     overlay = build_overlay(
         gm,
@@ -586,4 +659,32 @@ def plot_2d(
         fiber_source=fiber_source,
         monitor_z_span=monitor_z_span,
     )
-    return plot_prism_slices(gm, x, y, z, ax, legend, slices, overlay=overlay)
+    if kind == "index":
+        if material_data is None or wavelength is None:
+            raise ValueError(
+                "kind='index' requires center-wavelength material_data and wavelength"
+            )
+        from gsim.meep.index_viz import plot_refractive_index_slices
+
+        return plot_refractive_index_slices(
+            gm,
+            material_data,
+            wavelength=wavelength,
+            overlay=overlay,
+            layer_order=layer_order,
+            is_3d=is_3d,
+            plane=plane,
+            background_material=background_material,
+            index_component=index_component,
+            cmap=cmap,
+            x=x,
+            y=y,
+            z=z,
+            ax=ax,
+            legend=legend,
+            slices=slices,
+            aspect=aspect,
+        )
+    return plot_prism_slices(
+        gm, x, y, z, ax, legend, slices, aspect=aspect, overlay=overlay
+    )

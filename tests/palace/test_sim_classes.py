@@ -246,7 +246,20 @@ class TestMixinMethods:
                 "margin_y": 30.0,
                 "z_above": 100.0,
                 "z_below": 80.0,
+                "material": "air",
             }
+
+    def test_set_airbox_material(self):
+        """set_airbox(material=...) stores a custom background material."""
+        for cls in [DrivenSim, EigenmodeSim, ElectrostaticSim, BoundaryModeSim]:
+            sim = cls()
+            sim.set_airbox(material="sio2", margin_y=2.0)
+            assert sim._airbox_config["material"] == "sio2"
+            assert sim._airbox_config["margin_y"] == 2.0
+            with pytest.raises(ValueError, match="material"):
+                sim.set_airbox(material="")
+            with pytest.raises(ValueError, match="material"):
+                sim.set_airbox(material=123)  # ty: ignore[invalid-argument-type]
 
     def test_set_airbox_defaults_to_zero(self):
         """Unassigned set_airbox arguments should default to 0.0."""
@@ -258,6 +271,7 @@ class TestMixinMethods:
                 "margin_y": 0.0,
                 "z_above": 0.0,
                 "z_below": 0.0,
+                "material": "air",
             }
 
     def test_set_airbox_partial_defaults(self):
@@ -269,6 +283,7 @@ class TestMixinMethods:
             "margin_y": 0.0,
             "z_above": 0.0,
             "z_below": 0.0,
+            "material": "air",
         }
 
     def test_set_airbox_invalid(self):
@@ -279,7 +294,7 @@ class TestMixinMethods:
 
     def test_mesh_routes_airbox_kwargs_through_set_airbox(self, monkeypatch, tmp_path):
         """mesh() air-region kwargs should be applied via set_airbox()."""
-        captured: dict[str, float | None] = {}
+        captured: dict[str, object] = {}
 
         def _fake_set_airbox(
             _self,
@@ -288,11 +303,13 @@ class TestMixinMethods:
             margin_y=None,
             z_above=None,
             z_below=None,
+            material="air",
         ):
             captured["margin_x"] = margin_x
             captured["margin_y"] = margin_y
             captured["z_above"] = z_above
             captured["z_below"] = z_below
+            captured["material"] = material
 
         def _fake_generate_mesh_internal(_self, **_kwargs):
             return SimpleNamespace(mesh_stats={}, mesh_path=tmp_path / "palace.msh")
@@ -339,7 +356,49 @@ class TestMixinMethods:
             "margin_y": 10.0,
             "z_above": 120.0,
             "z_below": 80.0,
+            "material": "air",
         }
+
+    def test_mesh_preserves_background_material(self, monkeypatch, tmp_path):
+        """mesh() margin overrides must not reset the background material to air."""
+        captured: dict[str, object] = {}
+
+        def _fake_set_airbox(_self, **kwargs):
+            captured.update(kwargs)
+
+        def _fake_generate_mesh_internal(_self, **_kwargs):
+            return SimpleNamespace(mesh_stats={}, mesh_path=tmp_path / "palace.msh")
+
+        sim = DrivenSim()
+        sim.set_output_dir(tmp_path / "sim")
+        sim.set_airbox(material="sio2", margin_y=3.0)
+
+        monkeypatch.setattr(DrivenSim, "set_airbox", _fake_set_airbox)
+        monkeypatch.setattr(
+            DrivenSim,
+            "validate_config",
+            lambda _self: SimpleNamespace(valid=True, errors=[]),
+        )
+        monkeypatch.setattr(DrivenSim, "_resolve_stack", lambda _self: object())
+        monkeypatch.setattr(
+            DrivenSim,
+            "_configure_ports_on_component",
+            lambda _self, _stack: None,
+        )
+        monkeypatch.setattr(
+            "gsim.palace.ports.extract_ports",
+            lambda _component, _stack: [],
+        )
+        monkeypatch.setattr(
+            DrivenSim,
+            "_generate_mesh_internal",
+            _fake_generate_mesh_internal,
+        )
+
+        sim.mesh(margin_y=50.0, verbose=False)
+
+        assert captured["material"] == "sio2"
+        assert captured["margin_y"] == 50.0
 
     def test_set_airbox_margin_y_zero_reaches_generate_mesh(
         self, monkeypatch, tmp_path

@@ -1270,7 +1270,7 @@ def refractive_index_profile(
         if layer.material == "air":
             continue
         gds_layer = getattr(layer, "gds_layer", None)
-        if gds_layer is None:
+        if not isinstance(gds_layer, tuple):
             continue
         intervals = interval_func(component, layer, cut_coord)
         if not intervals and not _layer_has_any_polygon(component, layer):
@@ -1292,6 +1292,8 @@ def refractive_index_profile(
         if eps <= 0:
             continue
         gds_layer = getattr(layer, "gds_layer", None)
+        if not isinstance(gds_layer, tuple):
+            continue
         h_mask = layer_h_masks.get(gds_layer)
         if h_mask is None:
             continue

@@ -90,9 +90,10 @@ class DrivenSim(PalaceSimMixin, BaseModel):
 
     # Stack configuration (stored as kwargs until resolved)
     _stack_kwargs: dict[str, Any] = PrivateAttr(default_factory=dict)
-    _airbox_config: dict[str, float] = PrivateAttr(default_factory=dict)
+    _airbox_config: dict[str, Any] = PrivateAttr(default_factory=dict)
     _pec_blocks: list = PrivateAttr(default_factory=list)
     _hints: dict[str, Any] = PrivateAttr(default_factory=dict)
+    _impedance_boundaries: list = PrivateAttr(default_factory=list)
 
     # Internal state
     _output_dir: Path | None = PrivateAttr(default=None)
@@ -113,6 +114,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         *,
         verbose: Literal["quiet", "status", "full"] = "status",
         wait: bool = True,
+        check_cache: bool = False,
     ) -> SParams | str:
         """Run the driven sim on GDSFactory+ cloud.
 
@@ -127,7 +129,9 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         """
         from gsim.palace.results import SParams as _SParams
 
-        result = super().run(parent_dir, verbose=verbose, wait=wait)
+        result = super().run(
+            parent_dir, verbose=verbose, wait=wait, check_cache=check_cache
+        )
         if isinstance(result, (_SParams, str)):
             return result
         msg = (

@@ -1,0 +1,97 @@
+"""Canonical passive-PCell resolution models."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
+
+from shapely.geometry.base import BaseGeometry
+
+from gsim.common.materials import MaterialSnapshot
+
+
+class PdkResolutionError(ValueError):
+    """Base error for canonical PDK resolution."""
+
+
+class ComponentResolutionError(PdkResolutionError):
+    """Raised when a PDK cannot instantiate the requested component."""
+
+
+class LayerResolutionError(PdkResolutionError):
+    """Raised when physical layer information is incomplete or invalid."""
+
+
+class UnsupportedPortError(PdkResolutionError):
+    """Raised when a port cannot be represented by the FDTD contract."""
+
+
+@dataclass(frozen=True)
+class ResolvedLayer:
+    """One material-bearing LayerStack entry with resolved geometry."""
+
+    key: str
+    declared_name: str | None
+    layer: Any
+    derived_layer: Any
+    geometry: BaseGeometry
+    material: str
+    zmin: float
+    thickness: float
+    zmax: float
+    sidewall_angle: float
+    width_to_z: float
+    bias: float | tuple[float, float] | None
+    z_to_bias: tuple[list[float], list[float]] | None
+    mesh_order: int
+
+    @property
+    def z_bounds(self) -> tuple[float, float]:
+        """Return ascending vertical bounds, including negative thicknesses."""
+        return min(self.zmin, self.zmax), max(self.zmin, self.zmax)
+
+
+@dataclass(frozen=True)
+class ResolvedPort:
+    """An axis-aligned component port mapped to a physical layer."""
+
+    name: str
+    center: tuple[float, float, float]
+    width: float
+    orientation: float
+    normal: tuple[int, int, int]
+    port_type: str
+    layer_key: str | None
+    material: str | None
+
+    @property
+    def is_vertical(self) -> bool:
+        """Return whether this is a free-space vertical optical port."""
+        return self.port_type.startswith("vertical_")
+
+
+@dataclass(frozen=True)
+class ResolvedPassivePcell:
+    """Canonical physical representation consumed by simulation backends."""
+
+    component: Any
+    derived_component: Any
+    pdk: Any
+    layer_stack: Any
+    layers: Mapping[str, ResolvedLayer]
+    materials: Mapping[str, MaterialSnapshot]
+    ports: Mapping[str, ResolvedPort]
+    bounds: tuple[tuple[float, float, float], tuple[float, float, float]]
+    wavelength_um: float
+
+
+__all__ = [
+    "ComponentResolutionError",
+    "LayerResolutionError",
+    "PdkResolutionError",
+    "ResolvedLayer",
+    "ResolvedPassivePcell",
+    "ResolvedPort",
+    "UnsupportedPortError",
+]

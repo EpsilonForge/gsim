@@ -84,9 +84,10 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
 
     # Stack configuration (stored as kwargs until resolved)
     _stack_kwargs: dict[str, Any] = PrivateAttr(default_factory=dict)
-    _airbox_config: dict[str, float] = PrivateAttr(default_factory=dict)
+    _airbox_config: dict[str, Any] = PrivateAttr(default_factory=dict)
     _pec_blocks: list = PrivateAttr(default_factory=list)
     _hints: dict[str, Any] = PrivateAttr(default_factory=dict)
+    _impedance_boundaries: list = PrivateAttr(default_factory=list)
 
     # Internal state
     _output_dir: Path | None = PrivateAttr(default=None)
@@ -102,6 +103,7 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
         *,
         verbose: Literal["quiet", "status", "full"] = "status",
         wait: bool = True,
+        check_cache: bool = False,
     ) -> dict[str, Path] | str:
         """Run the eigenmode sim on GDSFactory+ cloud.
 
@@ -112,7 +114,9 @@ class EigenmodeSim(PalaceSimMixin, BaseModel):
         """
         from gsim.palace.results import SParams
 
-        result = super().run(parent_dir, verbose=verbose, wait=wait)
+        result = super().run(
+            parent_dir, verbose=verbose, wait=wait, check_cache=check_cache
+        )
         if isinstance(result, SParams):
             msg = (
                 "EigenmodeSim.run got SParams from the cloud, but an "

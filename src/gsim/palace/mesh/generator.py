@@ -249,6 +249,25 @@ def _curve_on_native_2d_domain_wall(
     return on_hmin or on_hmax or on_vmin or on_vmax
 
 
+def _ensure_background_material(stack, material: str) -> None:
+    """Ensure *material* has an entry in ``stack.materials``.
+
+    The native-2D background volume is grouped under ``airbox_material``. If
+    that name is not already in the stack's materials dict, populate it from
+    the built-in database so the config generator can resolve its permittivity
+    (falling back to eps=1 for unknown names).
+    """
+    from gsim.common.stack.materials import get_material_properties
+
+    if material in stack.materials:
+        return
+    props = get_material_properties(material)
+    if props is not None:
+        stack.materials[material] = props.to_dict()
+    else:
+        stack.materials[material] = {"permittivity": 1.0, "loss_tangent": 0.0}
+
+
 def _generate_native_boundarymode_groups(
     *,
     kernel,
@@ -263,6 +282,7 @@ def _generate_native_boundarymode_groups(
     airbox_margin_y: float | None,
     airbox_z_above: float | None,
     airbox_z_below: float | None,
+    airbox_material: str = "air",
 ) -> dict:
     """Build a native 2D gmsh model and groups for BoundaryMode."""
     if cross_section.axis not in {"x", "y"}:
@@ -364,6 +384,7 @@ def _generate_native_boundarymode_groups(
         "conductor_surfaces": {},
         "pec_surfaces": {},
         "port_surfaces": {},
+        "interface_surfaces": {},
         "boundary_surfaces": {},
         "refinement_lines": {},
     }
@@ -383,6 +404,85 @@ def _generate_native_boundarymode_groups(
         layer = stack.layers.get(layer_name)
         if layer is not None and layer.layer_type in {"conductor", "via"}:
             metal_piece_tags.update(pieces)
+
+    # Priority-based deduplication for overlapping dielectric layers.
+    #
+    # The gmsh fragment assigns each piece to ALL parent layers that
+    # contain it.  When a patterned layer (e.g. p_rib) is fully inside a
+    # larger patterned layer (e.g. core or slab90), both claim the same
+    # piece.  We resolve this with a priority order:
+    #
+    #   1. Patterned dielectrics with a real GDS layer (doping, rib, slab)
+    #      take priority over background dielectric regions (sio2, passive,
+    #      air) that share the same z-range.
+    #   2. Among overlapping patterned dielectrics, the one with the
+    #      *smaller* total area wins (the doping region carves out of the
+    #      larger silicon region it is embedded in).
+    #
+    # This mirrors the 3D boolean pipeline's mesh_order convention where
+    # smaller / higher-detail volumes carve out of larger background volumes.
+
+    def _is_background_dielectric(layer_name: str) -> bool:
+        """Background dielectric: no real GDS layer (e.g. sio2, passive, air)."""
+        layer = stack.layers.get(layer_name)
+        return layer is None or layer.gds_layer == (999, 0)
+
+    def _is_patterned_dielectric(layer_name: str) -> bool:
+        """Patterned dielectric: has a real GDS layer and is dielectric type."""
+        layer = stack.layers.get(layer_name)
+        return (
+            layer is not None
+            and layer.layer_type == "dielectric"
+            and layer.gds_layer != (999, 0)
+        )
+
+    # Step 1: strip patterned-dielectric pieces from background regions.
+    patterned_piece_tags: set[int] = set()
+    for layer_name, pieces in layer_surfaces.items():
+        if _is_patterned_dielectric(layer_name):
+            patterned_piece_tags.update(pieces)
+
+    if patterned_piece_tags:
+        for layer_name, pieces in list(layer_surfaces.items()):
+            if _is_background_dielectric(layer_name):
+                filtered = pieces - patterned_piece_tags
+                if filtered:
+                    layer_surfaces[layer_name] = filtered
+                else:
+                    layer_surfaces.pop(layer_name, None)
+
+    # Step 2: among patterned dielectrics, resolve overlaps by area.
+    # Compute the bounding-box area of each patterned layer's pieces.
+    patterned_names = [n for n in layer_surfaces if _is_patterned_dielectric(n)]
+
+    def _layer_area(layer_name: str) -> float:
+        """Approximate area of a layer's 2D pieces via bounding boxes."""
+        total = 0.0
+        for stag in layer_surfaces.get(layer_name, set()):
+            try:
+                xmin, ymin, _zmin, xmax, ymax, _zmax = gmsh.model.getBoundingBox(
+                    2, stag
+                )
+                total += (xmax - xmin) * (ymax - ymin)
+            except Exception:
+                pass
+        return total
+
+    # Sort patterned dielectrics by area (smallest first = highest priority).
+    patterned_by_area = sorted(patterned_names, key=_layer_area)
+
+    # For each patterned layer (smallest first), claim its pieces and
+    # remove them from all larger patterned layers.
+    claimed_pieces: set[int] = set()
+    for layer_name in patterned_by_area:
+        pieces = layer_surfaces.get(layer_name, set())
+        # Remove pieces already claimed by smaller (higher-priority) layers.
+        unique = pieces - claimed_pieces
+        if unique:
+            layer_surfaces[layer_name] = unique
+            claimed_pieces.update(unique)
+        else:
+            layer_surfaces.pop(layer_name, None)
 
     if metal_piece_tags:
         for layer_name, pieces in list(layer_surfaces.items()):
@@ -420,33 +520,56 @@ def _generate_native_boundarymode_groups(
 
     assigned: set[int] = set()
 
+    # First pass: assign volume physical groups to dielectrics.
+    dielectrics: dict[str, list[int]] = {}
+    metals: dict[str, list[int]] = {}
     for layer_name, surface_tags in sorted(layer_surfaces.items()):
         sorted_tags = sorted(surface_tags)
         layer = stack.layers.get(layer_name)
         is_metal_like = layer is not None and layer.layer_type in {"conductor", "via"}
-
-        # Always consume the conductor interior from air assignment, but do
-        # not export it as a 2D domain material.
         assigned.update(sorted_tags)
+        if is_metal_like:
+            metals[layer_name] = sorted_tags
+        else:
+            dielectrics[layer_name] = sorted_tags
 
-        if not is_metal_like:
-            pg = gmsh.model.addPhysicalGroup(2, sorted_tags)
-            gmsh.model.setPhysicalName(2, pg, layer_name)
+    # The 2D domain region not claimed by any dielectric/layer rectangle is the
+    # background medium. By default it is named "air" (eps=1); ``airbox_material``
+    # retunes it to a real cladding material (e.g. "sio2") for uniform-dielectric
+    # optical cross-sections with no air. Merged into the dielectric groups so a
+    # background name matching an existing region (e.g. the oxide "sio2") becomes
+    # one contiguous physical group.
+    bg_tags = sorted(outer_parts - assigned)
+    if bg_tags:
+        _ensure_background_material(stack, airbox_material)
+        dielectrics.setdefault(airbox_material, []).extend(bg_tags)
+        assigned.update(bg_tags)
 
-            entry: dict[str, object] = {
-                "phys_group": pg,
-                "tags": sorted_tags,
-            }
-            # Only layer-backed dielectric polygons are shaped dielectrics.
-            # Background dielectric slabs (e.g. sio2/sin material regions)
-            # should be treated as regular material domains.
-            if layer is not None and layer.layer_type == "dielectric":
-                entry["is_shaped_dielectric"] = True
-            if layer is not None and layer.layer_type == "via":
-                entry["is_via"] = True
-            groups["volumes"][layer_name] = entry
-            continue
+    for layer_name, sorted_tags in dielectrics.items():
+        layer = stack.layers.get(layer_name)
+        pg = gmsh.model.addPhysicalGroup(2, sorted_tags)
+        gmsh.model.setPhysicalName(2, pg, layer_name)
+        entry: dict[str, object] = {
+            "phys_group": pg,
+            "tags": sorted_tags,
+        }
+        if layer is not None and layer.layer_type == "dielectric":
+            entry["is_shaped_dielectric"] = True
+        if layer is not None and layer.layer_type == "via":
+            entry["is_via"] = True
+        groups["volumes"][layer_name] = entry
 
+    # Build the set of all surface tags that have a volume physical group
+    # (all dielectrics are now assigned).
+    vol_pg_surfaces: set[int] = set()
+    for pg_dim, pg_tag in gmsh.model.getPhysicalGroups():
+        if pg_dim == 2:
+            ents = gmsh.model.getEntitiesForPhysicalGroup(2, pg_tag)
+            vol_pg_surfaces.update(int(e) for e in ents)
+
+    # Second pass: process conductor/via boundary curves (all dielectrics now
+    # have PGs, so the adjacency filter correctly preserves shared edges).
+    for layer_name, sorted_tags in metals.items():
         pec_curves: set[int] = set()
         for stag in sorted_tags:
             try:
@@ -463,7 +586,38 @@ def _generate_native_boundarymode_groups(
                     pec_curves.add(ctag)
 
         if pec_curves:
-            curve_tags = sorted(pec_curves)
+            # Some curves may be internal to the conductor pieces (shared
+            # between two conductor surface fragments).  These curves have no
+            # adjacent volume element in the mesh (conductor surfaces are not
+            # written as volume physical groups), so they would cause a
+            # segfault in MFEM's GetBdrElementFace.  Filter them out by
+            # checking gmsh adjacencies: keep a curve only if at least one
+            # adjacent surface actually has a volume physical group.
+            filtered_curves: set[int] = set()
+            n_internal = 0
+            for ctag in pec_curves:
+                try:
+                    adj = gmsh.model.getAdjacencies(1, int(ctag))
+                except Exception:
+                    filtered_curves.add(ctag)
+                    continue
+                adj_surfaces = set(adj[1]) if len(adj) > 1 else set()
+                if not adj_surfaces:
+                    filtered_curves.add(ctag)
+                    continue
+                if adj_surfaces & vol_pg_surfaces:
+                    filtered_curves.add(ctag)
+                else:
+                    n_internal += 1
+            if n_internal > 0:
+                logger.info(
+                    "Filtered %d internal conductor curves for '%s' (%d remaining)",
+                    n_internal,
+                    layer_name,
+                    len(filtered_curves),
+                )
+
+            curve_tags = sorted(filtered_curves)
             sigma = _material_conductivity(layer_name)
             if _is_conductive(sigma):
                 cond_pg = gmsh.model.addPhysicalGroup(1, curve_tags)
@@ -480,11 +634,8 @@ def _generate_native_boundarymode_groups(
                     "tags": curve_tags,
                 }
 
-    air_tags = sorted(outer_parts - assigned)
-    if air_tags:
-        air_pg = gmsh.model.addPhysicalGroup(2, air_tags)
-        gmsh.model.setPhysicalName(2, air_pg, "air")
-        groups["volumes"]["air"] = {"phys_group": air_pg, "tags": air_tags}
+    # The 2D background medium (unclaimed domain) is merged into the dielectric
+    # groups above, so nothing to add here.
 
     refinement_curves: set[int] = set()
     for info in groups["conductor_surfaces"].values():
@@ -513,6 +664,56 @@ def _generate_native_boundarymode_groups(
         groups["refinement_lines"]["native_internal_curves"] = {
             "tags": sorted(refinement_curves)
         }
+
+    # --- Dielectric-dielectric interface curves -------------------------------
+    # Build per-volume boundary curves, then find shared curves between pairs
+    # of dielectric volumes. Each shared curve is assigned a physical group
+    # named "interface_<layer_A>_<layer_B>" and stored under
+    # groups["interface_surfaces"].
+    vol_boundary_curves: dict[str, set[int]] = {}
+    for layer_name, vol_info in groups["volumes"].items():
+        curves: set[int] = set()
+        for stag in vol_info.get("tags", []):
+            try:
+                bounds = gmsh.model.getBoundary(
+                    [(2, int(stag))],
+                    combined=False,
+                    oriented=False,
+                    recursive=False,
+                )
+            except Exception:
+                continue
+            for dim, ctag in bounds:
+                if dim == 1:
+                    curves.add(int(ctag))
+        if curves:
+            vol_boundary_curves[layer_name] = curves
+
+    vol_names = list(vol_boundary_curves.keys())
+    for i, l1 in enumerate(vol_names):
+        for l2 in vol_names[i + 1 :]:
+            shared = vol_boundary_curves[l1] & vol_boundary_curves[l2]
+            if shared:
+                name = f"interface_{l1}_{l2}"
+                pg = gmsh.model.addPhysicalGroup(1, sorted(shared))
+                gmsh.model.setPhysicalName(1, pg, name)
+
+                # Compute approximate total curve length from bounding boxes
+                total_length = 0.0
+                for ctag in shared:
+                    try:
+                        bb = gmsh.model.getBoundingBox(1, int(ctag))
+                        dx = bb[3] - bb[0]
+                        dy = bb[4] - bb[1]
+                        total_length += math.sqrt(dx * dx + dy * dy)
+                    except Exception:
+                        pass
+
+                groups.setdefault("interface_surfaces", {})[name] = {
+                    "phys_group": pg,
+                    "tags": sorted(shared),
+                    "length_um": total_length,
+                }
 
     outer_curves: set[int] = set()
     for stag in outer_parts:
@@ -797,6 +998,7 @@ def generate_mesh(
     airbox_margin_y: float | None = None,
     airbox_z_above: float | None = None,
     airbox_z_below: float | None = None,
+    airbox_material: str = "air",
     fmax: float = 100e9,
     show_gui: bool = False,
     simulation_type: str = "driven",
@@ -839,6 +1041,9 @@ def generate_mesh(
         airbox_margin_y: Extra y-margin for explicit airbox (um)
         airbox_z_above: Extra +z margin for explicit airbox (um)
         airbox_z_below: Extra -z margin for explicit airbox (um)
+        airbox_material: Material name for the native-2D BoundaryMode background
+            region outside the stack/cladding (default ``"air"``). Pass e.g.
+            ``"sio2"`` for a uniform-dielectric cladding with no air.
         fmax: Max frequency for config (Hz)
         show_gui: Show gmsh GUI during meshing
         simulation_type: Type of simulation (driven, eigenmode or electrostatics)
@@ -921,6 +1126,7 @@ def generate_mesh(
                 airbox_margin_y=airbox_margin_y,
                 airbox_z_above=airbox_z_above,
                 airbox_z_below=airbox_z_below,
+                airbox_material=airbox_material,
             )
 
             refinement_lines = sorted(

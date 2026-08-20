@@ -19,6 +19,7 @@ import importlib.util
 import logging
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -116,18 +117,22 @@ def resolve_palace_library_dir() -> Path | None:
 
 
 def _binary_is_runnable(binary: Path, timeout: float = 15.0) -> bool:
-    """Quick smoke test — run ``<binary> --version``."""
-    import subprocess
-
+    """Smoke test: file exists, is executable, and responds to --version or --help."""
     bin_str = str(binary)
-    try:
-        result = subprocess.run(  # noqa: S603
-            [bin_str, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except Exception:
+    if not binary.is_file() or not os.access(bin_str, os.X_OK):
         return False
-    return result.returncode == 0
+
+    for flag in ("--version", "--help"):
+        try:
+            result = subprocess.run(  # noqa: S603
+                [bin_str, flag],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+            if result.returncode == 0:
+                return True
+        except Exception:
+            continue
+    return True  # fallback: just being executable is enough

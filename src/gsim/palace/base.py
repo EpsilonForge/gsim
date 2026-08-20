@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -16,6 +17,7 @@ from gsim.palace.models import (
     CPWPortConfig,
     DrivenConfig,
     EigenmodeConfig,
+    ImpedanceBoundaryConfig,
     MaterialConfig,
     MeshConfig,
     NumericalConfig,
@@ -32,6 +34,113 @@ if TYPE_CHECKING:
     from gsim.palace.results import PalaceTextResults, SParams
 
 logger = logging.getLogger(__name__)
+
+
+def _count_physical_cpus() -> int:
+    """Return the number of physical CPU cores (not logical threads)."""
+    try:
+        with open("/proc/cpuinfo") as f:
+            content = f.read()
+        # Each physical core has a unique (physical_id, core_id) pair.
+        cores: set[tuple[str, str]] = set()
+        phys_id = None
+        for line in content.splitlines():
+            if line.startswith("physical id"):
+                phys_id = line.split(":")[1].strip()
+            elif line.startswith("core id"):
+                core_id = line.split(":")[1].strip()
+                if phys_id is not None:
+                    cores.add((phys_id, core_id))
+        if cores:
+            return len(cores)
+    except Exception:
+        pass
+    return os.cpu_count() or 1
+
+
+# Minimum estimated unknowns per MPI rank for SuperLU_DIST to factor
+# efficiently. Below this, the 2D block-cyclic processor grid is dominated by
+# communication/fill overhead and the factorization degrades dramatically
+# (an effective hang on small 2D meshes at 8-16 ranks).
+_MIN_DOFS_PER_RANK = 50_000
+# Absolute ceiling on MPI ranks for 3D problems that use a sparse direct
+# solver. 2D (BoundaryMode) problems never use MPI: see _recommend_parallel.
+_MAX_DIRECT_SOLVE_RANKS = 4
+
+
+def _estimate_dofs(mesh_stats: dict) -> int | None:
+    """Estimate total unknowns from mesh statistics.
+
+    Uses the same element-count * polynomial-order heuristic as
+    :meth:`PalaceSimMixin.print_mesh_stats` (order 2 for 2D, 1 for 3D).
+    """
+    if not mesh_stats:
+        return None
+    elements = mesh_stats.get("elements") or 0
+    if not elements:
+        return None
+    is_3d = bool(mesh_stats.get("tetrahedra"))
+    p = 1 if is_3d else 2
+    nd_dofs = elements * p * (p + 1)
+    h1_dofs = elements * (p + 1) * (p + 2) // 2
+    return nd_dofs + h1_dofs
+
+
+def _recommend_parallel(
+    mesh_stats: dict,
+    simulation_type: str,
+    num_processes: int | None,
+    num_threads: int | None,
+    physical_cpus: int | None = None,
+) -> tuple[int, int | None]:
+    """Recommend MPI/OpenMP settings that avoid pathological direct solves.
+
+    SuperLU_DIST factors the MPI rank count into a 2D processor grid. For
+    small problems (especially 2D mode analysis), using every physical core
+    produces a grid (e.g. 4x4 at 16 ranks) whose factorization is
+    communication-bound and effectively hangs. This returns a safe default:
+
+    - 2D (``boundarymode`` or a planar mesh): a single MPI rank with OpenMP
+      threads. MPI for a 2D problem is overkill and the sparse-direct grid
+      does not scale.
+    - 3D: at most ``_MAX_DIRECT_SOLVE_RANKS`` ranks, and never more than
+      ``est_dofs // _MIN_DOFS_PER_RANK`` so each rank has enough unknowns.
+
+    Explicit caller-supplied values are always respected; when they exceed
+    the recommendation the caller should log a warning.
+
+    Returns:
+        ``(num_processes, num_threads)``. ``num_threads`` stays ``None``
+        unless it should be auto-defaulted to the physical core count.
+    """
+    if physical_cpus is None:
+        physical_cpus = _count_physical_cpus()
+
+    if num_processes is not None:
+        # Explicit request: keep it, default threads only for serial runs.
+        if num_processes == 1 and num_threads is None:
+            return num_processes, physical_cpus
+        return num_processes, num_threads
+
+    is_2d = simulation_type == "boundarymode"
+    if not is_2d and mesh_stats:
+        bbox = mesh_stats.get("bbox") or {}
+        dz = bbox.get("zmax", bbox.get("zmin", 0.0)) - bbox.get(
+            "zmin", bbox.get("zmax", 0.0)
+        )
+        if not mesh_stats.get("tetrahedra") and dz <= 1e-6:
+            is_2d = True
+
+    if is_2d:
+        return 1, (num_threads if num_threads is not None else physical_cpus)
+
+    # 3D: size-aware cap for sparse-direct solves.
+    est_dofs = _estimate_dofs(mesh_stats)
+    size_cap = physical_cpus
+    if est_dofs is not None:
+        size_cap = max(1, est_dofs // _MIN_DOFS_PER_RANK)
+    recommended = min(physical_cpus, _MAX_DIRECT_SOLVE_RANKS, size_cap)
+    return max(1, recommended), num_threads
 
 
 class PalaceSimMixin:
@@ -59,11 +168,14 @@ class PalaceSimMixin:
     terminals: list[TerminalConfig]
     simulation_type: Literal["driven", "eigenmode", "electrostatic", "boundarymode"]
     _output_dir: Path | None
+    _job_id: str | None
+    _input_hash: str | None
     _stack_kwargs: dict[str, Any]
     _pec_blocks: list
     _hints: dict[str, Any]
+    _impedance_boundaries: list[ImpedanceBoundaryConfig]
     absorbing_boundary: bool
-    _airbox_config: dict[str, float]
+    _airbox_config: dict[str, Any]
 
     # -------------------------------------------------------------------------
     # Output directory
@@ -128,7 +240,6 @@ class PalaceSimMixin:
         substrate_thickness: float = 2.0,
         include_substrate: bool = False,
         add_oxide_dielectric: bool = True,
-        add_passivation_dielectric: bool = True,
         **kwargs,
     ) -> None:
         """Configure the layer stack.
@@ -155,7 +266,6 @@ class PalaceSimMixin:
             substrate_thickness: Thickness below z=0 in um.
             include_substrate: Include lossy silicon substrate.
             add_oxide_dielectric: Add synthetic oxide background dielectric.
-            add_passivation_dielectric: Add synthetic passivation dielectric.
             **kwargs: Additional args passed to extract_layer_stack.
 
         Example:
@@ -179,7 +289,6 @@ class PalaceSimMixin:
             "substrate_thickness": substrate_thickness,
             "include_substrate": include_substrate,
             "add_oxide_dielectric": add_oxide_dielectric,
-            "add_passivation_dielectric": add_passivation_dielectric,
             **kwargs,
         }
         # Stack will be resolved lazily during mesh() or simulate()
@@ -192,6 +301,7 @@ class PalaceSimMixin:
         margin_y: float | None = None,
         z_above: float | None = None,
         z_below: float | None = None,
+        material: str = "air",
     ) -> None:
         """Configure an explicit weak-priority airbox for meshing.
 
@@ -199,6 +309,17 @@ class PalaceSimMixin:
         across mesh margin arguments and stack air thickness parameters.
         The resulting airbox is created as a dedicated dielectric volume
         with the weakest boolean-priority in mesh construction.
+
+        ``material`` sets the material name of the padded background region.
+        It defaults to ``"air"`` (eps=1). For a photonic cross-section with a
+        uniform cladding, pass e.g. ``"sio2"`` so the region around the device
+        is filled with SiO2 instead of air. The material must be resolvable in
+        the stack's materials (or the built-in database); its permittivity is
+        evaluated at the simulation frequency (e.g. Sellmeier SiO2 at 1550 nm).
+
+        Note: the background material currently applies to the native-2D
+        BoundaryMode domain (the region outside the stack/cladding); the 3D
+        airbox region remains air.
 
         Args:
             margin_x: Airbox x-margin around the design (um).
@@ -209,6 +330,8 @@ class PalaceSimMixin:
                 Defaults to ``0.0`` when omitted.
             z_below: Airbox extension below the stack bottom (um).
                 Defaults to ``0.0`` when omitted.
+            material: Background material name for the padded region
+                (default ``"air"``).
         """
         mx = 0.0 if margin_x is None else margin_x
         my = 0.0 if margin_y is None else margin_y
@@ -221,6 +344,8 @@ class PalaceSimMixin:
             raise ValueError("margin_y must be >= 0")
         if za < 0 or zb < 0:
             raise ValueError("z_above and z_below must be >= 0")
+        if not material or not isinstance(material, str):
+            raise ValueError("material must be a non-empty string")
 
         # Keep mesh margin controls in sync for domain/port extents.
         mesh_config = getattr(self, "mesh_config", None)
@@ -234,6 +359,7 @@ class PalaceSimMixin:
             "margin_y": my,
             "z_above": za,
             "z_below": zb,
+            "material": material,
         }
 
     def _apply_airbox_overrides(
@@ -259,6 +385,46 @@ class PalaceSimMixin:
             margin_y=margin_y if margin_y is not None else current.get("margin_y"),
             z_above=z_above if z_above is not None else current.get("z_above"),
             z_below=z_below if z_below is not None else current.get("z_below"),
+            material=str(current.get("material", "air")),
+        )
+
+    # -------------------------------------------------------------------------
+    # Impedance boundaries
+    # -------------------------------------------------------------------------
+
+    def add_impedance_boundary(
+        self,
+        layer_a: str,
+        layer_b: str,
+        *,
+        capacitance: float | None = None,
+        resistance: float | None = None,
+        inductance: float | None = None,
+        name: str | None = None,
+    ) -> None:
+        """Add an Impedance boundary on the interface between two dielectric layers.
+
+        The capacitance, resistance, and inductance values are absolute and
+        are divided by the interface curve length internally to produce the
+        per-unit-length ``Cs``, ``Rs``, ``Ls`` values expected by Palace.
+
+        Args:
+            layer_a: First dielectric layer name.
+            layer_b: Second dielectric layer name.
+            capacitance: Absolute capacitance [F].
+            resistance: Absolute resistance [Ohm].
+            inductance: Absolute inductance [H].
+            name: Optional display name.
+        """
+        self._impedance_boundaries.append(
+            ImpedanceBoundaryConfig(
+                layer_a=layer_a,
+                layer_b=layer_b,
+                capacitance=capacitance,
+                resistance=resistance,
+                inductance=inductance,
+                name=name,
+            )
         )
 
     # -------------------------------------------------------------------------
@@ -643,7 +809,7 @@ class PalaceSimMixin:
         self,
         output: str | Path | None = None,
         show_groups: list[str] | None = None,
-        interactive: bool = True,
+        interactive: bool | None = None,
         style: Literal["wireframe", "solid"] = "wireframe",
         transparent_groups: list[str] | None = None,
     ) -> None:
@@ -652,11 +818,14 @@ class PalaceSimMixin:
         Requires mesh() to be called first.
 
         Args:
-            output: Output PNG path (only used if interactive=False)
+            output: Output PNG path (only used for static rendering).
             show_groups: List of group name patterns to show (None = all).
                 Example: ["metal", "P"] to show metal layers and ports.
-            interactive: If True, open interactive 3D viewer.
-                If False, save static PNG to output path.
+            interactive: If True, force an interactive 3D viewer (a widget on
+                the shared trame server in a notebook, or a blocking window
+                otherwise).  If False, save a static PNG.  If None (default),
+                follow the session flag from ``gsim.viz.set_interactive_mode``
+                — off by default, so plots render statically until enabled.
             style: ``"wireframe"`` (edges only) or ``"solid"`` (coloured
                 surfaces per physical group).
             transparent_groups: Group names rendered at low opacity in
@@ -679,8 +848,8 @@ class PalaceSimMixin:
         if not mesh_path.exists():
             raise ValueError(f"Mesh file not found: {mesh_path}. Call mesh() first.")
 
-        # Default output path if not interactive
-        if output is None and not interactive:
+        # Default output path for the static rendering path.
+        if output is None and interactive is not True:
             output = self._output_dir / "mesh.png"
 
         _plot_mesh(
@@ -959,6 +1128,7 @@ class PalaceSimMixin:
             airbox_margin_y=airbox_cfg.get("margin_y"),
             airbox_z_above=airbox_cfg.get("z_above"),
             airbox_z_below=airbox_cfg.get("z_below"),
+            airbox_material=airbox_cfg.get("material", "air"),
             fmax=effective_fmax,
             show_gui=mesh_config.show_gui,
             simulation_type=self.simulation_type,
@@ -995,6 +1165,51 @@ class PalaceSimMixin:
             port_info=mesh_result.port_info,
             mesh_stats=mesh_result.mesh_stats,
         )
+
+    def print_mesh_stats(self) -> None:
+        """Print mesh statistics from the last mesh generation.
+
+        Reports node/element counts and estimates solver DOFs based on
+        the solver polynomial order (default 2 for 2D, 1 for 3D).
+        """
+        mr = self._last_mesh_result
+        if mr is None:
+            print("No mesh result. Call mesh() first.")  # noqa: T201
+            return
+
+        stats = mr.mesh_stats or {}
+        groups = mr.groups or {}
+
+        nodes = stats.get("nodes", 0)
+        elements = stats.get("elements", 0)
+        tets = stats.get("tetrahedra", 0)
+
+        bbox = stats.get("bbox", {})
+        if bbox:
+            dx = bbox.get("xmax", 0) - bbox.get("xmin", 0)
+            dy = bbox.get("ymax", 0) - bbox.get("ymin", 0)
+            dz = bbox.get("zmax", 0) - bbox.get("zmin", 0)
+            print(f"  Bounding box: {dx:.3f} x {dy:.3f} x {dz:.3f} um")  # noqa: T201
+
+        print(f"  Nodes:     {nodes:,}")  # noqa: T201
+        print(f"  Elements:  {elements:,}")  # noqa: T201
+        if tets:
+            print(f"  Tetrahedra: {tets:,}")  # noqa: T201
+
+        dom_volumes = groups.get("volumes", {})
+        bdr_conductors = groups.get("conductor_surfaces", {})
+        bdr_interfaces = groups.get("interface_surfaces", {})
+        print(f"  Domain groups:     {len(dom_volumes)}")  # noqa: T201
+        print(f"  Conductor surfaces:{len(bdr_conductors)}")  # noqa: T201
+        print(f"  Interface surfaces:{len(bdr_interfaces)}")  # noqa: T201
+
+        if elements and not tets:
+            p = 2
+            nd_dofs_est = elements * p * (p + 1)
+            h1_dofs_est = elements * (p + 1) * (p + 2) // 2
+            print(f"  Est. ND-space DOFs (order {p}):  ~{nd_dofs_est:,}")  # noqa: T201
+            print(f"  Est. H1-space DOFs (order {p}):  ~{h1_dofs_est:,}")  # noqa: T201
+            print(f"  Est. total DOFs:                  ~{nd_dofs_est + h1_dofs_est:,}")  # noqa: T201
 
     def _get_ports_for_preview(self, stack: LayerStack) -> list:
         """Get ports for preview."""
@@ -1140,6 +1355,7 @@ class PalaceSimMixin:
                 airbox_margin_y=airbox_cfg.get("margin_y"),
                 airbox_z_above=airbox_cfg.get("z_above"),
                 airbox_z_below=airbox_cfg.get("z_below"),
+                airbox_material=airbox_cfg.get("material", "air"),
                 fmax=mesh_config.fmax,
                 show_gui=True,
                 simulation_type=self.simulation_type,
@@ -1422,6 +1638,12 @@ class PalaceSimMixin:
         stack = self._resolve_stack()
         electrostatic_config = getattr(self, "electrostatic", None)
         terminals = getattr(self, "terminals", None)
+
+        # Thread impedance boundary configs through hints
+        hints = dict(self._hints)
+        if self._impedance_boundaries:
+            hints["_impedance_boundaries"] = self._impedance_boundaries
+
         config_path = gen_write_config(
             mesh_result=self._last_mesh_result,
             stack=stack,
@@ -1432,7 +1654,7 @@ class PalaceSimMixin:
             numerical_config=self.numerical,
             boundary_mode_config=getattr(self, "boundary_mode", None),
             absorbing_boundary=self.absorbing_boundary,
-            hints=self._hints,
+            hints=hints,
             electrostatic_config=electrostatic_config,
             terminals=terminals or [],
         )
@@ -1490,10 +1712,14 @@ class PalaceSimMixin:
             or :func:`gsim.wait_for_results`.
         """
         from gsim import gcloud
+        from gsim.hashing import compute_input_hash
 
         tmp = self._prepare_upload_dir()
         try:
-            self._job_id = gcloud.upload(tmp, "palace", verbose=verbose)
+            self._input_hash = compute_input_hash(tmp, "palace")
+            self._job_id = gcloud.upload(
+                tmp, "palace", verbose=verbose, input_hash=self._input_hash
+            )
         except Exception:
             import shutil
 
@@ -1565,6 +1791,7 @@ class PalaceSimMixin:
         *,
         verbose: Literal["quiet", "status", "full"] = "status",
         wait: bool = True,
+        check_cache: bool = False,
     ) -> SParams | dict[str, Path] | str:
         """Run simulation on GDSFactory+ cloud.
 
@@ -1576,6 +1803,9 @@ class PalaceSimMixin:
                 Defaults to the current working directory.
             verbose: ``"quiet"`` no output, ``"status"`` status line,
                 ``"full"`` stream solver logs.
+            check_cache: If ``True``, look for a completed cloud job with
+                byte-identical inputs and reuse its results instead of
+                submitting. A lookup failure degrades to a normal submit.
             wait: If ``True`` (default), block until results are ready.
                 If ``False``, upload + start and return the ``job_id``.
 
@@ -1599,7 +1829,23 @@ class PalaceSimMixin:
             >>> results = eigen_sim.run()  # returns dict[str, Path]
             >>> print(results["eig.csv"])
         """
-        self.upload(verbose=False)
+        from gsim import gcloud
+
+        if check_cache:
+            tmp = self._prepare_upload_dir()
+            self._input_hash, cached_job_id = gcloud.check_cache_for_dir(tmp, "palace")
+            if cached_job_id is not None:
+                self._job_id = cached_job_id
+                if verbose != "quiet":
+                    print(f"Cache hit: reusing job {cached_job_id}")  # noqa: T201
+                if not wait:
+                    return self._job_id
+                return self.wait_for_results(verbose=verbose, parent_dir=parent_dir)
+            self._job_id = gcloud.upload(
+                tmp, "palace", verbose=False, input_hash=self._input_hash
+            )
+        else:
+            self.upload(verbose=False)
         self.start(verbose=verbose != "quiet")
         if not wait:
             if self._job_id is None:
@@ -1613,7 +1859,7 @@ class PalaceSimMixin:
         *,
         palace_sif_path: str | Path | None = None,
         palace_executable: str | Path | None = None,
-        use_apptainer: bool = True,
+        use_apptainer: bool = False,
         num_processes: int | None = None,
         num_threads: int | None = None,
         verbose: bool = True,
@@ -1638,10 +1884,16 @@ class PalaceSimMixin:
             use_apptainer: If True (default), run via Apptainer using SIF file.
                 If False, run Palace executable directly.
                 Ignored when ``palace_executable`` is explicitly provided.
-            num_processes: Number of MPI processes. If None (default),
-                uses all available CPUs.
-            num_threads: Number of OpenMP threads to use for OpenMP builds, default is 1
-                or the value of OMP_NUM_THREADS in the environment
+            num_processes: Number of MPI processes. If None (default), a
+                problem-size-aware default is chosen: 2D mode-analysis runs
+                use a single MPI rank (SuperLU_DIST's 2D processor grid does
+                not scale on small 2D problems and can effectively hang at
+                8-16 ranks), while 3D runs are capped to a few ranks by the
+                estimated unknown count. An explicit value is always respected.
+            num_threads: Number of OpenMP threads to use for OpenMP builds.
+                When running with a single MPI rank and ``num_threads`` is
+                omitted, defaults to the number of physical CPU cores so
+                shared-memory parallelism is used.
             verbose: Print progress messages and stream Palace output in real time
 
         Returns:
@@ -1691,9 +1943,48 @@ class PalaceSimMixin:
         config_path = output_dir / "config.json"
         mesh_path = output_dir / "palace.msh"
 
-        # Default to all available CPUs when caller does not specify -np.
+        # Choose safe parallel defaults. SuperLU_DIST's 2D processor grid does
+        # not scale on small problems (2D mode analysis at 8-16 ranks hangs),
+        # so 2D runs use a single MPI rank + OpenMP threads, and 3D direct
+        # solves are capped by problem size.
+        mesh_stats = {}
+        if self._last_mesh_result is not None:
+            mesh_stats = self._last_mesh_result.mesh_stats or {}
+
         if num_processes is None:
-            num_processes = os.cpu_count() or 1
+            num_processes, num_threads = _recommend_parallel(
+                mesh_stats,
+                self.simulation_type,
+                None,
+                num_threads,
+            )
+            if verbose:
+                logger.info(
+                    "Parallel config: %d MPI rank(s)%s",
+                    num_processes,
+                    f", {num_threads} OpenMP thread(s)" if num_threads else "",
+                )
+        else:
+            # Explicit request: keep it, but warn when it exceeds what the
+            # sparse-direct solver can use efficiently on this problem.
+            rec_processes, _rec_threads = _recommend_parallel(
+                mesh_stats,
+                self.simulation_type,
+                None,
+                None,
+            )
+            if num_processes > rec_processes:
+                logger.warning(
+                    "Requested %d MPI ranks but SuperLU_DIST direct solve "
+                    "does not scale beyond %d rank(s) on this problem size; "
+                    "the factorization may be pathologically slow. Pass "
+                    "num_processes=%d or use OpenMP threads instead.",
+                    num_processes,
+                    rec_processes,
+                    rec_processes,
+                )
+            if num_processes == 1 and num_threads is None:
+                num_threads = _count_physical_cpus()
 
         # Check required files exist
         if not config_path.exists():
@@ -1824,10 +2115,34 @@ class PalaceSimMixin:
                         resolved_exe = bundled
                         lib_dir = resolve_palace_library_dir()
                         if verbose:
-                            logger.info(
-                                "Using Palace binary from runtime resolver: %s",
-                                bundled,
+                            from gsim.palace.runtime import (
+                                _palace_cpu_available as _cpu_avail,
                             )
+
+                            source = (
+                                "palace-toolkit-cpu"
+                                if _cpu_avail()
+                                else "PALACE_BIN / PATH"
+                            )
+                            logger.info(
+                                "Palace binary: %s  (source: %s)",
+                                bundled,
+                                source,
+                            )
+                            try:
+                                import subprocess as _sp
+
+                                ver = _sp.run(  # noqa: S603
+                                    [str(bundled), "--version"],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=10,
+                                    check=False,
+                                )
+                                if ver.returncode == 0:
+                                    logger.info(ver.stdout.strip())
+                            except Exception:
+                                pass
                     else:
                         # Last resort: "palace" in PATH
                         resolved_exe = "palace"
@@ -1835,8 +2150,8 @@ class PalaceSimMixin:
             if resolved_exe is None:
                 raise FileNotFoundError(
                     "Palace executable not found. Set PALACE_BIN, "
-                    "PALACE_EXECUTABLE, or install palace-toolkit-cpu "
-                    "(pip install gsim[palace-toolkit-cpu])."
+                    "PALACE_EXECUTABLE, or install the optional "
+                    "palacetoolkit-palace-cpu wheel documented in the gsim README."
                 )
 
             exe_path = Path(resolved_exe)
@@ -1848,8 +2163,8 @@ class PalaceSimMixin:
                     raise FileNotFoundError(
                         f"Palace executable not found: {exe_path}. "
                         "Install Palace directly or provide correct path via "
-                        "palace_executable parameter, or install palace-toolkit-cpu: "
-                        "pip install gsim[palace-toolkit-cpu]"
+                        "palace_executable, or install the optional "
+                        "palacetoolkit-palace-cpu wheel documented in the gsim README."
                     )
                 exe_path = Path(resolved)
 

@@ -330,7 +330,6 @@ def extract_layer_stack(
     boundary_margin: float = 30.0,
     include_substrate: bool = False,
     add_oxide_dielectric: bool = True,
-    add_passivation_dielectric: bool = True,
 ) -> LayerStack:
     """Extract layer stack from a gdsfactory LayerStack.
 
@@ -344,8 +343,6 @@ def extract_layer_stack(
         include_substrate: Whether to include lossy substrate (default: False)
         add_oxide_dielectric: Add synthetic oxide background dielectric region.
             Set False to rely on dielectric regions/layers provided by the PDK.
-        add_passivation_dielectric: Add synthetic passivation dielectric above the
-            highest stack layer. Set False to rely on PDK-provided dielectrics.
 
     Returns:
         LayerStack object for Palace simulation
@@ -491,6 +488,13 @@ def extract_layer_stack(
             if not _is_dielectric_material(material):
                 continue
             if not _looks_like_passivation(layer_name, material):
+                if material.strip().lower() in {
+                    "si",
+                    "silicon",
+                    "ge",
+                    "germanium",
+                }:
+                    continue
                 bulk_material = material
                 break
 
@@ -502,12 +506,18 @@ def extract_layer_stack(
 
     if bulk_material is None and sorted_dielectric_layers:
         for _zmin, _zmax, material, _layer_name in sorted_dielectric_layers:
-            if _is_dielectric_material(material):
+            # Silicon/Ge layers can be classified as dielectrics for geometry
+            # purposes, but they are not a suitable blanket cladding.  If a
+            # PDK has no oxide-like layer, use the explicit SiO2 fallback
+            # below rather than turning the synthetic BOX/cladding into Si.
+            if _is_dielectric_material(material) and material.strip().lower() not in {
+                "si",
+                "silicon",
+                "ge",
+                "germanium",
+            }:
                 bulk_material = material
                 break
-
-    if bulk_material is None and sorted_dielectric_layers:
-        bulk_material = sorted_dielectric_layers[0][2]
 
     if bulk_material is None:
         # Rare fallback when a PDK stack defines no dielectric layers.
@@ -656,7 +666,6 @@ def extract_layer_stack(
         )
         top_of_stack = oxide_zmax
 
-    added_passivation = False
     if (
         passivation_material is not None
         and passive_zmin is not None
@@ -672,26 +681,6 @@ def extract_layer_stack(
             }
         )
         top_of_stack = passive_zmax
-        added_passivation = True
-
-    # Preserve default synthetic cap for patterned dielectric stacks only.
-    if (
-        not added_passivation
-        and add_passivation_dielectric
-        and has_patterned_dielectrics
-    ):
-        passive_thickness = 0.4
-        stack.dielectrics.append(
-            {
-                "name": "passive",
-                "zmin": z_max_active,
-                "zmax": z_max_active + passive_thickness,
-                "material": "passive",
-            }
-        )
-        if "passive" not in stack.materials:
-            stack.materials["passive"] = MATERIALS_DB["passive"].to_dict()
-        top_of_stack = z_max_active + passive_thickness
 
     if air_above > 0:
         stack.dielectrics.append(
@@ -720,7 +709,6 @@ def extract_layer_stack(
         "substrate_thickness": substrate_thickness,
         "include_substrate": include_substrate,
         "add_oxide_dielectric": add_oxide_dielectric,
-        "add_passivation_dielectric": add_passivation_dielectric,
     }
 
     return stack

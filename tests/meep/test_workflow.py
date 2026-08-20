@@ -7,10 +7,12 @@ build_config -> write_config, stopping before cloud submission.
 from __future__ import annotations
 
 import json
+import time
 
 import gdsfactory as gf
 import pytest
 
+from gsim.hashing import compute_dir_digest
 from gsim.meep import Simulation
 
 # ---------------------------------------------------------------------------
@@ -178,6 +180,14 @@ class TestWriteConfig:
         assert (output_dir / "layout.gds").exists()
         assert (output_dir / "sim_config.json").exists()
         assert (output_dir / "run_meep.py").exists()
+
+    def test_output_is_byte_reproducible(self, configured_sim, tmp_path):
+        """Identical simulations produce the same cloud-cache input bytes."""
+        first = configured_sim.write_config(tmp_path / "first")
+        time.sleep(1.1)  # GDS timestamps have one-second resolution.
+        second = configured_sim.write_config(tmp_path / "second")
+
+        assert compute_dir_digest(first) == compute_dir_digest(second)
 
     def test_config_json_valid(self, configured_sim, tmp_path):
         output_dir = configured_sim.write_config(tmp_path / "sim_output")

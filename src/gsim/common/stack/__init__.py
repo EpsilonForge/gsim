@@ -23,6 +23,7 @@ from pathlib import Path
 import gdsfactory as gf
 import yaml
 
+from gsim.common.stack.doping import make_doping_profile
 from gsim.common.stack.extractor import (
     Layer,
     LayerStack,
@@ -39,6 +40,8 @@ from gsim.common.stack.materials import (
     SellmeierTerm,
     ValidityRange,
     get_material_properties,
+    make_doped_material,
+    make_doped_materials,
     resolve_material_at_wavelength,
     should_enable_dispersion,
 )
@@ -73,8 +76,6 @@ def get_stack(
               When False, omits substrate for RF simulation.
             - add_oxide_dielectric: Add synthetic oxide dielectric background
               region (default: True).
-            - add_passivation_dielectric: Add synthetic passivation dielectric
-              cap (default: True).
 
     Returns:
         LayerStack object
@@ -180,6 +181,9 @@ __all__ = [
     "get_stack",
     "load_overlay",
     "load_stack_yaml",
+    "make_doped_material",
+    "make_doped_materials",
+    "make_doping_profile",
     "merge_overlay",
     "parse_layer_stack",
     "plot_stack",

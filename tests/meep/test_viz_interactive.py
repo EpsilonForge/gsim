@@ -69,6 +69,15 @@ class TestPlot2DInteractive:
         fig = sim.plot_2d_interactive()
         assert len(fig.data) > 0
 
+    def test_filled_shapes_do_not_show_vertex_markers(self):
+        sim = _xz_sim_for_viz()
+
+        fig = sim.plot_2d_interactive()
+
+        filled_shapes = [trace for trace in fig.data if trace.fill == "toself"]
+        assert filled_shapes
+        assert all(trace.mode == "lines" for trace in filled_shapes)
+
     def test_z_slice(self):
         import plotly.graph_objects as go
 
@@ -76,6 +85,31 @@ class TestPlot2DInteractive:
         fig = sim.plot_2d_interactive(slices="z", z="core")
         assert isinstance(fig, go.Figure)
         assert "XY cross section" in fig.layout.title.text
+
+    def test_auto_aspect(self):
+        sim = _xz_sim_for_viz()
+
+        fig = sim.plot_2d_interactive(aspect="auto")
+
+        assert fig.layout.xaxis.scaleanchor is None
+        assert fig.layout.yaxis.constrain is None
+
+    def test_equal_aspect_is_default(self):
+        sim = _xz_sim_for_viz()
+
+        fig = sim.plot_2d_interactive()
+
+        assert fig.layout.xaxis.scaleanchor == "y"
+        assert fig.layout.xaxis.scaleratio == 1
+        assert fig.layout.yaxis.constrain == "domain"
+
+    def test_invalid_aspect_raises(self):
+        import pytest
+
+        sim = _xz_sim_for_viz()
+
+        with pytest.raises(ValueError, match="aspect must be"):
+            sim.plot_2d_interactive(aspect="invalid")
 
     def test_multi_slice_raises(self):
         import pytest

@@ -389,6 +389,35 @@ def load_volume_field_data(
     )
 
 
+def _find_simulation_input(
+    base_dir: Path,
+    csv_path: Path | None,
+    filename: str,
+) -> Path | None:
+    """Find a simulation input in local and downloaded cloud layouts."""
+    input_path = Path(filename)
+    if input_path.is_absolute():
+        return input_path if input_path.exists() else None
+
+    result_dirs = [csv_path.parent] if csv_path is not None else []
+    if base_dir not in result_dirs:
+        result_dirs.append(base_dir)
+
+    candidates: list[Path] = []
+    for result_dir in result_dirs:
+        candidates.extend(
+            (
+                result_dir / input_path,
+                result_dir / "input" / input_path,
+                result_dir.parent / "input" / input_path,
+                result_dir.parent / input_path,
+                result_dir.parent.parent / input_path,
+            )
+        )
+
+    return next((candidate for candidate in candidates if candidate.exists()), None)
+
+
 def load_field_context(
     source: str | Path | dict,
     *,
@@ -405,10 +434,9 @@ def load_field_context(
     map (``pg_map``) from the Gmsh ``.msh`` file with ``meshio``, and builds
     a :class:`SelectorContext` from the Palace ``config.json``.
 
-    The mesh and config files are expected to live in the simulation
-    directory, which is resolved as the parent of the results directory
-    (i.e. ``results_dir.parent.parent`` for the typical
-    ``<sim_dir>/output/palace/`` layout).
+    The mesh and config files are resolved automatically from either the local
+    ``<sim_dir>/output/palace`` layout or the downloaded cloud
+    ``<download_dir>/{input,output}`` layout.
 
     Parameters
     ----------
@@ -442,16 +470,14 @@ def load_field_context(
 
     from gsim.palace.results import _resolve_source, load_fields
 
-    _, base_dir = _resolve_source(source, require_csv=False)
-    sim_dir = Path(base_dir).parent.parent
-
-    msh_path = sim_dir / mesh_filename
-    config_path = sim_dir / config_filename
-    if not msh_path.exists():
-        msg = f"Mesh file not found at {msh_path}"
+    csv_path, base_dir = _resolve_source(source, require_csv=False)
+    msh_path = _find_simulation_input(base_dir, csv_path, mesh_filename)
+    config_path = _find_simulation_input(base_dir, csv_path, config_filename)
+    if msh_path is None:
+        msg = f"Mesh file not found: {mesh_filename!r} near {base_dir}"
         raise FileNotFoundError(msg)
-    if not config_path.exists():
-        msg = f"Palace config not found at {config_path}"
+    if config_path is None:
+        msg = f"Palace config not found: {config_filename!r} near {base_dir}"
         raise FileNotFoundError(msg)
 
     cycle = step_index or None
