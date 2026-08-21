@@ -607,35 +607,36 @@ def add_metals(
         if not layer_infos:
             continue
         for layer_info in layer_infos:
-
             layer_name = layer_info["name"]
             layer_type = layer_info["type"]
             zmin = layer_info["zmin"]
             thickness = layer_info["thickness"]
             is_shaped_dielectric = layer_name in shaped_dielectric_names
-    
+
             if layer_type not in ("conductor", "via") and not is_shaped_dielectric:
                 continue
-    
+
             # Snap via z-range so it does not sliver into an adjacent conductor
             if layer_type == "via":
-                zmin, zmax = _snap_via_z_range(stack, layer_name, zmin, zmin + thickness)
+                zmin, zmax = _snap_via_z_range(
+                    stack, layer_name, zmin, zmin + thickness
+                )
                 thickness = zmax - zmin
-    
+
             if layer_name not in metal_tags:
                 metal_tags[layer_name] = {
                     "volumes": [],
                     "surfaces_xy": [],
                     "surfaces_z": [],
                 }
-    
+
             if is_shaped_dielectric:
                 shaped_dielectric_names.add(layer_name)
-    
+
             # Merge nearby via polygons before creating gmsh surfaces
             if layer_type == "via":
                 polys = _merge_via_polygons(polys, merge_via_distance)
-    
+
             # Create surfaces for all polygons on this layer
             surfaces = []
             for pts_x, pts_y, holes in polys:
@@ -644,10 +645,10 @@ def add_metals(
                 )
                 if surfacetag is not None:
                     surfaces.append(surfacetag)
-    
+
             if not surfaces:
                 continue
-    
+
             # um — thinner volumes can't mesh as 3D. Lowered from 0.05 so the
             # IHP MIM 40 nm (0.04 um) high-k dielectric is meshed as a solid
             # volume rather than being dropped (see gdsfactory/IHP#188).
@@ -655,7 +656,7 @@ def add_metals(
             is_planar = (
                 planar_conductors or thickness == 0 or thickness < min_volume_thickness
             )
-    
+
             if is_shaped_dielectric:
                 # Shaped dielectric: extrude as solid 3D volume (like a via)
                 # but keep the full volume (no shell extraction). The volume
@@ -680,7 +681,7 @@ def add_metals(
                     )
                     kernel.synchronize()
                     surfaces = [t for d, t in fused if d == 2]
-    
+
                 logger.info(
                     "Shaped dielectric layer '%s': 3D volume "
                     "(material=%s, thickness=%.3f um)",
@@ -705,9 +706,9 @@ def add_metals(
                         kernel, list(pts_x), list(pts_y), zmin
                     )
                     if loop_tag is not None:
-                        metal_tags[layer_name].setdefault("refinement_lines", []).append(
-                            loop_tag
-                        )
+                        metal_tags[layer_name].setdefault(
+                            "refinement_lines", []
+                        ).append(loop_tag)
                     for hx, hy in holes:
                         hole_loop = gmsh_utils._create_wire_loop(  # noqa: SLF001
                             kernel, list(hx), list(hy), zmin
@@ -722,7 +723,7 @@ def add_metals(
                 mat_props = stack.materials.get(material_name, {})
                 conductivity = mat_props.get("conductivity", 0.0)
                 via_too_thin = thickness == 0 or thickness < min_volume_thickness
-    
+
                 if via_too_thin:
                     logger.warning(
                         "Via layer '%s' too thin for 3D meshing "
@@ -768,18 +769,18 @@ def add_metals(
                     )
                     kernel.synchronize()
                     surfaces = [t for d, t in fused if d == 2]
-    
+
                 for surfacetag in surfaces:
                     result = kernel.extrude([(2, surfacetag)], 0, 0, thickness)
                     volumetag = result[1][1]
-    
+
                     if layer_type == "via":
                         # Keep vias as volumes
                         metal_tags[layer_name]["volumes"].append(volumetag)
                     else:
                         # Defer shell extraction until after removeAllDuplicates
                         _conductor_volumes.setdefault(layer_name, []).append(volumetag)
-    
+
     # Record bounding boxes of BOTH via and conductor volumes BEFORE
     # removeAllDuplicates. That call renumbers ALL entity tags globally —
     # not just the ones it merges — so original tags are never trustworthy
