@@ -31,7 +31,10 @@ result.plot()
 result.plot_plotly()
 ```
 
-`mesh_size_nm` controls the coarse Gmsh transfer mesh. `cell_size_nm` requests
+The transfer mesh uses geometry-aware refinement rather than uniform
+tetrahedra. Material polygon edges use the smaller of `mesh_size_nm` and the
+requested `cell_size_nm`; slowly varying bulk regions grow to at least eight
+times that feature size with a graded transition. `cell_size_nm` still requests
 the actual Yee grid used by the FDTD solver and defaults to 60 nm. Source sweeps
 default to 101 wavelengths. Guided-port monitors are implicit; one port source
 returns one S-matrix column.

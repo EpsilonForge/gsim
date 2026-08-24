@@ -156,6 +156,7 @@ def test_write_restores_options_from_existing_gmsh_session(
         "Mesh.ElementOrder": 2.0,
         "Mesh.MeshSizeExtendFromBoundary": 1.0,
         "Mesh.MeshSizeFromCurvature": 1.0,
+        "Mesh.MeshSizeFromPoints": 1.0,
         "Mesh.MeshSizeMax": 34.5,
         "Mesh.MeshSizeMin": 12.5,
         "Mesh.MshFileVersion": 4.1,

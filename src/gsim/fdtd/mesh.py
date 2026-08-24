@@ -14,6 +14,10 @@ from gsim.fdtd.mesh_geometry import (
     UM_TO_NM,
     add_layer_volumes,
 )
+from gsim.fdtd.mesh_sizing import (
+    geometry_aware_sizing,
+    install_geometry_aware_mesh_field,
+)
 from gsim.fdtd.mesh_validation import validate_mesh
 from gsim.fdtd.models import (
     FDTDGeometryError,
@@ -28,6 +32,7 @@ _GMSH_OPTIONS_CHANGED = (
     "Mesh.ElementOrder",
     "Mesh.MeshSizeExtendFromBoundary",
     "Mesh.MeshSizeFromCurvature",
+    "Mesh.MeshSizeFromPoints",
     "Mesh.MeshSizeMax",
     "Mesh.MeshSizeMin",
     "Mesh.MshFileVersion",
@@ -297,10 +302,8 @@ def generate_mesh(
         gmsh.option.setNumber("Mesh.Binary", 0)
         gmsh.option.setNumber("Mesh.ElementOrder", 1)
         gmsh.option.setNumber("Mesh.SaveAll", 0)
-        gmsh.option.setNumber("Mesh.MeshSizeMin", mesh_size_nm)
-        gmsh.option.setNumber("Mesh.MeshSizeMax", mesh_size_nm)
-        gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 0)
-        gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
+        sizing = geometry_aware_sizing(mesh_size_nm, nanometers_per_cell)
+        install_geometry_aware_mesh_field(resolved, sizing)
         gmsh.model.mesh.generate(3)
         gmsh.write(str(mesh_path))
     except FDTDGeometryError:
