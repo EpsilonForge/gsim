@@ -1,4 +1,5 @@
 # Simulation outputs
+/output/
 sim-data-*/
 palace-sim-*/
 meep-sim-*/
