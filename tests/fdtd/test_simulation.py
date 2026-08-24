@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from gsim import fdtd
-from gsim.fdtd.models import FDTDGeometryError
+from gsim.fdtd.models import FDTDConfigError, FDTDGeometryError
 
 
 def _physical_group_points(mesh: meshio.Mesh, name: str, cell_type: str) -> np.ndarray:
@@ -31,6 +31,7 @@ def test_write_uses_project_material_then_fallback_and_valid_mesh(
         background_padding_um=0.25,
         pml_cells=16,
         num_wavelengths=3,
+        default_port="o1",
     )
     resolved = simulation.geometry("straight", settings={"length": 2.0})
 
@@ -66,8 +67,8 @@ def test_write_uses_project_material_then_fallback_and_valid_mesh(
 
     port_points = _physical_group_points(mesh, "port_o1", "triangle")
     assert port_points[:, 0] == pytest.approx(0)
-    assert port_points[:, 1].min() == pytest.approx(-262.930645, abs=1e-3)
-    assert port_points[:, 1].max() == pytest.approx(262.930645, abs=1e-3)
+    assert port_points[:, 1].min() == pytest.approx(-259.697984, abs=1e-3)
+    assert port_points[:, 1].max() == pytest.approx(259.697984, abs=1e-3)
     assert port_points[:, 2].min() == pytest.approx(0)
     assert port_points[:, 2].max() == pytest.approx(220)
 
@@ -80,12 +81,23 @@ def test_write_requires_geometry(tmp_path) -> None:
         fdtd.Simulation().write(tmp_path)
 
 
+def test_write_requires_explicit_source_port(tmp_path, fdtd_pdk_module) -> None:
+    simulation = fdtd.Simulation(pdk=fdtd_pdk_module, mesh_size_nm=750)
+    simulation.geometry("straight", settings={"length": 2.0})
+
+    with pytest.raises(FDTDConfigError, match="requires an explicit port"):
+        simulation.write(tmp_path)
+
+    assert not (tmp_path / "mesh.msh").exists()
+
+
 def test_vertical_port_becomes_fiber_monitor_not_material_port(
     tmp_path,
     fdtd_pdk_module,
 ) -> None:
     simulation = fdtd.Simulation(
         pdk=fdtd_pdk_module,
+        default_port="o1",
         mesh_size_nm=750,
         background_padding_um=0.25,
     )
@@ -156,6 +168,7 @@ def test_write_restores_options_from_existing_gmsh_session(
 
         simulation = fdtd.Simulation(
             pdk=fdtd_pdk_module,
+            default_port="o1",
             mesh_size_nm=750,
             background_padding_um=0.25,
         )

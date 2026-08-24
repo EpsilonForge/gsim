@@ -154,7 +154,7 @@ def _extract_solver_from_job(job) -> str | None:
     """
     name = getattr(job, "job_def_name", "") or ""
     # Try known solver names in the definition string
-    for solver in ("meep", "palace", "femwell"):
+    for solver in ("meep", "palace", "femwell", "fdtd"):
         if solver in name.lower():
             return solver
     return None
@@ -279,10 +279,16 @@ def _handle_failed_job(job, output_dir: Path, verbose: bool) -> None:
 
 
 def _get_job_definition(job_type: str):
-    """Get JobDefinition enum value by name."""
-    job_type_upper = job_type.upper()
+    """Get the SDK job definition, with support for newer gsim solvers."""
+    normalized_job_type = job_type.casefold()
+    job_type_upper = normalized_job_type.upper()
     if not hasattr(sim.JobDefinition, job_type_upper):
-        valid = [e.name for e in sim.JobDefinition]
+        # gdsfactoryplus 1.8.x accepts strings but its enum predates FDTD.
+        # Keep that SDK usable until users are ready to upgrade it.
+        if normalized_job_type == "fdtd":
+            return normalized_job_type
+        valid = [e.name.casefold() for e in sim.JobDefinition]
+        valid.append("fdtd")
         raise ValueError(f"Unknown job type '{job_type}'. Valid types: {valid}")
     return getattr(sim.JobDefinition, job_type_upper)
 
@@ -811,7 +817,7 @@ def upload_simulation_dir(
 
 def run_simulation(
     config_dir: str | Path,
-    job_type: Literal["palace", "meep"] = "palace",
+    job_type: Literal["palace", "meep", "fdtd"] = "palace",
     verbose: bool = True,
     on_started: Callable | None = None,
     parent_dir: str | Path | None = None,

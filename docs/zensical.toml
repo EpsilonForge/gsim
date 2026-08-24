@@ -3,6 +3,7 @@ docs_dir = "."
 nav = [
   { "Home" = "index.md" },
   { "FDTD for Photonics" = [
+    { "GDSFactory FDTD: GPDK MMI" = "nbs/fdtd_mmi_gpdk.md" },
     { "Y-Branch" = "nbs/meep_ybranch.md" },
     { "Ring Coupler" = "nbs/meep_ring_coupler.md" },
     { "Directional Coupler" = "nbs/meep_dc.md" },

@@ -63,6 +63,13 @@ class TestExtractSolverFromJob:
         job = MagicMock(job_def_name="dev-femwell-simulation")
         assert _extract_solver_from_job(job) == "femwell"
 
+    def test_fdtd(self):
+        """Extracts 'fdtd' from dev job definition name."""
+        from gsim.gcloud import _extract_solver_from_job
+
+        job = MagicMock(job_def_name="dev-fdtd-simulation")
+        assert _extract_solver_from_job(job) == "fdtd"
+
     def test_plain_name(self):
         """Extracts solver from plain name without prefix."""
         from gsim.gcloud import _extract_solver_from_job
@@ -90,6 +97,45 @@ class TestExtractSolverFromJob:
 
         job = MagicMock(job_def_name=None)
         assert _extract_solver_from_job(job) is None
+
+
+# ---------------------------------------------------------------------------
+# Job definition compatibility
+# ---------------------------------------------------------------------------
+
+
+class TestJobDefinitionCompatibility:
+    """Tests for solver names introduced after older SDK releases."""
+
+    @patch("gsim.gcloud.sim")
+    def test_fdtd_uses_string_when_sdk_enum_is_missing(self, mock_sim):
+        """FDTD works with SDK 1.8.x without modifying its enum."""
+        from enum import Enum
+
+        from gsim.gcloud import _get_job_definition
+
+        class LegacyJobDefinition(Enum):
+            MEEP = "meep"
+            PALACE = "palace"
+
+        mock_sim.JobDefinition = LegacyJobDefinition
+
+        assert _get_job_definition("fdtd") == "fdtd"
+
+    @patch("gsim.gcloud.sim")
+    def test_existing_sdk_enum_is_preserved(self, mock_sim):
+        """Existing solver definitions still use the SDK enum."""
+        from enum import Enum
+
+        from gsim.gcloud import _get_job_definition
+
+        class LegacyJobDefinition(Enum):
+            MEEP = "meep"
+            PALACE = "palace"
+
+        mock_sim.JobDefinition = LegacyJobDefinition
+
+        assert _get_job_definition("meep") is LegacyJobDefinition.MEEP
 
 
 # ---------------------------------------------------------------------------
