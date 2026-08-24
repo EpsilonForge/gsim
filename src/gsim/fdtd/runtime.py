@@ -83,7 +83,11 @@ class RuntimeConfigMixin:
             vector = (cos(angle), sin(angle), 0.0)
         else:
             raise FDTDConfigError(f"Unsupported vertical port type {port.port_type!r}.")
-        return tuple(round(component, 12) for component in vector)
+        return (
+            round(vector[0], 12),
+            round(vector[1], 12),
+            round(vector[2], 12),
+        )
 
     def _vertical_port_configs(
         self, material_snapshots: Mapping[str, MaterialSnapshot]

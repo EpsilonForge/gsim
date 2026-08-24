@@ -14,6 +14,7 @@ from scripts.list_docs_notebooks import (
 )
 
 EXPECTED_NOTEBOOKS = [
+    "nbs/fdtd_mmi_gpdk.ipynb",
     "nbs/meep_ybranch.ipynb",
     "nbs/meep_ring_coupler.ipynb",
     "nbs/meep_dc.ipynb",
