@@ -229,15 +229,14 @@ def _add_polygon_prism(
     return volume_tag
 
 
-def add_layer_volumes(
+def _add_stepped_layer_volumes(
     kernel: Any,
     layer: ResolvedLayer,
     ports: list[ResolvedPort],
     *,
     nanometers_per_cell: float,
 ) -> list[int]:
-    """Create all unfused midpoint-slice prisms for one logical layer."""
-    _validate_layer(layer)
+    """Create midpoint-slice prisms when exact loft correspondence is unsafe."""
     slice_count = sidewall_slice_count(layer, nanometers_per_cell)
     z_lower_um, z_upper_um = layer.z_bounds
     volume_tags = []
@@ -268,7 +267,6 @@ def add_layer_volumes(
 __all__ = [
     "GEOMETRY_TOLERANCE_NM",
     "UM_TO_NM",
-    "add_layer_volumes",
     "iter_polygons",
     "sidewall_slice_count",
 ]

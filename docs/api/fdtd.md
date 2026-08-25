@@ -39,6 +39,11 @@ the actual Yee grid used by the FDTD solver and defaults to 60 nm. Source sweeps
 default to 101 wavelengths. Guided-port monitors are implicit; one port source
 returns one S-matrix column.
 
+Linear PDK sidewall angles are represented as continuous ruled solids between
+their exact bottom and top contours. If polygon offsetting changes component,
+hole, or edge topology, meshing safely falls back to bounded-error vertical
+slices instead of constructing an invalid loft.
+
 Use `write(path)` to generate `mesh.msh` and `config.json` without submitting.
 The original flat constructor keywords remain accepted for compatibility.
 

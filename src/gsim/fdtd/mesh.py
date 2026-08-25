@@ -9,11 +9,8 @@ from typing import Any
 import gmsh
 
 from gsim.common.pdk import ResolvedLayer, ResolvedPassivePcell, ResolvedPort
-from gsim.fdtd.mesh_geometry import (
-    GEOMETRY_TOLERANCE_NM,
-    UM_TO_NM,
-    add_layer_volumes,
-)
+from gsim.fdtd.mesh_geometry import GEOMETRY_TOLERANCE_NM, UM_TO_NM
+from gsim.fdtd.mesh_loft import add_layer_volumes
 from gsim.fdtd.mesh_sizing import (
     geometry_aware_sizing,
     install_geometry_aware_mesh_field,
