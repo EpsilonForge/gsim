@@ -21,6 +21,37 @@ def _physical_group_points(mesh: meshio.Mesh, name: str, cell_type: str) -> np.n
     return mesh.points[point_indices]
 
 
+def _internal_horizontal_boundary_faces(mesh: meshio.Mesh, name: str) -> np.ndarray:
+    """Return horizontal material-boundary faces away from its z extrema."""
+    physical_tag = mesh.field_data[name][0]
+    tetrahedra = mesh.cells_dict["tetra"]
+    tags = mesh.cell_data_dict["gmsh:physical"]["tetra"]
+    tetrahedra = tetrahedra[tags == physical_tag]
+    faces = np.concatenate(
+        [
+            tetrahedra[:, [0, 1, 2]],
+            tetrahedra[:, [0, 1, 3]],
+            tetrahedra[:, [0, 2, 3]],
+            tetrahedra[:, [1, 2, 3]],
+        ]
+    )
+    sorted_faces = np.sort(faces, axis=1)
+    _, unique_indices, counts = np.unique(
+        sorted_faces,
+        axis=0,
+        return_index=True,
+        return_counts=True,
+    )
+    boundary_faces = faces[unique_indices[counts == 1]]
+    face_z = mesh.points[boundary_faces, 2]
+    material_z = mesh.points[np.unique(tetrahedra), 2]
+    is_horizontal = np.ptp(face_z, axis=1) < 1e-6
+    is_internal = (face_z[:, 0] > material_z.min() + 1e-6) & (
+        face_z[:, 0] < material_z.max() - 1e-6
+    )
+    return boundary_faces[is_horizontal & is_internal]
+
+
 def test_write_uses_project_material_then_fallback_and_valid_mesh(
     tmp_path,
     fdtd_pdk_module,
@@ -67,10 +98,11 @@ def test_write_uses_project_material_then_fallback_and_valid_mesh(
 
     port_points = _physical_group_points(mesh, "port_o1", "triangle")
     assert port_points[:, 0] == pytest.approx(0)
-    assert port_points[:, 1].min() == pytest.approx(-259.697984, abs=1e-3)
-    assert port_points[:, 1].max() == pytest.approx(259.697984, abs=1e-3)
+    assert port_points[:, 1].min() == pytest.approx(-269.395968, abs=1e-3)
+    assert port_points[:, 1].max() == pytest.approx(269.395968, abs=1e-3)
     assert port_points[:, 2].min() == pytest.approx(0)
     assert port_points[:, 2].max() == pytest.approx(220)
+    assert len(_internal_horizontal_boundary_faces(mesh, "core")) == 0
 
     mesh_header = artifacts.mesh_path.read_text(encoding="utf8").splitlines()
     assert mesh_header[mesh_header.index("$MeshFormat") + 1] == "2.2 0 8"
