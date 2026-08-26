@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import gdsfactory as gf
 import pytest
 
-from gsim.common.cross_section import extract_plane_section
+from gsim.common.cross_section import RectYZ2D, extract_plane_section
 from gsim.common.stack.doping import make_pn_junction_profile
 from gsim.common.stack.extractor import LayerStack
 from gsim.common.stack.junction import PNJunctionConfig
@@ -55,7 +56,8 @@ def _section_rects(comp, result):
     for name, mat in result["materials"].items():
         stack.materials[name] = mat.to_dict()
     rects = extract_plane_section(comp.copy(), stack, axis="x", value=0.0)
-    return sorted(rects, key=lambda r: r.y0)
+    # axis="x" always yields YZ rectangles; narrow the union for attribute access.
+    return sorted(cast("list[RectYZ2D]", rects), key=lambda r: r.y0)
 
 
 class TestAutoModeSelection:
