@@ -321,6 +321,7 @@ class Simulation(CloudWorkflowMixin, RuntimeConfigMixin):
         position_um: float | None = None,
         show_groups: Sequence[str] | None = None,
         hide_groups: Sequence[str] = (),
+        zoom_to_cursor: bool = True,
         height: int = 600,
     ) -> Any:
         """Render the current or a temporary mesh with the FDTD viewer."""
@@ -337,6 +338,9 @@ class Simulation(CloudWorkflowMixin, RuntimeConfigMixin):
                 position_um=position_um,
                 show_groups=show_groups,
                 hide_groups=hide_groups,
+                zoom_to_cursor=zoom_to_cursor,
+                cell_size_nm=self.solver.cell_size_nm,
+                pml_cells=self.domain.pml_cells,
                 height=height,
             )
 
@@ -351,6 +355,9 @@ class Simulation(CloudWorkflowMixin, RuntimeConfigMixin):
                     position_um=position_um,
                     show_groups=show_groups,
                     hide_groups=hide_groups,
+                    zoom_to_cursor=zoom_to_cursor,
+                    cell_size_nm=self.solver.cell_size_nm,
+                    pml_cells=self.domain.pml_cells,
                     height=height,
                 )
             finally:
@@ -362,6 +369,7 @@ class Simulation(CloudWorkflowMixin, RuntimeConfigMixin):
         show_mesh: bool = False,
         show_groups: Sequence[str] | None = None,
         hide_groups: Sequence[str] = (),
+        zoom_to_cursor: bool = True,
         height: int = 600,
     ) -> Any:
         """Show the 3D geometry, optionally with Gmsh surface edges."""
@@ -369,6 +377,7 @@ class Simulation(CloudWorkflowMixin, RuntimeConfigMixin):
             mode="mesh" if show_mesh else "surface",
             show_groups=show_groups,
             hide_groups=hide_groups,
+            zoom_to_cursor=zoom_to_cursor,
             height=height,
         )
 
@@ -380,6 +389,7 @@ class Simulation(CloudWorkflowMixin, RuntimeConfigMixin):
         show_mesh: bool = False,
         show_groups: Sequence[str] | None = None,
         hide_groups: Sequence[str] = (),
+        zoom_to_cursor: bool = True,
         height: int = 600,
     ) -> Any:
         """Show a filled cross-section, optionally with intersected cell edges."""
@@ -390,6 +400,7 @@ class Simulation(CloudWorkflowMixin, RuntimeConfigMixin):
             position_um=position_um,
             show_groups=show_groups,
             hide_groups=hide_groups,
+            zoom_to_cursor=zoom_to_cursor,
             height=height,
         )
 
