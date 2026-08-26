@@ -74,6 +74,7 @@ listed first, followed by the largest volumetric group and then the ports.
 ```python
 sim.plot_3d()                                   # solid interactive geometry
 sim.plot_3d(show_mesh=True)                     # add Gmsh surface edges
+sim.plot_3d(zoom_to_cursor=False)               # zoom toward the view center
 sim.plot_2d(axis="z", position_um=0.11)         # filled cross-section
 sim.plot_2d(axis="x", position_um=0, show_mesh=True)  # add cell edges
 ```
@@ -82,6 +83,13 @@ Omit `position_um` to start at the geometry midpoint. The 2D viewer includes a
 slider that moves the plane through the mesh. Both methods return a standalone
 `MeshViewer`. Set `show_mesh=True` when element edges are useful, or use
 `viewer.save("mesh.html")` to share the visualization outside a notebook.
+Zooming moves toward the pointer by default; set `zoom_to_cursor=False` to zoom
+toward the view center instead. The same choice is available in the viewer's
+**Zoom toward** controls.
+
+The viewer also summarizes the physical domain, estimated Yee-grid dimensions
+and total cell count (including PML). These values are estimates; the solver
+backend is authoritative when it constructs the final grid.
 
 ## Sources
 
