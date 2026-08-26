@@ -46,6 +46,22 @@ def _scale_vector(vector: Vector3, factor: float) -> Vector3:
     )
 
 
+def _vector_bounds(center: Vector3, half_size: Vector3) -> tuple[Vector3, Vector3]:
+    """Return fixed-length lower and upper bounds around a center."""
+    return (
+        (
+            center[0] - half_size[0],
+            center[1] - half_size[1],
+            center[2] - half_size[2],
+        ),
+        (
+            center[0] + half_size[0],
+            center[1] + half_size[1],
+            center[2] + half_size[2],
+        ),
+    )
+
+
 class RuntimeConfigMixin:
     """Serialize sources, monitors, and solver controls for ZapFDTD."""
 
@@ -86,17 +102,12 @@ class RuntimeConfigMixin:
         if isinstance(source, GaussianBeamSource):
             center = _scale_vector(source.center_um, 1000)
             half_size = _scale_vector(source.size_um, 500)
+            lower, upper = _vector_bounds(center, half_size)
             regions.append(
                 (
                     "Gaussian source aperture",
-                    tuple(
-                        value - half
-                        for value, half in zip(center, half_size, strict=True)
-                    ),
-                    tuple(
-                        value + half
-                        for value, half in zip(center, half_size, strict=True)
-                    ),
+                    lower,
+                    upper,
                 )
             )
             focal_point = _scale_vector(source.focal_point_um, 1000)
@@ -122,17 +133,12 @@ class RuntimeConfigMixin:
         for monitor in self.monitors:
             center = _scale_vector(monitor.center_um, 1000)
             half_size = _scale_vector(monitor.size_um, 500)
+            lower, upper = _vector_bounds(center, half_size)
             regions.append(
                 (
                     f"Monitor {monitor.name!r}",
-                    tuple(
-                        value - half
-                        for value, half in zip(center, half_size, strict=True)
-                    ),
-                    tuple(
-                        value + half
-                        for value, half in zip(center, half_size, strict=True)
-                    ),
+                    lower,
+                    upper,
                 )
             )
             if monitor.fiber_mode is not None:
