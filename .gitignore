@@ -63,6 +63,7 @@ pip-log.txt
 .pytest_cache/
 .tox/
 .vscode/
+.worktrees/
 ENV/
 __pycache__/
 __pypackages__/
