@@ -287,6 +287,22 @@ class TestGetStatus:
 class TestWaitForResultsSingle:
     """Tests for wait_for_results with a single job."""
 
+    @patch("gsim.gcloud._output_mode", new=lambda: "pipe")
+    @patch("gsim.gcloud.sim")
+    def test_status_display_includes_progress_bar(self, mock_sim, capsys):
+        """Status mode renders a lifecycle progress estimate and elapsed time."""
+        from gsim.gcloud import _print_status_table
+
+        mock_sim.SimStatus = SimStatus
+        job = FakeJob(job_name="meep-progress", status=SimStatus.RUNNING)
+
+        _print_status_table({"job-1": job}, {"job-1": 0.0}, final=True)
+
+        output = capsys.readouterr().out
+        assert "[##########..........]  50%" in output
+        assert "running" in output
+        assert "elapsed" in output
+
     @patch("gsim.gcloud.sim")
     def test_already_completed(self, mock_sim, tmp_path):
         """Completed job downloads and parses results immediately."""

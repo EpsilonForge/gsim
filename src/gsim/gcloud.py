@@ -733,14 +733,42 @@ def _print_status_table(
         mins, secs = divmod(int(t), 60)
         return f"{mins}m {secs:02d}s"
 
+    def _progress(job: Any) -> tuple[int, str]:
+        """Return a conservative lifecycle-based completion estimate.
+
+        The cloud API reports lifecycle states but not solver iteration counts,
+        so a running job cannot be assigned an exact percentage.  These values
+        make the transition through submission, queueing, execution, and
+        completion visible without suggesting that a solver is further along
+        than the backend can confirm.
+        """
+        status = _status_value(job.status).casefold()
+        if status == "completed":
+            return 100, "complete"
+        if status == "failed":
+            return 100, "failed"
+        if status == "running":
+            return 50, "running"
+        if status == "queued":
+            return 15, "queued"
+        return 5, status or "starting"
+
+    def _bar(percent: int, width: int = 20) -> str:
+        filled = round(width * percent / 100)
+        return f"[{'#' * filled}{'.' * (width - filled)}] {percent:3d}%"
+
     lines_printed = 0
     n = len(jobs)
 
     if n == 1:
         jid, job = next(iter(jobs.items()))
-        msg = f"  {job.job_name or jid}  {_status_value(job.status)}  {_elapsed(jid)}"
+        percent, phase = _progress(job)
+        msg = (
+            f"  {job.job_name or jid}  {_bar(percent)}  {phase}"
+            f"  elapsed {_elapsed(jid)}"
+        )
         if mode == "tty":
-            sys.stdout.write(f"\r{msg:<60s}")
+            sys.stdout.write(f"\r{msg:<80s}")
             if final:
                 sys.stdout.write("\n")
         else:
@@ -752,8 +780,11 @@ def _print_status_table(
     print(f"Waiting for {n} jobs...")  # noqa: T201
     lines_printed += 1
     for jid, job in jobs.items():
-        status = _status_value(job.status)
-        line = f"  {job.job_name or jid:<30s} {status:<12s} {_elapsed(jid)}"
+        percent, phase = _progress(job)
+        line = (
+            f"  {job.job_name or jid:<30s} {_bar(percent)} {phase:<12s}"
+            f" elapsed {_elapsed(jid)}"
+        )
         print(line)  # noqa: T201
         lines_printed += 1
 
