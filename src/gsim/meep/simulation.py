@@ -331,6 +331,7 @@ class Simulation(BaseModel):
     _job_id: str | None = PrivateAttr(default=None)
     _config_dir: Path | None = PrivateAttr(default=None)
     _input_hash: str | None = PrivateAttr(default=None)
+    _estimated_runtime_seconds: float | None = PrivateAttr(default=None)
 
     # PDK overlay (foundry-specific material values, loaded from YAML)
     _pdk_overlay: dict[str, Any] | None = PrivateAttr(default=None)
