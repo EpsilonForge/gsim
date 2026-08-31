@@ -1816,6 +1816,7 @@ class Simulation(BaseModel):
         from gsim.hashing import compute_input_hash
 
         tmp = self._prepare_upload_dir()
+        self._estimated_runtime_seconds = gcloud.estimate_runtime_seconds(tmp)
         self._input_hash = compute_input_hash(tmp, "meep")
         self._job_id = gcloud.upload(
             tmp, "meep", verbose=verbose, input_hash=self._input_hash
@@ -1874,7 +1875,10 @@ class Simulation(BaseModel):
         if self._job_id is None:
             raise ValueError("No job submitted yet")
         return gcloud.wait_for_results(
-            self._job_id, verbose=verbose, parent_dir=parent_dir
+            self._job_id,
+            verbose=verbose,
+            parent_dir=parent_dir,
+            estimated_runtime_seconds=getattr(self, "_estimated_runtime_seconds", None),
         )
 
     # -------------------------------------------------------------------------
@@ -1911,6 +1915,7 @@ class Simulation(BaseModel):
         self._run_verbose = verbose
         if check_cache:
             tmp = self._prepare_upload_dir()
+            self._estimated_runtime_seconds = gcloud.estimate_runtime_seconds(tmp)
             self._input_hash, cached_job_id = gcloud.check_cache_for_dir(tmp, "meep")
             if cached_job_id is not None:
                 self._job_id = cached_job_id
