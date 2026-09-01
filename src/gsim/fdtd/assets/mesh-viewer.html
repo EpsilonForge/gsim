@@ -1,0 +1,1231 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>GDSFactory FDTD mesh viewer</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #101216;
+        color: #eef2f7;
+      }
+      #canvas {
+        width: 100vw;
+        height: 100vh;
+      }
+      #panel {
+        position: absolute;
+        z-index: 2;
+        top: 14px;
+        left: 14px;
+        width: 250px;
+        max-height: calc(100vh - 28px);
+        overflow: auto;
+        padding: 14px;
+        border: 1px solid #ffffff20;
+        border-radius: 10px;
+        background: #12151ddd;
+        box-shadow: 0 8px 30px #0008;
+      }
+      #panel.collapsed {
+        width: auto;
+        max-height: none;
+        overflow: hidden;
+        padding: 10px 12px;
+      }
+      #panel.collapsed #panel-body {
+        display: none;
+      }
+      #panel-header {
+        width: 100%;
+      }
+      .muted {
+        color: #94a0b2;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .section {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid #ffffff14;
+      }
+      .stats-title {
+        margin-bottom: 7px;
+      }
+      .stats-grid {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 10px;
+        margin: 0;
+        font-size: 11px;
+      }
+      .stats-grid dt {
+        color: #94a0b2;
+      }
+      .stats-grid dd {
+        margin: 0;
+        color: #dce3ec;
+        text-align: right;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      #groups {
+        display: grid;
+        gap: 5px;
+        margin-top: 7px;
+      }
+      button {
+        width: 100%;
+        padding: 5px 8px;
+        border: 0;
+        border-radius: 5px;
+        background: #2868c7;
+        color: white;
+        text-align: left;
+        cursor: pointer;
+      }
+      button.group-button {
+        background: var(--group-color);
+        color: #101216;
+      }
+      button.group-button.off {
+        background: #343a46;
+        color: #9aa5b5;
+      }
+      #panel-toggle {
+        width: 100%;
+        min-height: 26px;
+        padding: 4px 6px;
+        border: 0;
+        background: transparent;
+        color: #eef2f7;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      #panel-toggle .panel-title {
+        font-size: 16px;
+        font-weight: 700;
+      }
+      #panel-toggle svg {
+        flex: 0 0 auto;
+        width: 14px;
+        height: 14px;
+        color: #94a0b2;
+        transform: rotate(180deg);
+        transition: transform 160ms ease;
+      }
+      #panel.collapsed #panel-toggle svg {
+        transform: rotate(0);
+      }
+      #panel-toggle:hover,
+      #panel-toggle:focus-visible {
+        background: #ffffff14;
+      }
+      #panel-toggle:hover svg,
+      #panel-toggle:focus-visible svg {
+        color: #eef2f7;
+      }
+      input[type="range"] {
+        width: 100%;
+        accent-color: #4f91f7;
+      }
+      .zoom-focus,
+      .zoom-options,
+      .zoom-option {
+        display: flex;
+        align-items: center;
+      }
+      .zoom-focus {
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .zoom-options {
+        gap: 8px;
+      }
+      .zoom-option {
+        gap: 3px;
+        color: #c7d0dc;
+        font-size: 11px;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      input[type="radio"] {
+        margin: 0;
+        accent-color: #4f91f7;
+      }
+      #error {
+        color: #ff8f8f;
+        white-space: pre-wrap;
+      }
+      #error:empty {
+        display: none;
+      }
+      #orientation-gizmo {
+        position: absolute;
+        z-index: 3;
+        right: 10px;
+        bottom: 10px;
+        width: 112px;
+        height: 112px;
+        user-select: none;
+      }
+      #orientation-gizmo svg {
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+      }
+      .gizmo-axis {
+        stroke: #4f9cff;
+        stroke-width: 3;
+        stroke-linecap: round;
+      }
+      .gizmo-target {
+        cursor: pointer;
+        outline: none;
+      }
+      .gizmo-target circle {
+        stroke: #101216;
+        stroke-width: 2;
+      }
+      .gizmo-axis-target circle {
+        fill: #4f9cff;
+      }
+      .gizmo-target:hover circle,
+      .gizmo-target:focus circle {
+        stroke: white;
+        stroke-width: 3;
+      }
+      .gizmo-label {
+        fill: #101216;
+        font:
+          700 11px Inter,
+          ui-sans-serif,
+          system-ui,
+          sans-serif;
+        text-anchor: middle;
+        dominant-baseline: central;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <div id="panel-header">
+        <button
+          id="panel-toggle"
+          type="button"
+          aria-expanded="true"
+          aria-controls="panel-body"
+          aria-label="Collapse controls"
+          title="Collapse controls"
+        >
+          <span class="panel-title">GDSFactory FDTD</span>
+          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path
+              d="m5 7.5 5 5 5-5"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+      <div id="panel-body">
+        <div class="section">
+          <div class="muted">Physical groups</div>
+          <div id="groups"></div>
+        </div>
+        <div id="slice-section" class="section" hidden>
+          <div class="row">
+            <label for="slice">Slice</label
+            ><span id="slice-value" class="muted"></span>
+          </div>
+          <input id="slice" type="range" step="any" />
+        </div>
+        <div class="section muted">
+          Drag to rotate, scroll to zoom, right-drag to pan. Slice views pan and
+          zoom without rotation.
+        </div>
+        <div class="section">
+          <div
+            id="zoom-focus"
+            class="zoom-focus"
+            role="radiogroup"
+            aria-labelledby="zoom-focus-label"
+          >
+            <span id="zoom-focus-label" class="muted">Zoom toward</span>
+            <div class="zoom-options">
+              <label class="zoom-option" for="zoom-pointer">
+                <input
+                  id="zoom-pointer"
+                  type="radio"
+                  name="zoom-focus"
+                  value="pointer"
+                />
+                Pointer
+              </label>
+              <label class="zoom-option" for="zoom-center">
+                <input
+                  id="zoom-center"
+                  type="radio"
+                  name="zoom-focus"
+                  value="center"
+                />
+                View center
+              </label>
+            </div>
+          </div>
+        </div>
+        <div id="stats" class="section" hidden></div>
+        <div id="error" class="section muted"></div>
+      </div>
+    </div>
+    <div id="canvas"></div>
+    <div id="orientation-gizmo" aria-label="View orientation" hidden>
+      <svg viewBox="0 0 112 112" role="group" aria-label="View orientation">
+        <line
+          id="gizmo-x-line"
+          class="gizmo-axis"
+          x1="56"
+          y1="56"
+          x2="90"
+          y2="56"
+        />
+        <line
+          id="gizmo-y-line"
+          class="gizmo-axis"
+          x1="56"
+          y1="56"
+          x2="56"
+          y2="22"
+        />
+        <line
+          id="gizmo-z-line"
+          class="gizmo-axis"
+          x1="56"
+          y1="56"
+          x2="32"
+          y2="80"
+        />
+        <g
+          id="gizmo-x-target"
+          class="gizmo-target gizmo-axis-target"
+          role="button"
+          tabindex="0"
+          aria-label="View from positive X axis"
+        >
+          <circle r="10" />
+          <text class="gizmo-label" y="0.5">X</text>
+        </g>
+        <g
+          id="gizmo-y-target"
+          class="gizmo-target gizmo-axis-target"
+          role="button"
+          tabindex="0"
+          aria-label="View from positive Y axis"
+        >
+          <circle r="10" />
+          <text class="gizmo-label" y="0.5">Y</text>
+        </g>
+        <g
+          id="gizmo-z-target"
+          class="gizmo-target gizmo-axis-target"
+          role="button"
+          tabindex="0"
+          aria-label="View from positive Z axis"
+        >
+          <circle r="10" />
+          <text class="gizmo-label" y="0.5">Z</text>
+        </g>
+        <g
+          id="gizmo-center-target"
+          class="gizmo-target"
+          role="button"
+          tabindex="0"
+          aria-label="Reset isometric view"
+        >
+          <circle cx="56" cy="56" r="7" fill="#d7dde7" />
+        </g>
+      </svg>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+      import { toCreasedNormals } from "three/addons/utils/BufferGeometryUtils.js";
+
+      const meshText = __GSIM_MESH_DATA__;
+      const options = __GSIM_VIEW_OPTIONS__;
+      const NM_TO_UM = 1e-3;
+      const isSlice = options.mode === "slice" || options.mode === "mesh_slice";
+      const showEdges =
+        options.mode === "mesh" || options.mode === "mesh_slice";
+      const statsPanel = document.getElementById("stats");
+      const axisIndex = { x: 0, y: 1, z: 2 }[options.axis];
+      const axisVectors = [
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(0, 0, 1),
+      ];
+      const orientationAxes = {
+        x: axisVectors[0],
+        y: axisVectors[1],
+        z: axisVectors[2],
+      };
+      const zUp = new THREE.Vector3(0, 0, 1);
+      const defaultViewDirection = new THREE.Vector3(
+        1.8,
+        -1.5,
+        1.8,
+      ).normalize();
+      const physicalGroupPalette = [0x58c7a3, 0xff7a7a];
+      const largestGroupColor = 0xb8b2b0;
+      const physicalGroupColors = new Map();
+      const panel = document.getElementById("panel");
+      const panelToggle = document.getElementById("panel-toggle");
+      const zoomPointer = document.getElementById("zoom-pointer");
+      const zoomCenter = document.getElementById("zoom-center");
+      const orientationGizmo = document.getElementById("orientation-gizmo");
+      orientationGizmo.hidden = isSlice;
+      zoomPointer.checked = options.zoomToCursor !== false;
+      zoomCenter.checked = !zoomPointer.checked;
+      for (const input of [zoomPointer, zoomCenter]) {
+        input.addEventListener("change", () => {
+          if (controls) controls.zoomToCursor = zoomPointer.checked;
+        });
+      }
+
+      panelToggle.addEventListener("click", () => {
+        const collapsed = panel.classList.toggle("collapsed");
+        const label = collapsed ? "Expand controls" : "Collapse controls";
+        panelToggle.setAttribute("aria-expanded", String(!collapsed));
+        panelToggle.setAttribute("aria-label", label);
+        panelToggle.title = label;
+      });
+
+      let camera;
+      let controls;
+      let cameraAnimation;
+      let currentModel;
+      let currentLargestGroup = null;
+      let groupRoots = new Map();
+      let slicePosition = options.positionUm;
+      let orthographicHalfHeight = 1;
+      let rebuildFrame;
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x101216);
+      scene.add(new THREE.HemisphereLight(0xdce9ff, 0x253044, 2.4));
+      const keyLight = new THREE.DirectionalLight(0xffffff, 2.1);
+      keyLight.position.set(3, -5, 4);
+      scene.add(keyLight);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      const clock = new THREE.Clock();
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.getElementById("canvas").appendChild(renderer.domElement);
+
+      function faceKey(a, b, c) {
+        if (a > b) [a, b] = [b, a];
+        if (b > c) [b, c] = [c, b];
+        if (a > b) [a, b] = [b, a];
+        return `${a},${b},${c}`;
+      }
+
+      function sectionStart(lines, tag) {
+        const index = lines.findIndex((line) => line.trim() === tag);
+        if (index < 0) throw new Error(`Missing ${tag} section`);
+        return index + 1;
+      }
+
+      function parseGmsh(text) {
+        const lines = text.split(/\r?\n/);
+        let index = sectionStart(lines, "$MeshFormat");
+        const major = Number.parseInt(lines[index].trim().split(/\s+/)[0], 10);
+        if (major !== 2 && major !== 4)
+          throw new Error(`Unsupported Gmsh version ${major}`);
+
+        const names = new Map();
+        if (text.includes("$PhysicalNames")) {
+          index = sectionStart(lines, "$PhysicalNames");
+          const count = Number(lines[index++]);
+          for (let i = 0; i < count; i++) {
+            const parts = lines[index++].trim().split(/\s+/);
+            const name = parts.slice(2).join(" ").replace(/^"|"$/g, "");
+            names.set(`${parts[0]}_${parts[1]}`, name);
+          }
+        }
+
+        const entityGroups = new Map();
+        if (major === 4 && text.includes("$Entities")) {
+          index = sectionStart(lines, "$Entities");
+          const counts = lines[index++].trim().split(/\s+/).map(Number);
+          for (let dim = 0; dim < 4; dim++) {
+            for (let i = 0; i < counts[dim]; i++) {
+              const parts = lines[index++].trim().split(/\s+/).map(Number);
+              const physicalCountIndex = dim === 0 ? 4 : 7;
+              if (parts[physicalCountIndex] > 0) {
+                entityGroups.set(
+                  `${dim}_${parts[0]}`,
+                  parts[physicalCountIndex + 1],
+                );
+              }
+            }
+          }
+        }
+
+        const nodes = new Map();
+        index = sectionStart(lines, "$Nodes");
+        if (major === 2) {
+          const count = Number(lines[index++]);
+          for (let i = 0; i < count; i++) {
+            const parts = lines[index++].trim().split(/\s+/).map(Number);
+            nodes.set(
+              parts[0],
+              parts.slice(1, 4).map((value) => value * NM_TO_UM),
+            );
+          }
+        } else {
+          const blockCount = Number(lines[index++].trim().split(/\s+/)[0]);
+          for (let block = 0; block < blockCount; block++) {
+            const header = lines[index++].trim().split(/\s+/).map(Number);
+            const count = header[3];
+            const tags = [];
+            for (let i = 0; i < count; i++)
+              tags.push(Number(lines[index++].trim()));
+            for (let i = 0; i < count; i++) {
+              const point = lines[index++]
+                .trim()
+                .split(/\s+/)
+                .slice(0, 3)
+                .map(Number);
+              nodes.set(
+                tags[i],
+                point.map((value) => value * NM_TO_UM),
+              );
+            }
+          }
+        }
+
+        const triangles = [];
+        const tetrahedra = [];
+        index = sectionStart(lines, "$Elements");
+        if (major === 2) {
+          const count = Number(lines[index++]);
+          for (let i = 0; i < count; i++) {
+            const parts = lines[index++].trim().split(/\s+/).map(Number);
+            const type = parts[1];
+            const tagCount = parts[2];
+            const nodeStart = 3 + tagCount;
+            const physicalTag = tagCount ? parts[3] : 0;
+            if (type === 2)
+              triangles.push({
+                group: `2_${physicalTag}`,
+                nodes: parts.slice(nodeStart, nodeStart + 3),
+              });
+            if (type === 4)
+              tetrahedra.push({
+                group: `3_${physicalTag}`,
+                nodes: parts.slice(nodeStart, nodeStart + 4),
+              });
+          }
+        } else {
+          const blockCount = Number(lines[index++].trim().split(/\s+/)[0]);
+          for (let block = 0; block < blockCount; block++) {
+            const header = lines[index++].trim().split(/\s+/).map(Number);
+            const [dimension, entityTag, type, count] = header;
+            const physicalTag =
+              entityGroups.get(`${dimension}_${entityTag}`) ?? 0;
+            for (let i = 0; i < count; i++) {
+              const parts = lines[index++].trim().split(/\s+/).map(Number);
+              if (type === 2)
+                triangles.push({
+                  group: `2_${physicalTag}`,
+                  nodes: parts.slice(1, 4),
+                });
+              if (type === 4)
+                tetrahedra.push({
+                  group: `3_${physicalTag}`,
+                  nodes: parts.slice(1, 5),
+                });
+            }
+          }
+        }
+        if (!nodes.size || (!triangles.length && !tetrahedra.length))
+          throw new Error("Mesh has no renderable elements");
+        return { names, nodes, tetrahedra, triangles };
+      }
+
+      function addFace(groups, group, nodes) {
+        if (!groups.has(group)) groups.set(group, []);
+        groups.get(group).push(...nodes);
+      }
+
+      function orientedTetFace(tet, indices, nodeMap) {
+        const [aIndex, bIndex, cIndex, oppositeIndex] = indices;
+        const a = nodeMap.get(tet.nodes[aIndex]);
+        const b = nodeMap.get(tet.nodes[bIndex]);
+        const c = nodeMap.get(tet.nodes[cIndex]);
+        const opposite = nodeMap.get(tet.nodes[oppositeIndex]);
+        const ab = b.map((value, index) => value - a[index]);
+        const ac = c.map((value, index) => value - a[index]);
+        const normal = [
+          ab[1] * ac[2] - ab[2] * ac[1],
+          ab[2] * ac[0] - ab[0] * ac[2],
+          ab[0] * ac[1] - ab[1] * ac[0],
+        ];
+        const towardInterior = normal.reduce(
+          (sum, value, index) => sum + value * (opposite[index] - a[index]),
+          0,
+        );
+        const tags = [tet.nodes[aIndex], tet.nodes[bIndex], tet.nodes[cIndex]];
+        return towardInterior > 0 ? [tags[0], tags[2], tags[1]] : tags;
+      }
+
+      function surfaceGroups(mesh) {
+        const explicitKeys = new Set(
+          mesh.triangles.map((item) => faceKey(...item.nodes)),
+        );
+        const faces = new Map();
+        const tetFaces = [
+          [0, 1, 2, 3],
+          [0, 1, 3, 2],
+          [0, 2, 3, 1],
+          [1, 2, 3, 0],
+        ];
+        for (const tet of mesh.tetrahedra) {
+          for (const indices of tetFaces) {
+            const nodes = orientedTetFace(tet, indices, mesh.nodes);
+            const key = faceKey(...nodes);
+            if (!faces.has(key)) faces.set(key, []);
+            faces.get(key).push({ group: tet.group, nodes });
+          }
+        }
+        const groups = new Map();
+        for (const [key, owners] of faces) {
+          const distinct = new Set(owners.map((owner) => owner.group));
+          if (explicitKeys.has(key)) continue;
+          if (owners.length === 1 || distinct.size > 1) {
+            for (const group of distinct) {
+              const owner = owners.find(
+                (candidate) => candidate.group === group,
+              );
+              addFace(groups, group, owner.nodes);
+            }
+          }
+        }
+        for (const triangle of mesh.triangles)
+          addFace(groups, triangle.group, triangle.nodes);
+        return groups;
+      }
+
+      const edgePairs = [
+        [0, 1],
+        [0, 2],
+        [0, 3],
+        [1, 2],
+        [1, 3],
+        [2, 3],
+      ];
+      function slicePolygon(tet, nodes, axis, position) {
+        const points = [];
+        const epsilon = 1e-9;
+        function addUnique(point) {
+          if (
+            !points.some((existing) =>
+              existing.every(
+                (value, i) => Math.abs(value - point[i]) < epsilon,
+              ),
+            )
+          )
+            points.push(point);
+        }
+        for (const [aIndex, bIndex] of edgePairs) {
+          const a = nodes.get(tet.nodes[aIndex]);
+          const b = nodes.get(tet.nodes[bIndex]);
+          const da = a[axis] - position;
+          const db = b[axis] - position;
+          if (Math.abs(da) < epsilon) addUnique(a.slice());
+          if (Math.abs(db) < epsilon) addUnique(b.slice());
+          if (da * db < -epsilon * epsilon) {
+            const fraction = da / (da - db);
+            addUnique(a.map((value, i) => value + fraction * (b[i] - value)));
+          }
+        }
+        if (points.length < 3) return [];
+        const planeAxes = axis === 0 ? [1, 2] : axis === 1 ? [0, 2] : [0, 1];
+        const center = [0, 0, 0];
+        points.forEach((point) =>
+          point.forEach((value, i) => (center[i] += value / points.length)),
+        );
+        points.sort(
+          (a, b) =>
+            Math.atan2(
+              a[planeAxes[1]] - center[planeAxes[1]],
+              a[planeAxes[0]] - center[planeAxes[0]],
+            ) -
+            Math.atan2(
+              b[planeAxes[1]] - center[planeAxes[1]],
+              b[planeAxes[0]] - center[planeAxes[0]],
+            ),
+        );
+        return points;
+      }
+
+      function slicedGroups(mesh, position) {
+        const groups = new Map();
+        for (const tet of mesh.tetrahedra) {
+          const polygon = slicePolygon(tet, mesh.nodes, axisIndex, position);
+          if (!polygon.length) continue;
+          if (!groups.has(tet.group))
+            groups.set(tet.group, { faces: [], edges: [] });
+          const output = groups.get(tet.group);
+          for (let i = 1; i < polygon.length - 1; i++)
+            output.faces.push(...polygon[0], ...polygon[i], ...polygon[i + 1]);
+          for (let i = 0; i < polygon.length; i++)
+            output.edges.push(
+              ...polygon[i],
+              ...polygon[(i + 1) % polygon.length],
+            );
+        }
+        return groups;
+      }
+
+      function positionsForNodeTags(tags, nodes) {
+        const positions = new Float32Array(tags.length * 3);
+        tags.forEach((tag, index) => positions.set(nodes.get(tag), index * 3));
+        return positions;
+      }
+
+      function isPortGroup(mesh, group) {
+        return groupName(mesh, group).toLowerCase().startsWith("port_");
+      }
+
+      function colorFor(mesh, group) {
+        if (isPortGroup(mesh, group)) return new THREE.Color(0xf4f7fb);
+        if (group === currentLargestGroup)
+          return new THREE.Color(largestGroupColor);
+        if (!physicalGroupColors.has(group)) {
+          physicalGroupColors.set(
+            group,
+            physicalGroupPalette[
+              physicalGroupColors.size % physicalGroupPalette.length
+            ],
+          );
+        }
+        return new THREE.Color(physicalGroupColors.get(group));
+      }
+
+      function groupName(mesh, group) {
+        return mesh.names.get(group) ?? `Group ${group}`;
+      }
+
+      function shouldShow(mesh, group) {
+        const name = groupName(mesh, group);
+        if (
+          options.showGroups &&
+          !options.showGroups.includes(name) &&
+          !options.showGroups.includes(group)
+        )
+          return false;
+        return (
+          !options.hideGroups.includes(name) &&
+          !options.hideGroups.includes(group)
+        );
+      }
+
+      function tetrahedronVolume(tetrahedron, nodes) {
+        const [a, b, c, d] = tetrahedron.nodes.map((tag) => nodes.get(tag));
+        const ab = b.map((value, index) => value - a[index]);
+        const ac = c.map((value, index) => value - a[index]);
+        const ad = d.map((value, index) => value - a[index]);
+        const determinant =
+          ab[0] * (ac[1] * ad[2] - ac[2] * ad[1]) -
+          ab[1] * (ac[0] * ad[2] - ac[2] * ad[0]) +
+          ab[2] * (ac[0] * ad[1] - ac[1] * ad[0]);
+        return Math.abs(determinant) / 6;
+      }
+
+      function largestMaterialGroup(mesh, groups) {
+        const materialEntries = [...groups.entries()].filter(
+          ([group]) => !isPortGroup(mesh, group),
+        );
+        if (!materialEntries.length) return null;
+        const volumes = new Map();
+        for (const tetrahedron of mesh.tetrahedra) {
+          volumes.set(
+            tetrahedron.group,
+            (volumes.get(tetrahedron.group) ?? 0) +
+              tetrahedronVolume(tetrahedron, mesh.nodes),
+          );
+        }
+        const volumetricEntries = materialEntries.filter(([group]) =>
+          volumes.has(group),
+        );
+        const candidates = volumetricEntries.length
+          ? volumetricEntries
+          : materialEntries;
+        return candidates.reduce((largest, entry) => {
+          const entrySize =
+            volumes.get(entry[0]) ?? entry[1].faces?.length ?? entry[1].length;
+          const largestSize =
+            volumes.get(largest[0]) ??
+            largest[1].faces?.length ??
+            largest[1].length;
+          return entrySize > largestSize ? entry : largest;
+        })[0];
+      }
+
+      function orderedGroupEntries(mesh, groups) {
+        const entries = [...groups.entries()];
+        const materialEntries = entries.filter(
+          ([group]) => !isPortGroup(mesh, group),
+        );
+        const portEntries = entries.filter(([group]) =>
+          isPortGroup(mesh, group),
+        );
+        const largestGroup = largestMaterialGroup(mesh, groups);
+        if (largestGroup === null) return portEntries;
+        const largestEntry = materialEntries.find(
+          ([group]) => group === largestGroup,
+        );
+        return [
+          ...materialEntries.filter(([group]) => group !== largestGroup),
+          largestEntry,
+          ...portEntries,
+        ];
+      }
+
+      function disposeModel() {
+        if (!currentModel) return;
+        scene.remove(currentModel);
+        currentModel.traverse((item) => {
+          item.geometry?.dispose();
+          if (Array.isArray(item.material))
+            item.material.forEach((material) => material.dispose());
+          else item.material?.dispose();
+        });
+      }
+
+      function addRenderable(
+        root,
+        mesh,
+        group,
+        facePositions,
+        explicitEdges = null,
+        isLargestMaterial = false,
+      ) {
+        const rawGeometry = new THREE.BufferGeometry();
+        rawGeometry.setAttribute(
+          "position",
+          new THREE.BufferAttribute(facePositions, 3),
+        );
+        let geometry = rawGeometry;
+        if (isSlice) {
+          geometry.computeVertexNormals();
+        } else {
+          geometry = toCreasedNormals(rawGeometry, Math.PI / 3);
+          rawGeometry.dispose();
+        }
+        const color = colorFor(mesh, group);
+        const opacity = isLargestMaterial ? (isSlice ? 0.55 : 0.35) : 1;
+        const material = new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.72,
+          metalness: 0.04,
+          side:
+            isSlice || group.startsWith("2_")
+              ? THREE.DoubleSide
+              : THREE.FrontSide,
+          transparent: isLargestMaterial,
+          opacity,
+          depthWrite: !isLargestMaterial,
+          polygonOffset: true,
+          polygonOffsetFactor: 1,
+          polygonOffsetUnits: 1,
+        });
+        const face = new THREE.Mesh(geometry, material);
+        const groupRoot = new THREE.Group();
+        groupRoot.add(face);
+        if (showEdges) {
+          const lineGeometry = explicitEdges
+            ? new THREE.BufferGeometry()
+            : new THREE.WireframeGeometry(geometry);
+          if (explicitEdges)
+            lineGeometry.setAttribute(
+              "position",
+              new THREE.BufferAttribute(explicitEdges, 3),
+            );
+          const lines = new THREE.LineSegments(
+            lineGeometry,
+            new THREE.LineBasicMaterial({
+              color: 0xe8eef7,
+              transparent: true,
+              opacity: 0.32,
+            }),
+          );
+          groupRoot.add(lines);
+        }
+        groupRoot.visible = shouldShow(mesh, group);
+        root.add(groupRoot);
+        groupRoots.set(group, groupRoot);
+      }
+
+      function formatNumber(value, maximumFractionDigits = 2) {
+        return value.toLocaleString(undefined, { maximumFractionDigits });
+      }
+
+      function updateStats(mesh) {
+        const bounds = new THREE.Box3();
+        for (const point of mesh.nodes.values())
+          bounds.expandByPoint(new THREE.Vector3(...point));
+        const size = bounds.getSize(new THREE.Vector3()).toArray();
+        const stats = [
+          [
+            "Domain",
+            `${size.map((value) => formatNumber(value)).join(" × ")} µm`,
+          ],
+        ];
+        if (options.cellSizeNm) {
+          const pmlCells = options.pmlCells ?? 0;
+          const interiorGrid = size.map((value) =>
+            Math.ceil((value * 1000) / options.cellSizeNm),
+          );
+          const yeeGrid = interiorGrid.map((count) => count + 2 * pmlCells);
+          const totalCells = yeeGrid.reduce(
+            (product, count) => product * count,
+            1,
+          );
+          stats.push(
+            [
+              "Yee grid",
+              `\u2248 ${yeeGrid.map((value) => value.toLocaleString()).join(" × ")}`,
+            ],
+            ["Yee cells", `\u2248 ${totalCells.toLocaleString()}`],
+          );
+        }
+        const title = document.createElement("div");
+        title.className = "stats-title muted";
+        title.textContent = "Simulation estimate";
+        title.title =
+          "Yee-grid dimensions include PML cells on both sides of each axis.";
+        const list = document.createElement("dl");
+        list.className = "stats-grid";
+        for (const [label, value] of stats) {
+          const term = document.createElement("dt");
+          const description = document.createElement("dd");
+          term.textContent = label;
+          description.textContent = value;
+          list.append(term, description);
+        }
+        statsPanel.replaceChildren(title, list);
+        statsPanel.hidden = false;
+      }
+
+      function buildModel(mesh) {
+        disposeModel();
+        groupRoots = new Map();
+        const root = new THREE.Group();
+        if (isSlice) {
+          const groups = slicedGroups(mesh, slicePosition);
+          currentLargestGroup = largestMaterialGroup(mesh, groups);
+          for (const [group, data] of orderedGroupEntries(mesh, groups)) {
+            addRenderable(
+              root,
+              mesh,
+              group,
+              new Float32Array(data.faces),
+              new Float32Array(data.edges),
+              group === currentLargestGroup,
+            );
+          }
+        } else {
+          const groups = surfaceGroups(mesh);
+          currentLargestGroup = largestMaterialGroup(mesh, groups);
+          for (const [group, tags] of orderedGroupEntries(mesh, groups)) {
+            addRenderable(
+              root,
+              mesh,
+              group,
+              positionsForNodeTags(tags, mesh.nodes),
+              null,
+              group === currentLargestGroup,
+            );
+          }
+        }
+        scene.add(root);
+        currentModel = root;
+        buildGroupControls(mesh);
+        frameCamera(root);
+        updateStats(mesh);
+      }
+
+      function buildGroupControls(mesh) {
+        const container = document.getElementById("groups");
+        container.innerHTML = "";
+        for (const [group, root] of groupRoots) {
+          const button = document.createElement("button");
+          button.className = "group-button";
+          button.textContent = groupName(mesh, group);
+          button.style.setProperty(
+            "--group-color",
+            `#${colorFor(mesh, group).getHexString()}`,
+          );
+          button.classList.toggle("off", !root.visible);
+          button.addEventListener("click", () => {
+            root.visible = !root.visible;
+            button.classList.toggle("off", !root.visible);
+          });
+          container.appendChild(button);
+        }
+      }
+
+      function makeControls() {
+        controls?.dispose();
+        controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.screenSpacePanning = true;
+        controls.zoomToCursor = zoomPointer.checked;
+        controls.enableRotate = !isSlice;
+      }
+
+      function frameCamera(root) {
+        const box = new THREE.Box3().setFromObject(root);
+        if (box.isEmpty()) return;
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const radius = Math.max(size.length() / 2, 0.01);
+        if (isSlice) {
+          const planeSizes =
+            axisIndex === 0
+              ? [size.y, size.z]
+              : axisIndex === 1
+                ? [size.x, size.z]
+                : [size.x, size.y];
+          const aspect = window.innerWidth / window.innerHeight;
+          orthographicHalfHeight =
+            Math.max(planeSizes[1] / 2, planeSizes[0] / (2 * aspect), 0.01) *
+            1.12;
+          camera = new THREE.OrthographicCamera(
+            -orthographicHalfHeight * aspect,
+            orthographicHalfHeight * aspect,
+            orthographicHalfHeight,
+            -orthographicHalfHeight,
+            0.001,
+            radius * 20 + 1,
+          );
+          camera.position
+            .copy(center)
+            .addScaledVector(axisVectors[axisIndex], radius * 3 + 1);
+          camera.up.set(0, axisIndex === 2 ? 1 : 0, axisIndex === 2 ? 0 : 1);
+        } else {
+          camera = new THREE.PerspectiveCamera(
+            48,
+            window.innerWidth / window.innerHeight,
+            Math.max(radius / 100, 0.001),
+            radius * 100 + 1,
+          );
+          camera.up.copy(zUp);
+          camera.position
+            .copy(center)
+            .add(new THREE.Vector3(radius * 1.8, radius * -1.5, radius * 1.8));
+        }
+        camera.lookAt(center);
+        makeControls();
+        controls.target.copy(center);
+        controls.update();
+      }
+
+      function snapCamera(direction) {
+        if (!camera || !controls || !currentModel || isSlice) return;
+        const normalizedDirection = direction.clone().normalize();
+        const startTarget = controls.target.clone();
+        const modelBox = new THREE.Box3().setFromObject(currentModel);
+        if (modelBox.isEmpty()) return;
+        const target = modelBox.getCenter(new THREE.Vector3());
+        const distance = Math.max(
+          camera.position.distanceTo(startTarget),
+          0.001,
+        );
+        const targetUp =
+          Math.abs(normalizedDirection.dot(zUp)) > 0.999
+            ? new THREE.Vector3(0, 1, 0)
+            : zUp.clone();
+        cameraAnimation = {
+          duration: 0.35,
+          elapsed: 0,
+          startPosition: camera.position.clone(),
+          startTarget,
+          startUp: camera.up.clone(),
+          target,
+          targetPosition: target
+            .clone()
+            .addScaledVector(normalizedDirection, distance),
+          targetUp,
+        };
+        controls.enabled = false;
+      }
+
+      function updateCameraAnimation(delta) {
+        if (!cameraAnimation) return;
+        cameraAnimation.elapsed += delta;
+        const progress = Math.min(
+          cameraAnimation.elapsed / cameraAnimation.duration,
+          1,
+        );
+        const eased = 1 - (1 - progress) ** 3;
+        camera.position.lerpVectors(
+          cameraAnimation.startPosition,
+          cameraAnimation.targetPosition,
+          eased,
+        );
+        camera.up
+          .lerpVectors(cameraAnimation.startUp, cameraAnimation.targetUp, eased)
+          .normalize();
+        controls.target.lerpVectors(
+          cameraAnimation.startTarget,
+          cameraAnimation.target,
+          eased,
+        );
+        camera.lookAt(controls.target);
+        if (progress === 1) {
+          cameraAnimation = undefined;
+          controls.enabled = true;
+        }
+      }
+
+      function updateOrientationGizmo() {
+        if (!camera || isSlice) return;
+        const inverseCameraRotation = camera.quaternion.clone().invert();
+        for (const [axis, direction] of Object.entries(orientationAxes)) {
+          const projected = direction
+            .clone()
+            .applyQuaternion(inverseCameraRotation);
+          const x = 56 + projected.x * 34;
+          const y = 56 - projected.y * 34;
+          const line = document.getElementById(`gizmo-${axis}-line`);
+          const target = document.getElementById(`gizmo-${axis}-target`);
+          line.setAttribute("x2", x);
+          line.setAttribute("y2", y);
+          target.setAttribute("transform", `translate(${x} ${y})`);
+          const opacity = 0.55 + 0.45 * ((projected.z + 1) / 2);
+          line.style.opacity = opacity;
+          target.style.opacity = opacity;
+        }
+      }
+
+      function activateOnKeyboard(element, callback) {
+        element.addEventListener("click", callback);
+        element.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          callback();
+        });
+      }
+
+      for (const [axis, direction] of Object.entries(orientationAxes)) {
+        activateOnKeyboard(
+          document.getElementById(`gizmo-${axis}-target`),
+          () => snapCamera(direction),
+        );
+      }
+      activateOnKeyboard(document.getElementById("gizmo-center-target"), () =>
+        snapCamera(defaultViewDirection),
+      );
+
+      function configureSlice(mesh) {
+        if (!isSlice) return;
+        let minimum = Infinity;
+        let maximum = -Infinity;
+        for (const point of mesh.nodes.values()) {
+          minimum = Math.min(minimum, point[axisIndex]);
+          maximum = Math.max(maximum, point[axisIndex]);
+        }
+        if (slicePosition === null || slicePosition === undefined)
+          slicePosition = (minimum + maximum) / 2;
+        if (slicePosition < minimum || slicePosition > maximum)
+          throw new Error(
+            `Slice ${options.axis}=${slicePosition} \u00b5m is outside [${minimum}, ${maximum}] \u00b5m`,
+          );
+        const slider = document.getElementById("slice");
+        document.getElementById("slice-section").hidden = false;
+        slider.min = minimum;
+        slider.max = maximum;
+        slider.step = "any";
+        slider.value = slicePosition;
+        const label = document.getElementById("slice-value");
+        const updateLabel = () =>
+          (label.textContent = `${options.axis} = ${slicePosition.toFixed(4)} \u00b5m`);
+        updateLabel();
+        slider.addEventListener("input", () => {
+          slicePosition = Number(slider.value);
+          updateLabel();
+          cancelAnimationFrame(rebuildFrame);
+          rebuildFrame = requestAnimationFrame(() => buildModel(mesh));
+        });
+      }
+
+      function resize() {
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        if (!camera) return;
+        const aspect = window.innerWidth / window.innerHeight;
+        if (camera.isPerspectiveCamera) camera.aspect = aspect;
+        else {
+          camera.left = -orthographicHalfHeight * aspect;
+          camera.right = orthographicHalfHeight * aspect;
+        }
+        camera.updateProjectionMatrix();
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+        updateCameraAnimation(delta);
+        controls?.update();
+        updateOrientationGizmo();
+        if (camera) {
+          renderer.render(scene, camera);
+        }
+      }
+
+      try {
+        const mesh = parseGmsh(meshText);
+        configureSlice(mesh);
+        buildModel(mesh);
+      } catch (error) {
+        console.error(error);
+        document.getElementById("error").textContent = error.message;
+        statsPanel.hidden = false;
+        statsPanel.textContent = "Viewer failed to load";
+      }
+      window.addEventListener("resize", resize);
+      animate();
+    </script>
+  </body>
+</html>
