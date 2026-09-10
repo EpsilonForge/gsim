@@ -40,13 +40,14 @@ class Simulation:
     pdk: Any | None = None
     wavelength_um: float = 1.55
     background_material: str = "SiO2"
-    nanometers_per_cell: float = 31.25
+    nanometers_per_cell: float = 60.0
     pml_cells: int = 32
     wavelength_halfspan_um: float = 0.05
-    num_wavelengths: int = 11
+    num_wavelengths: int = 101
     default_port: str | None = None
     background_padding_um: float = 1.0
-    mesh_size_nm: float = 500.0
+    mesh_size_nm: float = 1000.0
+    geometry_tolerance_nm: float = 10.0
     vertical_port_axis: Literal["+z", "-z"] = "+z"
     vertical_port_aperture_width_um: float | None = None
     vertical_port_waist_radius_um: float | None = None
@@ -66,10 +67,13 @@ class Simulation:
             "nanometers_per_cell": self.nanometers_per_cell,
             "background_padding_um": self.background_padding_um,
             "mesh_size_nm": self.mesh_size_nm,
+            "geometry_tolerance_nm": self.geometry_tolerance_nm,
         }
         for name, value in positive_values.items():
             if not isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and positive.")
+        if self.geometry_tolerance_nm > 30:
+            raise ValueError("geometry_tolerance_nm must be at most 30.")
         if not self.background_material:
             raise ValueError("background_material cannot be empty.")
         if self.pml_cells < 0:
@@ -182,18 +186,17 @@ class Simulation:
             ) from error
 
     def _selected_port_name(self) -> str:
-        """Choose an explicit port or prefer the first guided port by default."""
-        if self.default_port is not None:
-            if self.default_port not in self.resolved.ports:
-                raise FDTDConfigError(
-                    f"default_port {self.default_port!r} is not present on the "
-                    "resolved component."
-                )
-            return self.default_port
-        for name, port in self.resolved.ports.items():
-            if not port.is_vertical:
-                return name
-        return next(iter(self.resolved.ports))
+        """Validate and return the explicitly selected source port."""
+        if self.default_port is None:
+            raise FDTDConfigError(
+                "default_port is required before writing or running FDTD."
+            )
+        if self.default_port not in self.resolved.ports:
+            raise FDTDConfigError(
+                f"default_port {self.default_port!r} is not present on the "
+                "resolved component."
+            )
+        return self.default_port
 
     @staticmethod
     def _vertical_polarization(port: Any) -> tuple[float, float, float]:
@@ -311,7 +314,7 @@ class Simulation:
             background_material=self.background_material,
             background_padding_um=self.background_padding_um,
             mesh_size_nm=self.mesh_size_nm,
-            nanometers_per_cell=self.nanometers_per_cell,
+            geometry_tolerance_nm=self.geometry_tolerance_nm,
         )
         config = self._config(manifest, material_snapshots)
         config_path.write_text(
@@ -325,4 +328,10 @@ class Simulation:
         )
 
 
-__all__ = ["Simulation"]
+# Keep the historical internal import path aligned with the public workflow.
+# The original artifact-only implementation above remains available while the
+# compatibility window is open, but new imports receive the concern-based API.
+ArtifactSimulation = Simulation
+from gsim.fdtd.workflow import Simulation as Simulation  # noqa: E402
+
+__all__ = ["ArtifactSimulation", "Simulation"]

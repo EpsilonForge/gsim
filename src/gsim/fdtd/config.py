@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from gsim.common.materials import MaterialSnapshot
 from gsim.fdtd.models import FDTDConfigError, MeshManifest
@@ -57,6 +57,7 @@ class GeometryConfig(_StrictModel):
 
 
 Vector3 = tuple[float, float, float]
+Axis = Literal["x", "y", "z"]
 SignedAxis = Literal["+x", "-x", "+y", "-y", "+z", "-z"]
 
 
@@ -73,6 +74,22 @@ class GaussianBeamConfig(_StrictModel):
     refractive_index: float = Field(gt=0)
 
 
+class DipoleConfig(_StrictModel):
+    """Single-cell electric-current source."""
+
+    position: Vector3
+    current_axis: Axis
+
+
+class LineCurrentConfig(_StrictModel):
+    """Line of in-phase electric-current sources."""
+
+    position: Vector3
+    line_axis: Axis
+    current_axis: Axis
+    length: float = Field(gt=0)
+
+
 class FiberModeConfig(_StrictModel):
     """Analytic Gaussian fiber profile used by a plane monitor."""
 
@@ -81,6 +98,23 @@ class FiberModeConfig(_StrictModel):
     focal_point: Vector3
     waist_radius: float = Field(gt=0)
     refractive_index: float = Field(gt=0)
+
+
+class HeatmapConfig(_StrictModel):
+    """Scalar field images requested from a plane monitor."""
+
+    quantity: Literal[
+        "abs_e", "intensity", "abs_h", "ex", "ey", "ez", "hx", "hy", "hz"
+    ] = "intensity"
+    wavelengths: list[float] = Field(min_length=1)
+
+    @field_validator("wavelengths")
+    @classmethod
+    def validate_wavelengths(cls, values: list[float]) -> list[float]:
+        """Require physical heatmap wavelengths."""
+        if any(value <= 0 for value in values):
+            raise ValueError("heatmap wavelengths must be positive")
+        return values
 
 
 class PlaneMonitorConfig(_StrictModel):
@@ -92,6 +126,7 @@ class PlaneMonitorConfig(_StrictModel):
     normal: SignedAxis
     flux: bool = True
     wavelengths: list[float] | None = None
+    heatmap: HeatmapConfig | None = None
     fiber_mode: FiberModeConfig | None = None
 
     @model_validator(mode="after")
@@ -115,13 +150,15 @@ class PlaneMonitorConfig(_StrictModel):
 class ExcitationConfig(_StrictModel):
     """Initial eigenmode pulse configuration."""
 
-    type: Literal["eigenmode", "gaussian_beam"] = "eigenmode"
+    type: Literal["eigenmode", "dipole", "line_current", "gaussian_beam"] = "eigenmode"
     waveform: Literal["pulse", "continuous_wave"] = "pulse"
     center_wavelength: float = Field(gt=0)
     wavelength_halfspan: float = Field(ge=0)
     num_wavelengths: int = Field(ge=1)
     amplitude: float = 1.0
     default_port: str | None = Field(default=None, min_length=1)
+    dipole: DipoleConfig | None = None
+    line_current: LineCurrentConfig | None = None
     gaussian_beam: GaussianBeamConfig | None = None
 
     @model_validator(mode="after")
@@ -133,16 +170,24 @@ class ExcitationConfig(_StrictModel):
             raise ValueError("continuous_wave requires num_wavelengths=1")
         if self.amplitude == 0:
             raise ValueError("excitation amplitude cannot be zero")
+        source_blocks = {
+            "dipole": self.dipole,
+            "line_current": self.line_current,
+            "gaussian_beam": self.gaussian_beam,
+        }
         if self.type == "eigenmode":
             if self.default_port is None:
                 raise ValueError("eigenmode excitation requires default_port")
-            if self.gaussian_beam is not None:
-                raise ValueError("eigenmode excitation cannot include gaussian_beam")
-        else:
-            if self.gaussian_beam is None:
-                raise ValueError("gaussian_beam excitation requires its settings")
-            if self.default_port is not None:
-                raise ValueError("gaussian_beam excitation cannot use default_port")
+            if any(block is not None for block in source_blocks.values()):
+                raise ValueError("eigenmode excitation cannot include a source block")
+            return self
+        if self.default_port is not None:
+            raise ValueError(f"{self.type} excitation cannot use default_port")
+        for source_type, block in source_blocks.items():
+            if (source_type == self.type) != (block is not None):
+                raise ValueError(
+                    f"{self.type} excitation requires only its matching source block"
+                )
         return self
 
 
@@ -233,6 +278,7 @@ def build_fdtd_config(
     max_timesteps: int | None,
     energy_decay_fraction: float,
     max_wall_seconds: float,
+    excitation: ExcitationConfig | None = None,
     gaussian_beam: GaussianBeamConfig | None = None,
     monitors: list[PlaneMonitorConfig] | None = None,
 ) -> FDTDConfig:
@@ -274,7 +320,8 @@ def build_fdtd_config(
                 for name, group in manifest.ports.items()
             },
         ),
-        excitation=ExcitationConfig(
+        excitation=excitation
+        or ExcitationConfig(
             type="gaussian_beam" if gaussian_beam is not None else "eigenmode",
             center_wavelength=center_wavelength_nm,
             wavelength_halfspan=wavelength_halfspan_nm,
@@ -296,12 +343,15 @@ def build_fdtd_config(
 
 
 __all__ = [
+    "DipoleConfig",
     "ExcitationConfig",
     "FDTDConfig",
     "FiberModeConfig",
     "GaussianBeamConfig",
     "GeometryConfig",
     "GridConfig",
+    "HeatmapConfig",
+    "LineCurrentConfig",
     "MaterialConfig",
     "PlaneMonitorConfig",
     "PortConfig",
