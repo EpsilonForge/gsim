@@ -441,14 +441,14 @@ class PalaceSimMixin:
 
         Capacitance-mode modelling of a PN junction: the depletion width
         ``W`` is computed from the doping concentrations and bias point via
-        :class:`gsim.common.stack.junction.PNJunctionConfig` (Sze,
+        :class:`gsim.common.stack.pn_junction.PNJunctionConfig` (Sze,
         *Physics of Semiconductor Devices*, ch. 2), converted to an absolute
         parallel-plate capacitance ``C = eps_s * A / W``, and applied as a
         lumped Impedance boundary on the shared P/N interface.
 
         Use this when the depletion strip is too thin to resolve on the mesh
         (the auto-selection in
-        :func:`gsim.common.stack.doping.make_pn_junction_profile` picks this
+        :func:`gsim.common.stack.pn_junction.make_pn_junction_profile` picks this
         regime); for well-resolved depletion regions prefer drawing them as
         dielectric geometry (``mode="high_res"``) instead.
 
@@ -473,7 +473,7 @@ class PalaceSimMixin:
             ...     height_um=0.22,
             ... )
         """
-        from gsim.common.stack.junction import PNJunctionConfig
+        from gsim.common.stack.pn_junction import PNJunctionConfig
 
         cfg = (
             junction
