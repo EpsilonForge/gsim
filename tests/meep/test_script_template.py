@@ -54,6 +54,29 @@ def test_legacy_xz_margins_are_applied_once():
     assert resolve_z_cell(domain, -0.5, 2.0, False, True) == (6.0, 1.0)
 
 
+def test_explicit_xy_bounds_override_bbox_and_margins():
+    resolve_xy_cell = _extract_runner_func("resolve_xy_cell")
+    domain = {
+        "dpml": 1.0,
+        "x_bounds": [-6.0, 8.0],
+        "margin_x_low": 20.0,
+        "margin_x_high": 30.0,
+    }
+
+    assert resolve_xy_cell(domain, -100.0, 100.0, "x") == (16.0, 1.0)
+
+
+def test_legacy_xy_config_uses_bbox_and_asymmetric_margins():
+    resolve_xy_cell = _extract_runner_func("resolve_xy_cell")
+    domain = {
+        "dpml": 1.0,
+        "margin_y_low": 0.5,
+        "margin_y_high": 1.5,
+    }
+
+    assert resolve_xy_cell(domain, -2.0, 3.0, "y") == (9.0, 1.0)
+
+
 def _extract_runner_func(name: str):
     """Exec a single pure-Python helper from the runner template in isolation.
 

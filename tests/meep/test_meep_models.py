@@ -615,8 +615,33 @@ class TestPublicDomainZBounds:
         from gsim.meep.models.api import Domain
 
         domain = Domain(z_bounds=(-1.0, 3.0))
+        original = domain.model_copy(deep=True)
+        original_fields_set = domain.model_fields_set.copy()
+
         with pytest.raises(ValidationError, match="cannot be combined"):
             domain.margin_z = (0.2, 0.3)
+
+        assert domain == original
+        assert domain.model_fields_set == original_fields_set
+
+    @pytest.mark.parametrize(
+        ("legacy_field", "legacy_value"),
+        [("margin_z", (0.2, 0.3)), ("z_ref", "core")],
+    )
+    def test_assignment_rejects_bounds_after_legacy_input_transactionally(
+        self, legacy_field, legacy_value
+    ):
+        from gsim.meep.models.api import Domain
+
+        domain = Domain(**{legacy_field: legacy_value})
+        original = domain.model_copy(deep=True)
+        original_fields_set = domain.model_fields_set.copy()
+
+        with pytest.raises(ValidationError, match="cannot be combined"):
+            domain.z_bounds = (-1.0, 3.0)
+
+        assert domain == original
+        assert domain.model_fields_set == original_fields_set
 
     def test_legacy_fields_are_not_dumped(self):
         from gsim.meep.models.api import Domain

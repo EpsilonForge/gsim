@@ -899,13 +899,17 @@ class Simulation(BaseModel):
         )
 
     def _domain_config(self, z_bounds: tuple[float, float] | None = None) -> Any:
-        """Translate Domain to config with optional resolved Z bounds."""
+        """Translate public bounds and automatic margins to runner config."""
         from gsim.meep.models.config import DomainConfig
 
-        mx = self.domain.resolved_margin_x()
-        my = self.domain.resolved_margin_y()
+        x_bounds = None if self.domain.x_bounds == "auto" else self.domain.x_bounds
+        y_bounds = None if self.domain.y_bounds == "auto" else self.domain.y_bounds
+        mx = (0.0, 0.0) if x_bounds is not None else self.domain.resolved_margin_x()
+        my = (0.0, 0.0) if y_bounds is not None else self.domain.resolved_margin_y()
         mz = self.domain.resolved_margin_z()
         return DomainConfig(
+            x_bounds=x_bounds,
+            y_bounds=y_bounds,
             z_bounds=z_bounds,
             dpml=self.domain.pml,
             extend_into_pml=self.domain.extend_into_pml,
@@ -1299,6 +1303,12 @@ class Simulation(BaseModel):
         is_3d = self.solver.resolved_is_3d()
         plane = self.solver.resolved_plane()
 
+        if plane == "xz" and self.domain.y_bounds != "auto":
+            raise ValueError(
+                "Explicit domain.y_bounds requires an active Y axis; XZ 2D "
+                "collapses Y. Use solver.y_cut to choose the slice."
+            )
+
         # Resolve stack
         self._ensure_stack()
         if self.geometry.stack is None:
@@ -1372,17 +1382,53 @@ class Simulation(BaseModel):
         accuracy_cfg = self._accuracy_config()
         diagnostics_cfg = self._diagnostics_config()
 
+        # Reject invalid explicit X/Y windows before automatic port extension.
+        # Materialize only the original physical layers for this check so
+        # fabrication markers do not affect containment, while avoiding an
+        # enormous extension when bounds are far from the device.
+        if domain_cfg.x_bounds is not None or domain_cfg.y_bounds is not None:
+            from gsim.meep.domain import validate_explicit_xy_bounds
+
+            if self.geometry.stack is None:  # pragma: no cover - guarded above
+                raise ValueError("Stack resolution failed.")
+            physical_reference = materialize_physical_layers(
+                original_component,
+                self.geometry.stack,
+            )
+            validation_port_infos = extract_port_info(
+                original_component,
+                self.geometry.stack,
+                source_port=source_cfg.port,
+                is_3d=is_3d,
+            )
+            if plane == "xz":
+                validation_port_infos = filter_ports_for_xz(
+                    validation_port_infos,
+                    y_cut=y_cut if y_cut is not None else 0.0,
+                )
+                if self.fiber_source is not None:
+                    validation_port_infos = [
+                        port.model_copy(update={"is_source": False})
+                        for port in validation_port_infos
+                    ]
+            validate_explicit_xy_bounds(
+                physical_reference.component,
+                physical_reference.stack,
+                validation_port_infos,
+                domain_cfg,
+                plane,
+                y_cut,
+                self.fiber_source,
+            )
+
         # Compute port extension length
         extend_length = domain_cfg.extend_ports
         if extend_length == 0.0:
-            extend_length = (
-                max(
-                    domain_cfg.margin_x_low,
-                    domain_cfg.margin_x_high,
-                    domain_cfg.margin_y_low,
-                    domain_cfg.margin_y_high,
-                )
-                + domain_cfg.dpml
+            from gsim.meep.domain import automatic_port_extension_length
+
+            extend_length = automatic_port_extension_length(
+                original_component,
+                domain_cfg,
             )
 
         # Extend source-mask waveguide ports before evaluating physical layers.
