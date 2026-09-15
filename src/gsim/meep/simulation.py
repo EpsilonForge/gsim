@@ -1332,6 +1332,7 @@ class Simulation(BaseModel):
         from gsim.meep.ports import (
             _find_highest_n_layer,
             extract_port_info,
+            filter_ports_for_xz,
         )
 
         validation = self.validate_config()
