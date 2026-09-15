@@ -41,6 +41,40 @@ class Geometry(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Port overrides
+# ---------------------------------------------------------------------------
+
+
+class PortVerticalOverride(BaseModel):
+    """Explicit vertical placement for one waveguide port.
+
+    Either field may be provided. Fields left unset continue to use automatic
+    layer inference, so callers can override only an ambiguous center or span.
+    """
+
+    model_config = ConfigDict(validate_assignment=True, extra="forbid")
+
+    z: float | None = Field(
+        default=None,
+        allow_inf_nan=False,
+        description="Absolute Z center of the port source and monitor in um.",
+    )
+    z_span: float | None = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        description="Z extent of the port source and monitor in um.",
+    )
+
+    @model_validator(mode="after")
+    def _require_value(self) -> PortVerticalOverride:
+        """Require at least one actual override."""
+        if self.z is None and self.z_span is None:
+            raise ValueError("provide z, z_span, or both")
+        return self
+
+
+# ---------------------------------------------------------------------------
 # Material
 # ---------------------------------------------------------------------------
 

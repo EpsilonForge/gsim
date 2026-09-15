@@ -316,6 +316,16 @@ class PortData(BaseModel):
     center: list[float] = Field(description="[x, y, z] center coordinates")
     orientation: float = Field(description="Port orientation in degrees")
     width: float = Field(gt=0)
+    z_span: float | None = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        exclude_if=lambda value: value is None,
+        description=(
+            "Per-port Z extent in um. None uses the legacy global "
+            "monitor_z_span fallback."
+        ),
+    )
     normal_axis: int = Field(ge=0, le=1, description="0=x, 1=y")
     direction: Literal["+", "-"] = Field(description="Direction along normal axis")
     is_source: bool = False

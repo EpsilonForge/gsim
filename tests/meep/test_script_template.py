@@ -114,3 +114,32 @@ def test_core_z_center_falls_back_to_midpoint_without_optical_data():
     }
 
     assert core_z_center(config) == 1.0
+
+
+def test_port_z_span_prefers_per_port_value_with_legacy_fallback():
+    """New and old serialized configs run through the same helper."""
+    get_port_z_span = _extract_runner_func("get_port_z_span")
+    config = {
+        "is_3d": True,
+        "monitor_z_span": 1.22,
+        "layer_stack": [{"zmin": 0.0, "zmax": 3.0}],
+    }
+
+    assert get_port_z_span(config, {"z_span": 1.39}) == 1.39
+    assert get_port_z_span(config, {}) == 1.22
+
+
+def test_port_z_span_keeps_collapsed_xy_behavior():
+    get_port_z_span = _extract_runner_func("get_port_z_span")
+    config = {
+        "is_3d": False,
+        "plane": "xy",
+        "monitor_z_span": 1.22,
+        "layer_stack": [{"zmin": 0.0, "zmax": 3.0}],
+    }
+
+    assert get_port_z_span(config, {"z_span": 1.39}) == 20
+
+
+def test_sources_and_monitors_resolve_span_inside_each_port_loop():
+    assert _MEEP_RUNNER_TEMPLATE.count("get_port_z_span(config, port)") == 2
