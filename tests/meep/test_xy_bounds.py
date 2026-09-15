@@ -188,6 +188,7 @@ def test_explicit_y_bounds_ignore_non_simulated_marker_bbox():
     simulation.domain(
         pml=1.0,
         margin_x=1.0,
+        port_margin=0.0,
         y_bounds=(-4.0, 4.0),
         z_bounds=(0.0, 3.0),
     )
