@@ -1323,6 +1323,7 @@ class TestOverlay:
                 center=[-2.0, 0.0, 0.11],
                 orientation=0.0,
                 width=0.5,
+                z_span=1.22,
                 normal_axis=0,
                 direction="-",
                 is_source=True,
@@ -1332,13 +1333,14 @@ class TestOverlay:
                 center=[2.0, 0.0, 0.11],
                 orientation=180.0,
                 width=0.5,
+                z_span=1.39,
                 normal_axis=0,
                 direction="+",
                 is_source=False,
             ),
         ]
 
-        overlay = build_sim_overlay(gm, domain_cfg, port_data)
+        overlay = build_sim_overlay(gm, domain_cfg, port_data, z_span=9.0)
 
         # cell_min = geo_min - (margin_x/y + dpml) for xy, - dpml for z
         assert overlay.cell_min[0] == pytest.approx(-3.5)  # -2 - (0.5 + 1.0)
@@ -1351,6 +1353,9 @@ class TestOverlay:
         assert len(overlay.ports) == 2
         assert overlay.ports[0].is_source
         assert not overlay.ports[1].is_source
+        assert [port.z_span for port in overlay.ports] == [1.22, 1.39]
+        assert [source.z_span for source in overlay.sources] == [1.22]
+        assert [monitor.z_span for monitor in overlay.monitors] == [1.22, 1.39]
         assert overlay.dpml == 1.0
 
     def test_build_sim_overlay_with_dielectrics(self):

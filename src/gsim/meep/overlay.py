@@ -205,7 +205,7 @@ def build_sim_overlay(
             normal_axis=p.normal_axis,
             direction=p.direction,
             is_source=p.is_source,
-            z_span=z_span,
+            z_span=p.z_span if p.z_span is not None else z_span,
         )
         for p in port_data
     ]
@@ -215,7 +215,7 @@ def build_sim_overlay(
             port,
             offset=domain_config.source_port_offset,
             width=port.width + 2 * port_margin,
-            z_span=z_span,
+            z_span=port.z_span if port.z_span is not None else z_span,
             is_source=True,
         )
         for port in port_data
@@ -231,7 +231,7 @@ def build_sim_overlay(
                 else domain_config.source_port_offset
             ),
             width=port.width + 2 * port_margin,
-            z_span=z_span,
+            z_span=port.z_span if port.z_span is not None else z_span,
             is_source=False,
         )
         for port in port_data
