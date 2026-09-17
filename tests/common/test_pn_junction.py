@@ -37,6 +37,8 @@ from gsim.common.stack.extractor import LayerStack
 from gsim.common.stack.pn_junction import (
     NI_SI_300K_CM3,
     PNJunctionConfig,
+    _add_rect,
+    _snap_to_grid,
     built_in_voltage,
     carrier_profile_1d,
     depletion_extents,
@@ -52,6 +54,7 @@ from gsim.common.stack.pn_junction import (
     select_junction_mode,
 )
 from gsim.palace import BoundaryModeSim
+from gsim.palace.mesh.generator import _fine_size_targets
 
 # ---------------------------------------------------------------------------
 # Part 1: depletion model.
@@ -400,6 +403,173 @@ class TestHighResModeGeometry:
             assert spec.material == name
             assert spec.zmin == 0.0
             assert spec.zmax == 0.22
+
+
+def _spillover_junction() -> PNJunctionConfig:
+    """Strongly asymmetric doping: xp overflows the P flank (negative trim)."""
+    return PNJunctionConfig(na_cm3=1e16, nd_cm3=1e18)
+
+
+class TestMinWidthUm:
+    def test_default_preserves_prior_behaviour(self):
+        # Notebook defaults: W = 49.5 nm selects high_res without a guard.
+        _comp, res = _build(
+            PNJunctionConfig(na_cm3=1e18, nd_cm3=1e18),
+            junction_region=JUNCTION_REGION,
+        )
+        assert res["junction"]["mode"] == "high_res"
+
+    def test_narrow_strip_falls_back_to_capacitance(self):
+        # W = 49.5 nm < min_width 50 nm -> lumped C, no sliver drawn.
+        comp, res = _build(
+            PNJunctionConfig(na_cm3=1e18, nd_cm3=1e18),
+            junction_region=JUNCTION_REGION,
+            min_width_um=0.05,
+        )
+        assert res["junction"]["mode"] == "capacitance"
+        assert "min_width_um" in res["junction"]["selection_reason"]
+        assert "junction" not in res["layer_specs"]
+        polys = comp.get_polygons(layers=(JUNCTION_REGION[1],))
+        assert not any(v for v in polys.values())
+
+    def test_resolvable_strip_stays_high_res(self):
+        # W = 71.3 nm clears a 50 nm guard; drawn widths are untouched.
+        comp, res = _build(
+            _wide_junction(),
+            junction_region=JUNCTION_REGION,
+            min_width_um=0.05,
+        )
+        assert res["junction"]["mode"] == "high_res"
+        rects = _section_rects(comp, res)
+        widths = [r.y1 - r.y0 for r in rects]
+        assert min(widths) == pytest.approx(0.0713, abs=5e-3)
+        assert min(widths) >= 0.05 - 1e-9
+        # Drawn strip still spans exactly [cy - xn, cy + xp].
+        junc = _wide_junction()
+        by_name = {r.layer_name: r for r in rects}
+        assert by_name["junction"].y0 == pytest.approx(CY - junc.xn_um, abs=2e-3)
+        assert by_name["junction"].y1 == pytest.approx(CY + junc.xp_um, abs=2e-3)
+
+    def test_guard_above_strip_width_falls_back(self):
+        _comp, res = _build(
+            _wide_junction(),
+            junction_region=JUNCTION_REGION,
+            min_width_um=0.1,
+        )
+        assert res["junction"]["mode"] == "capacitance"
+
+    def test_spillover_falls_back_to_capacitance(self):
+        _comp, res = _build(_spillover_junction(), junction_region=JUNCTION_REGION)
+        assert res["junction"]["mode"] == "capacitance"
+        assert "rib half" in res["junction"]["selection_reason"]
+
+    def test_forced_high_res_below_min_width_raises(self):
+        with pytest.raises(ValueError, match="min_width_um"):
+            _build(
+                _wide_junction(),
+                mode="high_res",
+                junction_region=JUNCTION_REGION,
+                min_width_um=0.1,
+            )
+
+    def test_forced_high_res_spillover_raises(self):
+        with pytest.raises(ValueError, match="non-positive rectangle"):
+            _build(
+                _spillover_junction(),
+                mode="high_res",
+                junction_region=JUNCTION_REGION,
+            )
+
+    def test_negative_min_width_rejected(self):
+        with pytest.raises(ValueError, match="min_width_um"):
+            _build(_wide_junction(), min_width_um=-0.01)
+
+
+class TestSnapCoincidence:
+    """Grid-snapped explicit polygons share bit-identical edges (no slivers)."""
+
+    def test_snap_to_grid(self):
+        assert _snap_to_grid(0.02475, 0.001) == pytest.approx(0.025)
+        assert _snap_to_grid(-20.101064, 0.001) == pytest.approx(-20.101)
+        assert _snap_to_grid(0.2, 0.001) == pytest.approx(0.2)
+
+    def test_shared_bounds_coincide_exactly(self):
+        # Wide junction: xp/xn land off-grid; N/J and J/P shared bounds
+        # must coincide exactly through extraction (previously ±1 nm off
+        # from independent size+centre GDS snapping).
+        comp, res = _build(_wide_junction(), junction_region=JUNCTION_REGION)
+        rects = _section_rects(comp, res)
+        by_name = {r.layer_name: r for r in rects}
+        assert by_name["n_rib"].y1 == by_name["junction"].y0
+        assert by_name["junction"].y1 == by_name["p_rib"].y0
+
+    def test_snap_grid_none_preserves_exact_floats(self):
+        comp = gf.Component()
+        centre = _add_rect(
+            comp,
+            length=10.0,
+            y0=-20.101064,
+            y1=-19.898936,
+            gds_layer=(22, 0),
+            snap_grid_um=None,
+        )
+        assert centre == pytest.approx((-20.101064 - 19.898936) / 2)
+
+    def test_non_positive_span_rejected(self):
+        comp = gf.Component()
+        with pytest.raises(ValueError, match="Non-positive rectangle"):
+            _add_rect(comp, length=10.0, y0=1.0, y1=1.0, gds_layer=(22, 0))
+        with pytest.raises(ValueError, match="snap_grid_um"):
+            _add_rect(
+                comp,
+                length=10.0,
+                y0=0.0,
+                y1=1.0,
+                gds_layer=(22, 0),
+                snap_grid_um=-0.001,
+            )
+
+    def test_strip_mesh_size_auto_and_override(self):
+        _comp, res = _build(_wide_junction(), junction_region=JUNCTION_REGION)
+        junc = _wide_junction()
+        assert res["junction"]["strip_mesh_size_um"] == pytest.approx(junc.w_um / 4)
+        assert res["layer_specs"]["junction"].mesh_resolution == pytest.approx(
+            junc.w_um / 4
+        )
+        _comp, res = _build(
+            _wide_junction(),
+            junction_region=JUNCTION_REGION,
+            junction_mesh_size_um=0.03,
+        )
+        assert res["junction"]["strip_mesh_size_um"] == pytest.approx(0.03)
+        with pytest.raises(ValueError, match="junction_mesh_size_um"):
+            _build(
+                _wide_junction(),
+                junction_region=JUNCTION_REGION,
+                junction_mesh_size_um=0.0,
+            )
+
+    def test_capacitance_has_no_strip_request(self):
+        _comp, res = _build(_thin_junction())
+        assert "strip_mesh_size_um" not in res["junction"]
+        assert "junction" not in res["layer_specs"]
+
+    def test_fine_size_targets(self):
+        from types import SimpleNamespace
+
+        groups = {"volumes": {k: {} for k in ("a", "b", "c", "d", "e", "f")}}
+        stack = SimpleNamespace(
+            layers={
+                "a": SimpleNamespace(mesh_resolution=0.012),  # requested
+                "b": SimpleNamespace(mesh_resolution="fine"),  # string: skip
+                "c": SimpleNamespace(mesh_resolution=0.2),  # >= refined: skip
+                "d": SimpleNamespace(mesh_resolution=0.0),  # non-positive: skip
+                "e": SimpleNamespace(mesh_resolution=True),  # bool: skip
+                # "f" absent from the stack: skip
+            }
+        )
+        assert _fine_size_targets(groups, stack, 0.05) == {"a": 0.012}
+        assert _fine_size_targets({}, stack, 0.05) == {}
 
 
 class TestValidation:

@@ -490,6 +490,7 @@ def make_doping_profile(
     zmax: float,
     permittivity: float = 11.9,
     fmax: float = 200e9,
+    snap_grid_um: float | None = 0.001,
     mesh_resolution: str | float = "fine",
 ) -> dict[str, dict[str, Any]]:
     """Add contiguous doping regions beside a rib and build layer/material specs.
@@ -518,6 +519,10 @@ def make_doping_profile(
         zmax: Top z of the doping regions (um).
         permittivity: Relative permittivity shared by all regions (e.g. 11.9).
         fmax: Upper frequency of the dispersion-model validity range (Hz).
+        snap_grid_um: Grid (um) the strip bounds are snapped to before
+            drawing (``None`` disables). Snapped explicit polygons keep
+            adjacent strips on bit-identical shared edges so no 1 nm GDS
+            snap slivers appear between them.
         mesh_resolution: Mesh resolution assigned to the generated ``Layer``.
 
     Returns:
@@ -549,13 +554,27 @@ def make_doping_profile(
         for i, (width, sigma) in enumerate(regions):
             name = f"{prefix}{i}"
             gds_layer = (base_layer[0], base_layer[1] + i)
-            centre = pos + sign * width / 2
-
-            rect = comp << gf.c.rectangle((length, width), layer=gds_layer)
-            rect.y = centre
+            raw0, raw1 = pos, pos + sign * width
+            centre = _add_rect(
+                comp,
+                length=length,
+                y0=min(raw0, raw1),
+                y1=max(raw0, raw1),
+                gds_layer=gds_layer,
+                snap_grid_um=snap_grid_um,
+            )
             side_centres.append(centre)
             side_specs[name] = (gds_layer, sigma)
-            pos += sign * width
+            # Continue from the snapped bound so the next strip starts
+            # exactly where this one ended (no drift, no slivers).
+            if snap_grid_um is not None:
+                pos = (
+                    _snap_to_grid(max(raw0, raw1), snap_grid_um)
+                    if sign > 0
+                    else _snap_to_grid(min(raw0, raw1), snap_grid_um)
+                )
+            else:
+                pos += sign * width
 
         centres[side] = side_centres
         if not side_specs:
@@ -597,6 +616,11 @@ def _as_junction_config(
     return PNJunctionConfig.model_validate(junction)
 
 
+def _snap_to_grid(value_um: float, grid_um: float) -> float:
+    """Snap a coordinate to multiples of ``grid_um`` (round-half-away)."""
+    return math.floor(value_um / grid_um + 0.5) * grid_um
+
+
 def _add_rect(
     comp: gf.Component,
     *,
@@ -604,10 +628,32 @@ def _add_rect(
     y0: float,
     y1: float,
     gds_layer: tuple[int, int],
+    snap_grid_um: float | None = 0.001,
 ) -> float:
-    """Draw a rectangle spanning ``[y0, y1]`` and return its y-centre."""
-    rect = comp << gf.c.rectangle((length, y1 - y0), layer=gds_layer)
-    rect.y = (y0 + y1) / 2
+    """Draw a rectangle spanning ``[y0, y1]`` and return its y-centre.
+
+    Bounds are snapped to ``snap_grid_um`` (``None`` disables) and the
+    rectangle is emitted as an explicit polygon over ``x in [0, length]``
+    (matching the previous ``gf.c.rectangle`` placement). Explicit
+    snapped polygons — rather than size+centre placement, which snaps
+    size and centre independently per rectangle — guarantee that
+    rectangles sharing a bound land on bit-identical vertices, so the
+    mesher never sees 1 nm snap slivers between adjacent regions.
+    """
+    if snap_grid_um is not None:
+        if snap_grid_um <= 0:
+            raise ValueError("snap_grid_um must be positive.")
+        y0 = _snap_to_grid(y0, snap_grid_um)
+        y1 = _snap_to_grid(y1, snap_grid_um)
+    if y1 <= y0:
+        raise ValueError(
+            f"Non-positive rectangle y-span [{y0:.6g}, {y1:.6g}] um on "
+            f"layer {gds_layer}."
+        )
+    comp.add_polygon(
+        [(0.0, y0), (length, y0), (length, y1), (0.0, y1)],
+        layer=gds_layer,
+    )
     return (y0 + y1) / 2
 
 
@@ -626,6 +672,9 @@ def make_pn_junction_profile(
     fmax: float = 200e9,
     mode: Literal["auto", "capacitance", "high_res"] = "auto",
     mode_fraction: float = JUNCTION_MODE_FRACTION,
+    min_width_um: float = 0.0,
+    junction_mesh_size_um: float | None = None,
+    snap_grid_um: float | None = 0.001,
     mesh_resolution: str | float = "fine",
 ) -> dict[str, dict[str, Any]]:
     """Build P / depletion-junction / N rib regions around ``center_y``.
@@ -649,7 +698,17 @@ def make_pn_junction_profile(
     With ``mode="auto"`` the choice falls out of
     :func:`select_junction_mode`: the strip is
     meshed only when ``W >= mode_fraction * min(P flank, N flank)``, where
-    each flank is ``rib_width / 2``.
+    each flank is ``rib_width / 2``. When ``min_width_um > 0`` the strip is
+    additionally meshed only if every drawn rectangle (the depletion strip
+    *and* both trimmed P/N flanks) is at least ``min_width_um`` wide;
+    otherwise the lumped-capacitance representation is used so the mesher
+    never sees an unresolvable sliver. The drawn strip always spans exactly
+    ``[center_y - xn, center_y + xp]`` — widths are never distorted, only
+    the representation choice changes. With ``mode="high_res"`` (forced)
+    the true widths are always drawn; a ``ValueError`` is raised instead
+    when the partition would violate ``min_width_um`` (or produce a
+    non-positive flank, e.g. under strongly asymmetric doping where the
+    depletion spills past a rib half).
 
     Args:
         comp: gdsfactory component the rectangles are added to.
@@ -669,6 +728,22 @@ def make_pn_junction_profile(
         fmax: Upper frequency of the Drude-model validity range (Hz).
         mode: ``"auto"``, ``"capacitance"`` or ``"high_res"``.
         mode_fraction: Auto-mode threshold fraction (~1/5 default).
+        min_width_um: Minimum drawn width (um) for the depletion strip and
+            both trimmed P/N flanks in ``"high_res"`` mode (default 0.0 =
+            no constraint, preserving prior behaviour). Tie this to the
+            mesh resolution (e.g. ~2x the refined mesh size) so the
+            mesher never sees an unresolvable sliver.
+        junction_mesh_size_um: Target mesh size (um) requested for the
+            depletion strip in ``"high_res"`` mode. Defaults to ``None``,
+            which requests ``W / 4`` (about four elements across the
+            strip) so the mesher resolves the strip with well-shaped
+            elements instead of slivers. Pass an explicit size to
+            override. Recorded on the junction ``Layer`` as a numeric
+            ``mesh_resolution`` for the BoundaryMode mesher to consume.
+        snap_grid_um: Grid (um) the region bounds are snapped to before
+            drawing (``None`` disables). Shared bounds then land on
+            bit-identical vertices, so no 1 nm GDS snap slivers appear
+            between the P / junction / N rectangles.
         mesh_resolution: Mesh resolution assigned to the generated layers.
 
     Returns:
@@ -698,7 +773,17 @@ def make_pn_junction_profile(
             f"{rib_width:.4g} um rib."
         )
 
+    if min_width_um < 0:
+        raise ValueError("min_width_um must be non-negative.")
+
+    xp, xn = cfg.xp_um, cfg.xn_um
     flank_um = rib_width / 2
+    # Widths the high-res partition would draw (may be non-positive when
+    # the depletion spills past a rib half under asymmetric doping).
+    strip_w_um = xn + xp
+    n_trim_um = flank_um - xn
+    p_trim_um = flank_um - xp
+
     if mode == "auto":
         mode = select_junction_mode(
             cfg.w_um, flank_um, flank_um, fraction=mode_fraction
@@ -707,8 +792,39 @@ def make_pn_junction_profile(
             f"W={cfg.w_um:.4g} um vs threshold "
             f"{mode_fraction * flank_um:.4g} um (= {mode_fraction} * flank)"
         )
+        if mode == "high_res":
+            limiting = min(strip_w_um, n_trim_um, p_trim_um)
+            if limiting <= 0:
+                mode = "capacitance"
+                reason = (
+                    f"depletion spills past a rib half "
+                    f"(trimmed flanks {n_trim_um:.4g}/{p_trim_um:.4g} um); "
+                    f"using lumped capacitance"
+                )
+            elif limiting < min_width_um:
+                mode = "capacitance"
+                reason = (
+                    f"narrowest rect {limiting:.4g} um < min_width_um "
+                    f"{min_width_um:.4g} um; using lumped capacitance"
+                )
     else:
         reason = f"forced by caller (mode={mode!r})"
+
+    if mode == "high_res":
+        limiting = min(strip_w_um, n_trim_um, p_trim_um)
+        if limiting <= 0:
+            raise ValueError(
+                f"mode='high_res' would draw a non-positive rectangle "
+                f"(strip {strip_w_um:.4g} um, trimmed flanks "
+                f"{n_trim_um:.4g}/{p_trim_um:.4g} um): the depletion spills "
+                f"past a rib half. Use mode='capacitance' instead."
+            )
+        if limiting < min_width_um:
+            raise ValueError(
+                f"mode='high_res' would draw a {limiting:.4g} um rectangle, "
+                f"below min_width_um={min_width_um:.4g} um. Use "
+                f"mode='capacitance', reduce min_width_um, or refine the mesh."
+            )
     logger.info("PN junction mode: %s (%s)", mode, reason)
 
     result: dict[str, dict[str, Any]] = {
@@ -732,13 +848,16 @@ def make_pn_junction_profile(
             mesh_resolution=mesh_resolution,
         )
 
-    xp, xn = cfg.xp_um, cfg.xn_um
-
     # N region: lower half, trimmed by xn when the strip is meshed.
     n_y0 = center_y - flank_um
     n_y1 = center_y if mode == "capacitance" else center_y - xn
     centres["n"] = _add_rect(
-        comp, length=length, y0=n_y0, y1=n_y1, gds_layer=tuple(n_layer)
+        comp,
+        length=length,
+        y0=n_y0,
+        y1=n_y1,
+        gds_layer=tuple(n_layer),
+        snap_grid_um=snap_grid_um,
     )
     layer_specs[n_name] = _doped_spec(n_name, tuple(n_layer), n_sigma)
 
@@ -746,7 +865,12 @@ def make_pn_junction_profile(
     p_y0 = center_y if mode == "capacitance" else center_y + xp
     p_y1 = center_y + flank_um
     centres["p"] = _add_rect(
-        comp, length=length, y0=p_y0, y1=p_y1, gds_layer=tuple(p_layer)
+        comp,
+        length=length,
+        y0=p_y0,
+        y1=p_y1,
+        gds_layer=tuple(p_layer),
+        snap_grid_um=snap_grid_um,
     )
     layer_specs[p_name] = _doped_spec(p_name, tuple(p_layer), p_sigma)
 
@@ -771,7 +895,17 @@ def make_pn_junction_profile(
             y0=center_y - xn,
             y1=center_y + xp,
             gds_layer=tuple(j_layer),
+            snap_grid_um=snap_grid_um,
         )
+        if junction_mesh_size_um is None:
+            # About four elements across the strip: narrow enough to pair
+            # up the node rows on both strip edges (no slivers), coarse
+            # enough to keep the element count bounded (~1/W scaling).
+            strip_mesh_size_um = (xn + xp) / 4.0
+        else:
+            if junction_mesh_size_um <= 0:
+                raise ValueError("junction_mesh_size_um must be positive.")
+            strip_mesh_size_um = junction_mesh_size_um
         layer_specs[j_name] = Layer(
             name=j_name,
             gds_layer=tuple(j_layer),
@@ -780,7 +914,7 @@ def make_pn_junction_profile(
             thickness=ztop - zmin,
             material=j_name,
             layer_type="dielectric",
-            mesh_resolution=mesh_resolution,
+            mesh_resolution=strip_mesh_size_um,
         )
         # Depleted silicon has no free carriers: pure real permittivity.
         materials[j_name] = MaterialProperties(
@@ -794,6 +928,8 @@ def make_pn_junction_profile(
         "mode": mode,
         "selection_reason": reason,
     }
+    if mode == "high_res":
+        result["junction"]["strip_mesh_size_um"] = layer_specs[j_name].mesh_resolution
     return result
 
 
@@ -1132,6 +1268,7 @@ def make_segmented_junction_profile(
     n_gds_start: tuple[int, int] = (20, 1),
     zmin: float = 0.0,
     zmax: float | None = None,
+    snap_grid_um: float | None = 0.001,
     mesh_resolution: str | float = "fine",
 ) -> dict[str, dict[str, Any]]:
     """Bin the rib into fine strips sampling the 1D Sze permittivity.
@@ -1169,6 +1306,9 @@ def make_segmented_junction_profile(
         n_gds_start: ``(layer, datatype)`` of ``n_1``.
         zmin: Bottom z of the strips (um).
         zmax: Top z of the strips (um); defaults to ``zmin + 0.22``.
+        snap_grid_um: Grid (um) the strip edges are snapped to before
+            drawing (``None`` disables), keeping adjacent strips on
+            bit-identical shared edges.
         mesh_resolution: Mesh resolution assigned to the layers.
 
     Returns:
@@ -1200,9 +1340,16 @@ def make_segmented_junction_profile(
         )
 
     half = rib_width / 2.0
+    if snap_grid_um is not None and snap_grid_um <= 0:
+        raise ValueError("snap_grid_um must be positive.")
     # (name, y0, y1, gds, side) ordered junction-outward on each side.
     p_edges = np.linspace(center_y, center_y + half, n_p + 1)
     n_edges = np.linspace(center_y - half, center_y, n_n + 1)
+    if snap_grid_um is not None:
+        # Snap shared edges once so adjacent strips land on bit-identical
+        # vertices (no 1 nm GDS snap slivers between strips).
+        p_edges = np.array([_snap_to_grid(float(v), snap_grid_um) for v in p_edges])
+        n_edges = np.array([_snap_to_grid(float(v), snap_grid_um) for v in n_edges])
     strips: list[tuple[str, float, float, tuple[int, int], str]] = [
         (
             f"{p_prefix}{i + 1}",
@@ -1248,7 +1395,12 @@ def make_segmented_junction_profile(
 
     for k, (name, y0, y1, gds_layer, side) in enumerate(strips):
         yc = centres[name] = _add_rect(
-            comp, length=length, y0=y0, y1=y1, gds_layer=gds_layer
+            comp,
+            length=length,
+            y0=y0,
+            y1=y1,
+            gds_layer=gds_layer,
+            snap_grid_um=snap_grid_um,
         )
         layer_specs[name] = Layer(
             name=name,
