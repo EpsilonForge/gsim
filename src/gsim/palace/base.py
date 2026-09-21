@@ -2306,8 +2306,13 @@ class PalaceSimMixin:
                         )
                     break
 
+        # Track whether ``palace_executable`` is only a last-resort PATH
+        # fallback (rather than a user-supplied path). The bundled/cached
+        # resolver must run first in that case.
+        _path_fallback = False
         if palace_executable is None and palace_sif_path is None:
             palace_executable = "palace"
+            _path_fallback = True
 
         # palace_executable takes precedence for a simpler API.
         run_with_apptainer = use_apptainer and palace_executable is None
@@ -2356,7 +2361,7 @@ class PalaceSimMixin:
             resolved_exe: str | Path | None = None
             lib_dir: Path | None = None
 
-            if palace_executable is not None:
+            if palace_executable is not None and not _path_fallback:
                 # Explicit parameter — resolve to absolute path
                 resolved_exe = Path(palace_executable).expanduser().resolve()
             else:
