@@ -601,7 +601,9 @@ def _generate_native_boundarymode_groups(
                 except Exception:
                     filtered_curves.add(ctag)
                     continue
-                adj_surfaces = set(adj[1]) if len(adj) > 1 else set()
+                # getAdjacencies returns (upward, downward); for a curve the
+                # upward adjacencies (index 0) are the adjacent surfaces.
+                adj_surfaces = set(adj[0]) if len(adj) > 0 else set()
                 if not adj_surfaces:
                     filtered_curves.add(ctag)
                     continue
