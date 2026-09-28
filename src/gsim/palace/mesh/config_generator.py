@@ -732,10 +732,25 @@ def generate_palace_config(
     return config_path
 
 
+def _is_tetrahedron(element_type: int) -> bool:
+    """Return True when a gmsh element type is a tetrahedron of any order."""
+    try:
+        name = gmsh.model.mesh.getElementProperties(int(element_type))[0]
+    except Exception:
+        # Fall back to the known gmsh element-type codes:
+        # 4 = 4-node, 11 = 10-node, 29 = 20-node tetrahedron.
+        return int(element_type) in {4, 11, 29}
+    return str(name).startswith("Tetrahedron")
+
+
 def collect_mesh_stats() -> dict:
     """Collect mesh statistics from gmsh after mesh generation.
 
     Must be called while gmsh is initialized and the mesh is generated.
+
+    Handles both linear (4-node) and high-order (10/20-node) tetrahedra, so
+    quality/SICN/edge-length metrics are still reported when the mesh was
+    promoted to high-order elements.
 
     Returns:
         Dict with mesh statistics including:
@@ -743,6 +758,7 @@ def collect_mesh_stats() -> dict:
         - nodes: Number of nodes
         - elements: Total element count
         - tetrahedra: Tet count
+        - element_type: gmsh element type code of the (first) tetrahedra block
         - quality: Shape quality metrics (gamma)
         - sicn: Signed Inverse Condition Number
         - edge_length: Min/max edge lengths
@@ -778,11 +794,15 @@ def collect_mesh_stats() -> dict:
         total_elements = sum(len(tags) for tags in element_tags)
         stats["elements"] = total_elements
 
-        # Count tetrahedra (type 4) and save tags
+        # Collect tetrahedra of any order (4/10/20-node) for quality metrics.
+        tet_count = 0
         for etype, tags in zip(element_types, element_tags, strict=False):
-            if etype == 4:  # 4-node tetrahedron
-                stats["tetrahedra"] = len(tags)
-                tet_tags = list(tags)
+            if _is_tetrahedron(etype):
+                stats.setdefault("element_type", int(etype))
+                tet_count += len(tags)
+                tet_tags.extend(tags)
+        if tet_count:
+            stats["tetrahedra"] = tet_count
     except Exception:
         pass
 
