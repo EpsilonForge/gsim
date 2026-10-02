@@ -193,7 +193,7 @@ def generate_palace_config(
         solver_driven = {
             "Samples": [
                 {
-                    "Type": "Driven",
+                    "Type": "Linear",
                     "MinFreq": 1.0,  # 1 GHz
                     "MaxFreq": fmax / 1e9,
                     "FreqStep": freq_step,
@@ -207,13 +207,11 @@ def generate_palace_config(
         solver_eigenmode = eigenmode_config.to_palace_config()
     else:
         # Legacy behavior - compute from fmax
-        solver_eigenmode = (
-            {
-                "N": 10,
-                "Tol": 1.0e-6,
-                "Target": fmax,
-            },
-        )
+        solver_eigenmode = {
+            "N": 10,
+            "Tol": 1.0e-6,
+            "Target": fmax / 1e9,
+        }
 
     if boundary_mode_config is not None:
         solver_boundarymode = boundary_mode_config.to_palace_config()
