@@ -182,3 +182,133 @@ as infinite and stored as `max=None` with a nonzero `singular_elements` count.
       show_source: false
       inherited_members: false
       members: false
+
+## Circuit Synthesis
+
+::: gsim.palace.CircuitSynthesis
+    options:
+      show_source: false
+      inherited_members: false
+      members:
+        - nodes
+        - L_inv
+        - R_inv
+        - C
+        - port_labels
+        - port_indices
+        - internal_indices
+        - port_loads
+        - port_names
+        - Y
+        - port_admittance
+        - port_impedance
+        - s_parameters
+        - port_reference_impedances
+        - eigenfrequencies
+        - fit_rlc
+
+::: gsim.palace.load_circuit_synthesis
+    options:
+      show_source: false
+
+## Fitting
+
+::: gsim.palace.RLCFit
+    options:
+      show_source: false
+      inherited_members: false
+      members:
+        - R
+        - L
+        - C
+        - f0
+        - Q
+        - rms_error
+        - z
+        - y
+        - to_dict
+
+::: gsim.palace.VectorFit
+    options:
+      show_source: false
+      inherited_members: false
+      members:
+        - raw
+        - network
+        - poles
+        - residues
+        - zeros
+        - n_poles
+        - is_stable
+        - rms_error
+        - is_passive
+        - passivity_test
+        - passivity_enforce
+        - get_spurious
+        - s
+        - z
+        - y
+        - write_spice
+
+## Fitting
+
+::: gsim.palace.RLCFit
+    options:
+      show_source: false
+      inherited_members: false
+      members:
+        - R
+        - L
+        - C
+        - f0
+        - Q
+        - rms_error
+        - z
+        - y
+        - to_dict
+
+::: gsim.palace.fit_rlc
+    options:
+      show_source: false
+
+::: gsim.palace.differential_impedance
+    options:
+      show_source: false
+
+::: gsim.palace.initial_guess_rlc
+    options:
+      show_source: false
+
+::: gsim.palace.z_rlc
+    options:
+      show_source: false
+
+## Parameter Conversions
+
+::: gsim.palace.s_to_z
+    options:
+      show_source: false
+
+::: gsim.palace.z_to_s
+    options:
+      show_source: false
+
+::: gsim.palace.s_to_y
+    options:
+      show_source: false
+
+::: gsim.palace.y_to_s
+    options:
+      show_source: false
+
+::: gsim.palace.z_to_y
+    options:
+      show_source: false
+
+::: gsim.palace.y_to_z
+    options:
+      show_source: false
+
+::: gsim.palace.is_complete
+    options:
+      show_source: false

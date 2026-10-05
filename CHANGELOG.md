@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- Palace AC circuit synthesis ([#272](https://github.com/gdsfactory/gsim/issues/272)):
+  `set_driven(..., circuit_synthesis=True)` emits `AdaptiveCircuitSynthesis` for adaptive driven sweeps (requires
+  `adaptive_tol > 0`), and the new `gsim.palace.circuit` module parses the exported `rom-*.csv` matrices into a
+  `CircuitSynthesis` object with `Y(ω)` assembly, port-admittance condensation via Schur complement, port-load
+  subtraction, and S/Z/Y access. The new `gsim.palace.fitting` module provides the reusable EM-to-circuit fit: `fit_rlc`
+  with `model="rlc1p"` (one-pole R, L, C, f0, Q; JAX/Adam in log space or a scipy fallback) and `model="vector_fit"`
+  (scikit-rf VectorFitting multi-pole rational model with stability/passivity test and enforcement, spurious-pole
+  detection and SPICE subcircuit export via `VectorFit`). `CircuitSynthesis.fit_rlc()` fits either model to the exported
+  circuit in one call (renamed from `fit_differential_rlc`); one-port circuits use the driving-point impedance. The
+  prebuilt local Palace runtime default is now v0.18.0 (circuit synthesis needs >= 0.17.0).
+- Notebook refactor to the reusable workflow: `palace_inductor.ipynb` fits via `fit_rlc` (the hand-rolled JAX/Adam
+  section is gone) with `SParams.to_skrf()` + `differential_impedance` for S/Z access;
+  `palace_inductor_port_comparison.ipynb` drops its manual `s_to_z` in favour of the package helpers;
+  `palace_transformer.ipynb` uses `to_skrf()` for S/Z/Y access, adds a broadband vector-fit section with passivity
+  checks and SPICE export, and its circulax fit netlist is migrated to the SAX port-reference style required by circulax
+  0.2.3.
+- First-class S\<->Z\<->Y conversion utilities (`gsim.palace.parameters`): batched
+  `s_to_z`/`z_to_s`/`s_to_y`/`y_to_s`/`z_to_y`/`y_to_z` with explicit scalar or per-port reference impedance, preserved
+  frequency units and port order; incomplete matrices are rejected. `palace_inductor_port_comparison.ipynb` is merged
+  into `palace_inductor.ipynb` as a controlled two-interlayer-vs-gap-port comparison section (identical guard ring)
+  using these conversions.
+- Gap-port inductor variant (`nbs/palace_inductor_gap.ipynb`): the differential excitation is a Palace `gap` lumped port
+  spanning the terminal slot instead of two interlayer ports — `differential_impedance` now handles one-port networks
+  (driving-point `Z11`), so `CircuitSynthesis.fit_differential_rlc` works directly; committed local Palace v0.18.0
+  outputs under `nbs/data/inductor/circuit_synthesis_gap/`.
 - PN-junction depletion model from Sze *Physics of Semiconductor Devices* (`PNJunctionConfig`,
   `make_pn_junction_profile`): computes built-in voltage, depletion width `W` (abrupt or linearly graded), asymmetric
   P/N split `x_p`/`x_n`, and capacitance `C_j = eps_s A / W`. The depletion region is represented automatically — meshed
