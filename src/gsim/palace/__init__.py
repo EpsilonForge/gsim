@@ -59,8 +59,24 @@ from gsim.palace.boundarymode import BoundaryModeSim
 # Capacitance matrices of electrostatic runs
 from gsim.palace.capacitance import CapacitanceMatrices, load_capacitance
 
-# Palace AC circuit synthesis results and circuit-synthesis parser
-from gsim.palace.circuit import CircuitSynthesis, load_circuit_synthesis
+# Palace AC circuit synthesis, the EM-to-circuit fit and S/Z/Y conversions
+from gsim.palace.circuit import (
+    CircuitSynthesis,
+    RLCFit,
+    VectorFit,
+    differential_impedance,
+    fit_rlc,
+    initial_guess_rlc,
+    is_complete,
+    load_circuit_synthesis,
+    s_to_y,
+    s_to_z,
+    y_to_s,
+    y_to_z,
+    z_rlc,
+    z_to_s,
+    z_to_y,
+)
 from gsim.palace.driven import DrivenSim
 from gsim.palace.eigenmode import EigenmodeSim
 from gsim.palace.electrostatic import ElectrostaticSim
@@ -88,16 +104,6 @@ from gsim.palace.fields import (
     resolve_boundary_type_attributes,
     resolve_entity_attributes,
     resolve_scalar_field,
-)
-
-# EM-to-circuit fitting (RLC fits, differential impedance, vector fitting)
-from gsim.palace.fitting import (
-    RLCFit,
-    VectorFit,
-    differential_impedance,
-    fit_rlc,
-    initial_guess_rlc,
-    z_rlc,
 )
 
 # Material resolution with dispersion
@@ -132,17 +138,6 @@ from gsim.palace.models import (
     TwoTerminalPortConfig,
     ValidationResult,
     WavePortConfig,
-)
-
-# Microwave parameter conversions (S <-> Z <-> Y, explicit z0)
-from gsim.palace.parameters import (
-    is_complete,
-    s_to_y,
-    s_to_z,
-    y_to_s,
-    y_to_z,
-    z_to_s,
-    z_to_y,
 )
 from gsim.palace.plane_section import plot_plane_section
 

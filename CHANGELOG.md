@@ -11,7 +11,8 @@
   (scikit-rf VectorFitting multi-pole rational model with stability/passivity test and enforcement, spurious-pole
   detection and SPICE subcircuit export via `VectorFit`). `CircuitSynthesis.fit_rlc()` fits either model to the exported
   circuit in one call (renamed from `fit_differential_rlc`); one-port circuits use the driving-point impedance. The
-  prebuilt local Palace runtime default is now v0.18.0 (circuit synthesis needs >= 0.17.0).
+  prebuilt local Palace runtime default is now v0. All new functionality lives in the single module
+  `gsim.palace.circuit`.18.0 (circuit synthesis needs >= 0.17.0).
 - Notebook refactor to the reusable workflow: `palace_inductor.ipynb` fits via `fit_rlc` (the hand-rolled JAX/Adam
   section is gone) with `SParams.to_skrf()` + `differential_impedance` for S/Z access;
   `palace_inductor_port_comparison.ipynb` drops its manual `s_to_z` in favour of the package helpers;
@@ -32,10 +33,9 @@
 - `palace_transformer.ipynb`: the extracted transformer is demonstrated inside a matching network — a series input
   capacitor swept around the analytic estimate drives a 50 Ohm load through the fitted circulax model, closing the EM ->
   extracted-parameters -> circuit-design loop.
-- Gap-port inductor variant (`nbs/palace_inductor_gap.ipynb`): the differential excitation is a Palace `gap` lumped port
-  spanning the terminal slot instead of two interlayer ports — `differential_impedance` now handles one-port networks
-  (driving-point `Z11`), so `CircuitSynthesis.fit_differential_rlc` works directly; committed local Palace v0.18.0
-  outputs under `nbs/data/inductor/circuit_synthesis_gap/`.
+- Gap-port comparison leg: committed local Palace v0.18.0 outputs (rom matrices, port-S and provenance) under
+  `nbs/data/inductor/circuit_synthesis_gap/`; the committed caches are intentionally tracked so the notebooks'
+  circuit-synthesis sections replay in CI without re-running Palace..
 - PN-junction depletion model from Sze *Physics of Semiconductor Devices* (`PNJunctionConfig`,
   `make_pn_junction_profile`): computes built-in voltage, depletion width `W` (abrupt or linearly graded), asymmetric
   P/N split `x_p`/`x_n`, and capacitance `C_j = eps_s A / W`. The depletion region is represented automatically — meshed
