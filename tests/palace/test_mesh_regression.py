@@ -17,6 +17,8 @@ Tests are skipped automatically when ``ihp`` is not installed.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -117,6 +119,22 @@ def cpw_waveport_sim(tmp_path_factory):
 
 def test_cpw_waveport_mesh(mesh_regression, cpw_waveport_sim):
     mesh_regression.check(_mesh_snapshot(cpw_waveport_sim))
+
+
+def test_cpw_write_config_preserves_waveport_boundary_policy(cpw_waveport_sim):
+    sim = cpw_waveport_sim
+    original = sim.driven.model_copy(deep=True)
+    try:
+        sim.set_driven(f=50e9, waveport_boundary="pec")
+        default = json.loads(sim.write_config().read_text())
+        assert default["Boundaries"]["WavePort"]
+        assert default["Boundaries"].pop("WavePortPEC")["Attributes"]
+        sim.set_driven(f=50e9, waveport_boundary="inherit")
+        assert json.loads(sim.write_config().read_text()) == default
+        sim.set_driven(f=50e9)
+        assert sim.driven.waveport_boundary == "pec"
+    finally:
+        sim.driven = original
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +302,7 @@ def test_cpw_via_transition_mesh(mesh_regression, cpw_via_transition_sim):
 
 
 # ---------------------------------------------------------------------------
-# 3. Microstrip — IHP straight_metal with Metal1 ground, via ports
+# 3. Microstrip — IHP straight_metal with Metal1 ground, interlayer ports
 #    Notebook: nbs/palace_microstrip.ipynb
 # ---------------------------------------------------------------------------
 
@@ -313,7 +331,10 @@ def _make_microstrip_sim(tmp_path):
     for port in c.ports:
         assert port.name is not None
         sim.add_port(
-            port.name, from_layer="metal1", to_layer="topmetal2", geometry="via"
+            port.name,
+            from_layer="metal1",
+            to_layer="topmetal2",
+            geometry="interlayer",
         )
     sim.set_driven(fmin=1e9, fmax=100e9, num_points=10)
     return sim
@@ -334,7 +355,7 @@ def test_microstrip_mesh(mesh_regression, microstrip_sim):
 
 
 # ---------------------------------------------------------------------------
-# 4. Branch-line coupler — IHP, 4-port, Metal3 ground + TM2 signal, via ports
+# 4. Branch-line coupler — IHP, 4-port, Metal3 ground + TM2 signal, interlayer ports
 #    Cell inlined from https://github.com/gdsfactory/IHP/pull/99 (not yet in
 #    ihp-gdsfactory 0.2.8).
 # ---------------------------------------------------------------------------
@@ -481,7 +502,10 @@ def _make_branch_line_coupler_sim(tmp_path):
     for port in comp.ports:
         assert port.name is not None
         sim.add_port(
-            port.name, from_layer="metal3", to_layer="topmetal2", geometry="via"
+            port.name,
+            from_layer="metal3",
+            to_layer="topmetal2",
+            geometry="interlayer",
         )
     sim.set_driven(fmin=1e9, fmax=100e9, num_points=10)
     return sim

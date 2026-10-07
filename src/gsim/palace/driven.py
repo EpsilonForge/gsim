@@ -20,6 +20,8 @@ from gsim.palace.models import (
     MeshConfig,
     NumericalConfig,
     PortConfig,
+    RefinementConfig,
+    TwoTerminalPortConfig,
     WavePortConfig,
 )
 
@@ -74,6 +76,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
     ports: list[PortConfig] = Field(default_factory=list)
     cpw_ports: list[CPWPortConfig] = Field(default_factory=list)
     wave_ports: list[WavePortConfig] = Field(default_factory=list)
+    two_terminal_ports: list[TwoTerminalPortConfig] = Field(default_factory=list)
     terminals: None = None
 
     # Driven simulation config
@@ -87,6 +90,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
     # Material overrides and numerical config
     materials: dict[str, MaterialConfig] = Field(default_factory=dict)
     numerical: NumericalConfig = Field(default_factory=NumericalConfig)
+    refinement: RefinementConfig = Field(default_factory=RefinementConfig)
 
     # Stack configuration (stored as kwargs until resolved)
     _stack_kwargs: dict[str, Any] = PrivateAttr(default_factory=dict)
@@ -158,6 +162,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         compute_s_params: bool = True,
         reference_impedance: float = 50.0,
         excitation_port: str | None = None,
+        waveport_boundary: Literal["pec", "inherit"] = "pec",
         save_step: int = 0,
         save_fields_at: list[float] | None = None,
         save_freq: str | None = None,
@@ -184,6 +189,10 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             compute_s_params: Compute S-parameters
             reference_impedance: Reference impedance for S-params (Ohms)
             excitation_port: Port to excite (None = first port)
+            waveport_boundary: Numeric port boundary policy: ``"pec"``
+                (default) approximates conductivity, impedance and absorbing
+                boundaries as PEC in the port eigenproblem; ``"inherit"``
+                keeps those physical conditions. Does not change 3D boundaries.
             save_step: Save fields every N frequency steps for ParaView
                 (0 = disabled)
             save_fields_at: Specific frequencies (Hz) at which to save
@@ -229,6 +238,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             compute_s_params=compute_s_params,
             reference_impedance=reference_impedance,
             excitation_port=excitation_port,
+            waveport_boundary=waveport_boundary,
             save_step=save_step,
             save_fields_at=fields_at,
         )
