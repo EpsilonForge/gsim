@@ -540,10 +540,9 @@ class SParams:
             The resolved file path.
         """
         path = Path(path)
-        if path.suffix.lower() not in {".s1p", ".s2p", ".s3p", ".s4p"} and not re.match(
-            r"\.s\d+p$", path.suffix.lower()
-        ):
-            path = path.with_suffix(f".s{len(self._port_names)}p")
+        if not re.fullmatch(r"\.s\d+p", path.suffix.lower()):
+            # APPEND (do not with_suffix: "run_1.5GHz" would eat ".5GHz").
+            path = Path(f"{path}.s{len(self._port_names)}p")
         network = self.to_skrf(z0=z0)
         fmt = "{:.16e}"
         network.write_touchstone(

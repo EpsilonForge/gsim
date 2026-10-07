@@ -207,6 +207,22 @@ as infinite and stored as `max=None` with a nonzero `singular_elements` count.
         - eigenfrequencies
         - fit_rlc
 
+::: gsim.palace.fit_rlc
+    options:
+      show_source: false
+
+::: gsim.palace.differential_impedance
+    options:
+      show_source: false
+
+::: gsim.palace.initial_guess_rlc
+    options:
+      show_source: false
+
+::: gsim.palace.z_rlc
+    options:
+      show_source: false
+
 ::: gsim.palace.load_circuit_synthesis
     options:
       show_source: false
@@ -250,39 +266,6 @@ as infinite and stored as `max=None` with a nonzero `singular_elements` count.
         - y
         - write_spice
 
-## Fitting
-
-::: gsim.palace.RLCFit
-    options:
-      show_source: false
-      inherited_members: false
-      members:
-        - R
-        - L
-        - C
-        - f0
-        - Q
-        - rms_error
-        - z
-        - y
-        - to_dict
-
-::: gsim.palace.fit_rlc
-    options:
-      show_source: false
-
-::: gsim.palace.differential_impedance
-    options:
-      show_source: false
-
-::: gsim.palace.initial_guess_rlc
-    options:
-      show_source: false
-
-::: gsim.palace.z_rlc
-    options:
-      show_source: false
-
 ## Parameter Conversions
 
 ::: gsim.palace.s_to_z
@@ -312,3 +295,9 @@ as infinite and stored as `max=None` with a nonzero `singular_elements` count.
 ::: gsim.palace.is_complete
     options:
       show_source: false
+
+## Transmission-line analysis
+
+See [Transmission-line analysis](../transmission_line_analysis.md) for using
+`load_sparams(...).to_skrf()` with scikit-rf's multiline TRL calibration,
+physical impedance normalization and independent-length checks.

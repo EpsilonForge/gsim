@@ -6,13 +6,22 @@
   `set_driven(..., circuit_synthesis=True)` emits `AdaptiveCircuitSynthesis` for adaptive driven sweeps (requires
   `adaptive_tol > 0`), and the new `gsim.palace.circuit` module parses the exported `rom-*.csv` matrices into a
   `CircuitSynthesis` object with `Y(ω)` assembly, port-admittance condensation via Schur complement, port-load
-  subtraction, and S/Z/Y access. The new `gsim.palace.fitting` module provides the reusable EM-to-circuit fit: `fit_rlc`
-  with `model="rlc1p"` (one-pole R, L, C, f0, Q; JAX/Adam in log space or a scipy fallback) and `model="vector_fit"`
-  (scikit-rf VectorFitting multi-pole rational model with stability/passivity test and enforcement, spurious-pole
-  detection and SPICE subcircuit export via `VectorFit`). `CircuitSynthesis.fit_rlc()` fits either model to the exported
-  circuit in one call (renamed from `fit_differential_rlc`); one-port circuits use the driving-point impedance. The
-  prebuilt local Palace runtime default is now v0. All new functionality lives in the single module
-  `gsim.palace.circuit`.18.0 (circuit synthesis needs >= 0.17.0).
+  subtraction, and S/Z/Y access. The same module provides the reusable EM-to-circuit fit: `fit_rlc` with `model="rlc1p"`
+  (one-pole R, L, C, f0, Q; JAX/Adam in log space or a scipy fallback) and `model="vector_fit"` (scikit-rf VectorFitting
+  multi-pole rational model with stability/passivity test and enforcement, spurious-pole detection and SPICE subcircuit
+  export via `VectorFit`). `CircuitSynthesis.fit_rlc()` fits either model to the exported circuit in one call; one-port
+  circuits use the driving-point impedance.
+- Notebook refactor to the reusable workflow: `palace_inductor.ipynb` fits via `fit_rlc` (the hand-rolled JAX/Adam
+  section is gone) with `SParams.to_skrf()` + `differential_impedance` for S/Z access;
+  `palace_inductor_port_comparison.ipynb` drops its manual `s_to_z` in favour of the package helpers;
+  `palace_transformer.ipynb` uses `to_skrf()` for S/Z/Y access, adds a broadband vector-fit section with passivity
+  checks and SPICE export, and its circulax fit netlist is migrated to the SAX port-reference style required by circulax
+  0.2.3.
+- **Behavior changes called out for review** (beyond circuit synthesis; happy to split into a separate PR if preferred):
+  (a) the prebuilt local Palace runtime default moved from v0.17.0 to v0.18.0 (set `PALACETOOLKIT_PALACE_CPU_TAG` to
+  stay on 0.17.0); (b) `SParams.to_skrf()` now defaults to the reference impedance recorded in `port_information.json`
+  instead of a hardcoded 50 Ohm, and S-parameter plots label it (#74). All new functionality lives in the single module
+  `gsim.palace.circuit`.
 - Notebook refactor to the reusable workflow: `palace_inductor.ipynb` fits via `fit_rlc` (the hand-rolled JAX/Adam
   section is gone) with `SParams.to_skrf()` + `differential_impedance` for S/Z access;
   `palace_inductor_port_comparison.ipynb` drops its manual `s_to_z` in favour of the package helpers;

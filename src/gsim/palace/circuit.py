@@ -703,10 +703,16 @@ class VectorFit:
     # -- response evaluation ------------------------------------------------
 
     def s(self, f: NDArray | None = None) -> NDArray:
-        """Model S-parameters ``(nf, N, N)`` (or the training data)."""
+        """Model S-parameters ``(nf, N, N)``.
+
+        With ``f=None`` the rational model is evaluated at the *training*
+        frequencies of the fit (not the training data — use ``.network.s``
+        for that).
+        """
         if f is None:
-            return np.asarray(self._vf.network.s)
-        freqs = np.atleast_1d(np.asarray(f, dtype=float))
+            freqs = np.asarray(self._vf.network.f, dtype=float)  # Hz
+        else:
+            freqs = np.atleast_1d(np.asarray(f, dtype=float))
         n_ports = self._vf.network.s.shape[-1]
         out = np.empty((len(freqs), n_ports, n_ports), dtype=complex)
         for i in range(n_ports):
@@ -714,28 +720,31 @@ class VectorFit:
                 out[:, i, j] = self._vf.get_model_response(i, j, freqs)
         return out
 
-    def _z0_matrix(self, n_freq: int, n_ports: int) -> NDArray:
-        """Reference-impedance diagonal matrices ``(nf, N, N)``."""
-        arr = np.asarray(self.z0, dtype=float)
-        if arr.ndim == 0:
-            return np.eye(n_ports, dtype=complex) * float(arr)
-        if arr.shape == (n_ports,):
-            return np.tile(np.diag(arr), (n_freq, 1, 1))
-        if arr.shape == (n_freq, n_ports):
-            return np.stack([np.diag(row) for row in arr])
-        raise ValueError(f"z0 must be scalar, (N,) or (nf, N), got {arr.shape}")
-
     def z(self, f: NDArray | None = None) -> NDArray:
-        """Model impedance matrices ``(nf, N, N)`` [Ohm]."""
+        """Model impedance matrices ``(nf, N, N)`` [Ohm].
+
+        Uses the symmetric power-wave form for a real diagonal reference
+        impedance: ``Z = sqrt(Z0) (I - S)^-1 (I + S) sqrt(Z0)``, which is
+        exact when the ports carry different reference impedances.
+        """
         s_model = self.s(f)
         n_freq, n_ports = s_model.shape[0], s_model.shape[-1]
-        eye = np.eye(n_ports, dtype=complex)
-        inv = np.linalg.inv(eye - s_model)
-        return (eye + s_model) @ inv @ self._z0_matrix(n_freq, n_ports)
+        eye = _eye(n_ports)
+        sqrt_z0, _ = _z0_sqrt_matrices(self.z0, n_freq, n_ports)
+        return sqrt_z0 @ (np.linalg.inv(eye - s_model) @ (eye + s_model)) @ sqrt_z0
 
     def y(self, f: NDArray | None = None) -> NDArray:
-        """Model admittance matrices ``(nf, N, N)`` [S]."""
-        return np.linalg.inv(self.z(f))
+        """Model admittance matrices ``(nf, N, N)`` [S].
+
+        Uses the symmetric form ``Y = sqrt(Z0)^-1 (I + S)^-1 (I - S)
+        sqrt(Z0)^-1``; computing ``1/Z`` of :meth:`z` is not equivalent
+        when the ports carry different reference impedances.
+        """
+        s_model = self.s(f)
+        n_freq, n_ports = s_model.shape[0], s_model.shape[-1]
+        eye = _eye(n_ports)
+        _, inv_z0 = _z0_sqrt_matrices(self.z0, n_freq, n_ports)
+        return inv_z0 @ (np.linalg.inv(eye + s_model) @ (eye - s_model)) @ inv_z0
 
     # -- export --------------------------------------------------------------
 
@@ -956,18 +965,13 @@ def _to_s_data(
         return s_data[:, None, None]
     if z.ndim != 3 or z.shape[-1] != z.shape[-2]:
         raise ValueError(f"z must have shape (nf,) or (nf, N, N), got {z.shape}")
-    zero = np.eye(z.shape[-1], dtype=complex)
-    z0_arr = np.asarray(z0, dtype=float)
-    if z0_arr.ndim == 0:
-        Z0 = zero * complex(z0_arr)
-    elif z0_arr.shape == (z.shape[-1],):
-        Z0 = np.diag(z0_arr)
-    else:
-        raise ValueError(f"z0 must be scalar or length-N array, got {z0_arr.shape}")
-    y = np.linalg.inv(z)
-    eye = np.eye(z.shape[-1], dtype=complex)
-    s_data = (eye - Z0[None, :, :] @ y) @ np.linalg.inv(eye + Z0[None, :, :] @ y)
-    return s_data
+    # Single-ended power waves with a real diagonal reference impedance:
+    # S = (W - I)(W + I)^-1 with W = sqrt(Z0)^-1 Z sqrt(Z0)^-1. This is exact
+    # for per-port z0 (S = (I - Z0 Y)(I + Z0 Y)^-1 is not - it mixes rows).
+    eye = _eye(z.shape[-1])
+    _, inv_z0 = _z0_sqrt_matrices(z0, z.shape[0], z.shape[-1])
+    w = inv_z0 @ z @ inv_z0
+    return (w - eye) @ np.linalg.inv(w + eye)
 
 
 def _network_z0(z0: float | NDArray, n_ports: int, n_freq: int) -> float | NDArray:
@@ -1084,14 +1088,41 @@ def _eye(n_ports: int) -> NDArray:
     return np.eye(n_ports, dtype=complex)
 
 
-def _z0_matrix(z0: float | NDArray, n_freq: int, n_ports: int) -> NDArray:
-    """Broadcast ``z0`` (scalar or per-port vector) to (nf, N, N) diagonals."""
+def _z0_sqrt_matrices(
+    z0: float | NDArray, n_freq: int, n_ports: int
+) -> tuple[NDArray, NDArray]:
+    """Return ``(sqrt(Z0), 1/sqrt(Z0))`` as (nf, N, N) diagonal matrices.
+
+    The power-wave conversions for a *real diagonal* reference impedance
+    (the standard Palace / 50-Ohm case, with scalar or per-port values)
+    distribute sqrt(Z0) symmetrically on both sides::
+
+        Z = sqrt(Z0) (I - S)^-1 (I + S) sqrt(Z0)
+        S = (W - I)(W + I)^-1,   W = Z0^-1/2 Z Z0^-1/2
+        Y = sqrt(Z0)^-1 (I + S)^-1 (I - S) sqrt(Z0)^-1
+        S = (I + N)^-1 (I - N),  N = sqrt(Z0) Y sqrt(Z0)
+
+    Multiplying Z0 on only one side is only correct when all ports share
+    the same reference impedance; with per-port values it distorts the
+    result (verified against scikit-rf's s2z/z2s).
+    """
     arr = np.asarray(z0, dtype=float)
+    accepted = ((), (n_ports,), (n_freq, n_ports))
+    if arr.ndim > 2 or arr.shape not in accepted:
+        raise ValueError(f"z0 must be scalar, length-N or (nf, N); got {arr.shape}")
+    if np.any(arr <= 0):
+        raise ValueError("z0 entries must be positive for sqrt-form conversions")
     if arr.ndim == 0:
-        return np.eye(n_ports, dtype=complex) * float(arr)
-    if arr.shape != (n_ports,):
-        raise ValueError(f"z0 must be scalar or a length-N vector, got {arr.shape}")
-    return np.tile(np.diag(arr), (n_freq, 1, 1))
+        sqrt = np.eye(n_ports) * float(arr) ** 0.5
+        inv = np.eye(n_ports) / float(arr) ** 0.5
+        return np.tile(sqrt, (n_freq, 1, 1)), np.tile(inv, (n_freq, 1, 1))
+    if arr.ndim == 2:  # (nf, N): one row per frequency
+        sqrt = np.stack([np.diag(np.sqrt(row)) for row in arr])
+        inv = np.stack([np.diag(1.0 / np.sqrt(row)) for row in arr])
+        return sqrt, inv
+    sqrt = np.tile(np.diag(np.sqrt(arr)), (n_freq, 1, 1))
+    inv = np.tile(np.diag(1.0 / np.sqrt(arr)), (n_freq, 1, 1))
+    return sqrt, inv
 
 
 def s_to_z(s: NDArray, z0: float | NDArray = 50.0) -> NDArray:
@@ -1099,18 +1130,18 @@ def s_to_z(s: NDArray, z0: float | NDArray = 50.0) -> NDArray:
     s = _as_matrix(s, "s")
     n_freq, n_ports = s.shape[0], s.shape[-1]
     eye = _eye(n_ports)
-    inv = np.linalg.inv(eye - s)
-    return (eye + s) @ inv @ _z0_matrix(z0, n_freq, n_ports)
+    sqrt_z0, _ = _z0_sqrt_matrices(z0, n_freq, n_ports)
+    return sqrt_z0 @ (np.linalg.inv(eye - s) @ (eye + s)) @ sqrt_z0
 
 
 def z_to_s(z: NDArray, z0: float | NDArray = 50.0) -> NDArray:
     """Convert impedance to scattering parameters, ``(nf, N, N)``."""
     z = _as_matrix(z, "z")
-    n_ports = z.shape[-1]
+    n_freq, n_ports = z.shape[0], z.shape[-1]
     eye = _eye(n_ports)
-    y = np.linalg.inv(z)
-    z0_mat = _z0_matrix(z0, z.shape[0], n_ports)
-    return (eye - z0_mat @ y) @ np.linalg.inv(eye + z0_mat @ y)
+    _, inv_z0 = _z0_sqrt_matrices(z0, n_freq, n_ports)
+    w = inv_z0 @ z @ inv_z0
+    return (w - eye) @ np.linalg.inv(w + eye)
 
 
 def s_to_y(s: NDArray, z0: float | NDArray = 50.0) -> NDArray:
@@ -1118,17 +1149,18 @@ def s_to_y(s: NDArray, z0: float | NDArray = 50.0) -> NDArray:
     s = _as_matrix(s, "s")
     n_freq, n_ports = s.shape[0], s.shape[-1]
     eye = _eye(n_ports)
-    inv = np.linalg.inv(eye + s)
-    return np.linalg.inv(_z0_matrix(z0, n_freq, n_ports)) @ (eye - s) @ inv
+    _, inv_z0 = _z0_sqrt_matrices(z0, n_freq, n_ports)
+    return inv_z0 @ (np.linalg.inv(eye + s) @ (eye - s)) @ inv_z0
 
 
 def y_to_s(y: NDArray, z0: float | NDArray = 50.0) -> NDArray:
     """Convert admittance to scattering parameters, ``(nf, N, N)``."""
     y = _as_matrix(y, "y")
-    n_ports = y.shape[-1]
+    n_freq, n_ports = y.shape[0], y.shape[-1]
     eye = _eye(n_ports)
-    z0_mat = _z0_matrix(z0, y.shape[0], n_ports)
-    return (eye - z0_mat @ y) @ np.linalg.inv(eye + z0_mat @ y)
+    sqrt_z0, _ = _z0_sqrt_matrices(z0, n_freq, n_ports)
+    n = sqrt_z0 @ y @ sqrt_z0
+    return np.linalg.solve(n + eye, eye - n)
 
 
 def y_to_z(y: NDArray) -> NDArray:
