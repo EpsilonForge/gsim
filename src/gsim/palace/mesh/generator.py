@@ -1220,8 +1220,8 @@ def generate_mesh(
     logger.info("  Polygons: %s", len(geometry.polygons))
     logger.info("  Bbox: %s", geometry.bbox)
 
-    # Initialize gmsh
-    gmsh.initialize()
+    # The mesh must depend only on gsim's settings, not on the user's Gmsh options file
+    gmsh.initialize(readConfigFiles=False)
     gmsh.option.setNumber("General.Verbosity", verbosity)
     apply_mesher_options(
         algorithm_3d=algorithm_3d, threads=threads, surface_threads=surface_threads
@@ -1400,7 +1400,16 @@ def generate_mesh(
         # Add geometry
         logger.info("Adding metals...")
         metal_tags = add_metals(
-            kernel, geometry, stack, planar_conductors, merge_via_distance
+            kernel,
+            geometry,
+            stack,
+            planar_conductors,
+            merge_via_distance,
+            curve_fit_mode=curve_fit_mode,
+            curve_fit_layers=curve_fit_layers,
+            curve_fit_tolerance_um=curve_fit_tolerance_um,
+            curve_fit_min_points=curve_fit_min_points,
+            curve_fit_corner_angle_deg=curve_fit_corner_angle_deg,
         )
 
         # Add PEC blocks if configured
