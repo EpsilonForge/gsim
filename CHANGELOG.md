@@ -23,6 +23,15 @@
   frequency units and port order; incomplete matrices are rejected. `palace_inductor_port_comparison.ipynb` is merged
   into `palace_inductor.ipynb` as a controlled two-interlayer-vs-gap-port comparison section (identical guard ring)
   using these conversions.
+- Touchstone export/import with full-fidelity round trips (`SParams.write_touchstone` / `SParams.from_touchstone`):
+  frequency in Hz, port order and names preserved via `! Port[i]` comments, reference impedance restored from the file
+  header; complex-S round-trip error at machine precision (below the 1e-9 acceptance for 2- and 4-port networks,
+  tested).
+- Reference impedance now flows from `port_information.json` into `SParams.z0` (and the npz cache), and S-parameter
+  plots label it (#74).
+- `palace_transformer.ipynb`: the extracted transformer is demonstrated inside a matching network — a series input
+  capacitor swept around the analytic estimate drives a 50 Ohm load through the fitted circulax model, closing the EM ->
+  extracted-parameters -> circuit-design loop.
 - Gap-port inductor variant (`nbs/palace_inductor_gap.ipynb`): the differential excitation is a Palace `gap` lumped port
   spanning the terminal slot instead of two interlayer ports — `differential_impedance` now handles one-port networks
   (driving-point `Z11`), so `CircuitSynthesis.fit_differential_rlc` works directly; committed local Palace v0.18.0
