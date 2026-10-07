@@ -3,6 +3,35 @@
 See [result validation](../palace-validation.md) for independent solver,
 adaptive sampling, mode identity, and provenance checks.
 
+## Numeric wave-port boundaries
+
+The default `waveport_boundary="pec"` approximates finite conductivity, impedance
+and absorbing boundaries as PEC **inside the port eigenproblem**. Choose
+`"inherit"` to retain those physical conditions when solving the port mode:
+
+```python
+from gsim.palace import DrivenSim
+
+sim = DrivenSim()
+sim.set_driven(f=50e9, waveport_boundary="inherit")
+# After geometry/ports are configured and the mesh is generated:
+# config = json.loads(sim.write_config().read_text())
+# "WavePortPEC" not in config["Boundaries"]
+```
+
+Only the generated `Boundaries.WavePortPEC` override changes. The physical 3D
+conductivity, impedance and absorbing boundaries remain identical. Lumped ports
+are unaffected. This controls a modeling approximation; it does not fix Palace
+mode selection or establish lossy S-parameter normalization accuracy. Check the
+port fields and solver convergence for the chosen Palace runtime.
+
+The policies differ only when absorbing, conductivity or impedance boundaries
+exist; without these Robin terms, both omit `WavePortPEC`. A later `set_driven()`
+call rebuilds the driven settings, so repeat `waveport_boundary="inherit"` when
+updating other sweep options if you want to retain it.
+
+Material override precedence is separate; see [PR #277](https://github.com/gdsfactory/gsim/pull/277).
+
 ## Result validation
 
 ::: gsim.palace.validation
