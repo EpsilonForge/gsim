@@ -171,6 +171,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
         scale: Literal["linear", "log"] = "linear",
         adaptive_tol: float = 0.02,
         adaptive_max_samples: int = 20,
+        circuit_synthesis: bool = False,
         compute_s_params: bool = True,
         reference_impedance: float = 50.0,
         excitation_port: str | None = None,
@@ -198,6 +199,11 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             adaptive_max_samples: Maximum number of additional frequency
                 points that adaptive refinement may insert between the
                 points defined by fmin, fmax, and num_points.
+            circuit_synthesis: Enable Palace AC circuit synthesis
+                (AdaptiveCircuitSynthesis). Requires an adaptive sweep
+                (adaptive_tol > 0). Palace writes rom-*.csv files with the
+                synthesized L/R/C circuit matrices next to the S-parameters.
+                Requires Palace >= 0.17 (local runtime default is >= 0.18).
             compute_s_params: Compute S-parameters
             reference_impedance: Reference impedance for S-params (Ohms)
             excitation_port: Port to excite (None = first port)
@@ -247,6 +253,7 @@ class DrivenSim(PalaceSimMixin, BaseModel):
             scale=scale,
             adaptive_tol=adaptive_tol,
             adaptive_max_samples=adaptive_max_samples,
+            circuit_synthesis=circuit_synthesis,
             compute_s_params=compute_s_params,
             reference_impedance=reference_impedance,
             excitation_port=excitation_port,
