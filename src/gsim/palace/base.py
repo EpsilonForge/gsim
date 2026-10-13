@@ -444,6 +444,7 @@ class PalaceSimMixin(SolverSettingsMixin):
         substrate_thickness: float = 2.0,
         include_substrate: bool = False,
         add_oxide_dielectric: bool = True,
+        pdk_authoritative: bool = False,
         **kwargs,
     ) -> None:
         """Configure the layer stack.
@@ -467,13 +468,21 @@ class PalaceSimMixin(SolverSettingsMixin):
             yaml_path: Path to custom YAML stack file.
             air_above: Deprecated and ignored. Use set_airbox().
             air_below: Deprecated and ignored. Use set_airbox().
-            substrate_thickness: Thickness below z=0 in um.
-            include_substrate: Include lossy silicon substrate.
-            add_oxide_dielectric: Add synthetic oxide background dielectric.
-            **kwargs: Additional args passed to extract_layer_stack.
+            substrate_thickness: Thickness below z=0 in um (legacy path only).
+            include_substrate: Include lossy silicon substrate (legacy path only).
+            add_oxide_dielectric: Add synthetic oxide background dielectric
+                (legacy path only).
+            pdk_authoritative: Build the stack directly from the PDK LayerStack
+                (gsim#230): every declared layer is preserved with its
+                authoritative z-extent/material/mesh_order, no synthetic oxide,
+                substrate or collapsed background slab is inserted, and unknown
+                material tokens raise instead of falling back.  Defaults to
+                ``False`` so existing behaviour is unchanged.
+            **kwargs: Additional args passed to extract_layer_stack (legacy path).
 
         Example:
             >>> sim.set_stack(substrate_thickness=2.0)
+            >>> sim.set_stack(pdk_authoritative=True)  # PDK-authoritative stack
         """
         if stack is not None:
             # Directly use a pre-built LayerStack — skip lazy resolution
@@ -488,11 +497,18 @@ class PalaceSimMixin(SolverSettingsMixin):
                 "z_above=..., z_below=...)."
             )
 
+        if pdk_authoritative and yaml_path is not None:
+            raise ValueError(
+                "set_stack(pdk_authoritative=True) resolves the active PDK "
+                "LayerStack directly and cannot be combined with yaml_path."
+            )
+
         self._stack_kwargs = {
             "yaml_path": yaml_path,
             "substrate_thickness": substrate_thickness,
             "include_substrate": include_substrate,
             "add_oxide_dielectric": add_oxide_dielectric,
+            "pdk_authoritative": pdk_authoritative,
             **kwargs,
         }
         # Stack will be resolved lazily during mesh() or simulate()
@@ -855,6 +871,32 @@ class PalaceSimMixin(SolverSettingsMixin):
             for name, props in self.materials.items():
                 self.stack.materials[name] = props.to_dict()
             return self.stack
+
+        # PDK-authoritative path (gsim#230): build directly from the PDK
+        # LayerStack, with no synthetic geometry or silent material fallbacks.
+        pdk_authoritative = bool(self._stack_kwargs.pop("pdk_authoritative", False))
+        if pdk_authoritative:
+            from gsim.common.pdk import resolve_layer_stack
+            from gsim.palace.stack import build_palace_layer_stack
+
+            resolved = resolve_layer_stack(self.component)
+            canonical = build_palace_layer_stack(resolved)
+
+            # Apply material overrides
+            for name, props in self.materials.items():
+                canonical.materials[name] = props.to_dict()
+
+            # Keep stack free of synthetic air regions; Palace airboxes are
+            # generated explicitly from set_airbox().
+            canonical.dielectrics = [
+                d
+                for d in canonical.dielectrics
+                if str(d.get("material", "")).lower() != "air"
+            ]
+
+            self._stack_kwargs["pdk_authoritative"] = True
+            self.stack = canonical
+            return canonical
 
         from gsim.common.stack import get_stack
 
