@@ -51,6 +51,7 @@ def build_palace_layer_stack(resolved: ResolvedStack) -> LayerStack:
     stack.simulation = {
         "pdk_authoritative": True,
         "wavelength_um": resolved.wavelength_um,
+        "pdk_overlay": resolved.overlay,
         "drawn_z_range": (
             list(resolved.drawn_z_range) if resolved.drawn_z_range else None
         ),

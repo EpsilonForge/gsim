@@ -4,21 +4,13 @@ from __future__ import annotations
 
 import gdsfactory as gf
 import pytest
+from gdsfactory.technology import LayerLevel
+from gdsfactory.technology import LayerStack as GfLayerStack
 
 from gsim.common.pdk import resolve_layer_stack
 from gsim.palace import DrivenSim
 
 ihp = pytest.importorskip("ihp")
-
-# Explicit, reviewed IHP background + interconnect declarations.  The IHP
-# LayerStack declares no bulk BEOL/cladding region and no interconnect role, so
-# the authoritative path requires these to be supplied explicitly (gsim#230).
-IHP_DIELECTRICS = [
-    {"name": "ild", "material": "sio2", "zmin": -2.0, "zmax": 14.03},
-    {"name": "passivation", "material": "sin", "zmin": 14.03, "zmax": 15.93},
-]
-IHP_VIA_LAYERS = ("cont", "via1", "via2", "via3", "via4", "vmim", "topvia1", "topvia2")
-IHP_ROLE_OVERRIDES = dict.fromkeys(IHP_VIA_LAYERS, "via")
 
 
 @pytest.fixture
@@ -29,6 +21,31 @@ def _ihp_active():
     except ValueError:
         previous = None
     ihp.PDK.activate()
+    try:
+        yield
+    finally:
+        if previous is not None:
+            previous.activate()
+
+
+@pytest.fixture
+def _no_overlay_pdk_active():
+    """Activate a PDK with no reviewed overlay and no bulk dielectric."""
+    try:
+        previous = gf.get_active_pdk()
+    except ValueError:
+        previous = None
+    pdk = gf.Pdk(
+        name="no_overlay_test",
+        layer_stack=GfLayerStack(
+            layers={
+                "core": LayerLevel(
+                    layer=(1, 0), thickness=0.22, zmin=0.0, material="Si"
+                )
+            }
+        ),
+    )
+    pdk.activate()
     try:
         yield
     finally:
@@ -52,50 +69,55 @@ def _straight_topmetal2(length: float = 100.0) -> gf.Component:
 
 
 @pytest.mark.usefixtures("_ihp_active")
-def test_authoritative_stack_is_empty_without_explicit_dielectrics() -> None:
+def test_ihp_overlay_is_applied_by_default() -> None:
     sim = DrivenSim()
     sim.set_stack(pdk_authoritative=True)
-    # No airbox and no explicit dielectrics -> refuse rather than silently
-    # producing an air-only domain that fails later with "No dielectric volumes".
-    with pytest.raises(ValueError, match="No dielectric volumes"):
-        sim._resolve_stack()
-
-
-@pytest.mark.usefixtures("_ihp_active")
-def test_explicit_dielectrics_and_roles_reach_the_resolver() -> None:
-    sim = DrivenSim()
-    sim.set_airbox(margin_x=0, margin_y=0, z_above=100.0, z_below=100.0)
-    sim.set_stack(
-        pdk_authoritative=True,
-        dielectrics=IHP_DIELECTRICS,
-        role_overrides=IHP_ROLE_OVERRIDES,
-    )
     stack = sim._resolve_stack()
 
-    assert [d["name"] for d in stack.dielectrics] == ["ild", "passivation"]
+    assert stack.simulation["pdk_overlay"] == "IHP"
+    assert {d["name"] for d in stack.dielectrics} == {"ild", "passivation"}
     assert stack.layers["via1"].layer_type == "via"
-    assert stack.layers["topvia2"].layer_type == "via"
-    # mesh_order survives the adapter (review: it used to be dropped).
     assert stack.layers["metal1"].mesh_order == 14
 
 
 @pytest.mark.usefixtures("_ihp_active")
-def test_explicit_dielectrics_become_mesh_volumes(tmp_path) -> None:
+def test_overlay_alone_produces_mesh_volumes(tmp_path) -> None:
+    """Notebooks only need the flag: the overlay supplies the BEOL/passivation."""
     sim = DrivenSim()
     sim.set_output_dir(str(tmp_path / "palace-sim"))
     sim.set_geometry(_straight_topmetal2())
-    sim.set_stack(
-        pdk_authoritative=True,
-        dielectrics=IHP_DIELECTRICS,
-        role_overrides=IHP_ROLE_OVERRIDES,
-    )
+    sim.set_stack(pdk_authoritative=True)
     sim.set_airbox(margin_x=0, margin_y=0, z_above=100.0, z_below=100.0)
     sim.mesh(preset="coarse", margin_x=0, margin_y=0)
 
     volumes = sim._last_mesh_result.groups["volumes"]
-    assert "sio2" in volumes  # explicit BEOL/cladding
-    assert "sin" in volumes  # explicit passivation
+    assert "sio2" in volumes  # implicit BEOL from the overlay
+    assert "sin" in volumes  # passivation from the overlay
     assert "air" in volumes
+
+
+@pytest.mark.usefixtures("_ihp_active")
+def test_explicit_input_overrides_the_overlay() -> None:
+    sim = DrivenSim()
+    sim.set_stack(
+        pdk_authoritative=True,
+        dielectrics=[{"name": "ild", "material": "sin", "zmin": -1.0, "zmax": 5.0}],
+        role_overrides={"via1": "conductor"},
+    )
+    stack = sim._resolve_stack()
+
+    by_name = {d["name"]: d for d in stack.dielectrics}
+    assert by_name["ild"]["material"] == "sin"
+    assert by_name["ild"]["zmin"] == -1.0
+    assert stack.layers["via1"].layer_type == "conductor"
+
+
+@pytest.mark.usefixtures("_no_overlay_pdk_active")
+def test_missing_bulk_dielectric_and_airbox_raises() -> None:
+    sim = DrivenSim()
+    sim.set_stack(pdk_authoritative=True)
+    with pytest.raises(ValueError, match="No dielectric volumes"):
+        sim._resolve_stack()
 
 
 @pytest.mark.usefixtures("_ihp_active")

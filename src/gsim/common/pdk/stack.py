@@ -27,10 +27,11 @@ Design rules (see gsim#230):
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, cast
 
 from gsim.common.pdk.models import LayerResolutionError
+from gsim.common.pdk.overlays import StackOverlay, get_stack_overlay
 from gsim.common.pdk.resolve import _resolve_layer_stack, _resolve_pdk
 from gsim.common.stack._layer_utils import get_gds_layer_tuple
 from gsim.common.stack.materials import (
@@ -128,6 +129,7 @@ class ResolvedStack:
     wavelength_um: float | None = None
     drawn_z_range: tuple[float, float] | None = None
     undrawn_z_range: tuple[float, float] | None = None
+    overlay: str | None = None
     notes: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -210,6 +212,7 @@ def resolve_layer_stack(
     wavelength_um: float | None = None,
     dielectrics: Iterable[Mapping[str, Any]] | None = None,
     role_overrides: Mapping[str, LayerRole] | None = None,
+    use_pdk_overlay: bool = True,
 ) -> ResolvedStack:
     """Resolve the authoritative PDK layer stack.
 
@@ -225,10 +228,14 @@ def resolve_layer_stack(
             implicitly, so the default is an empty stack of dielectrics.
         role_overrides: Optional explicit ``{layer_key: role}`` declarations
             (``"conductor"``/``"via"``/``"dielectric"``/``"substrate"``).  Role
-            resolution order is: ``role_overrides`` > PDK ``info['layer_type']``
-            > property-based classification.  This is the supported way to mark
-            interconnect layers (e.g. IHP ``via*``/``cont``) without falling
-            back to name heuristics in the core.
+            resolution order is: ``role_overrides`` > explicit PDK overlay >
+            PDK ``info['layer_type']`` > property-based classification.  This is
+            the supported way to mark interconnect layers (e.g. IHP
+            ``via*``/``cont``) without falling back to name heuristics.
+        use_pdk_overlay: Apply the reviewed per-PDK overlay (see
+            :mod:`gsim.common.pdk.overlays`) for implicit BEOL/cladding and
+            interconnect roles.  Caller-supplied ``dielectrics``/
+            ``role_overrides`` always win.  Defaults to ``True``.
 
     Raises:
         LayerResolutionError: When the PDK has no LayerStack, a layer has no
@@ -296,6 +303,27 @@ def resolve_layer_stack(
     if not layers:
         raise LayerResolutionError(f"PDK {pdk_name!r} declares an empty LayerStack.")
 
+    # Apply the reviewed per-PDK overlay (explicit caller input wins).
+    overlay: StackOverlay | None = None
+    if use_pdk_overlay:
+        overlay = get_stack_overlay(pdk_name, layers)
+    if overlay is not None:
+        for key, overlay_role in overlay.role_overrides.items():
+            if overlay_role not in _VALID_ROLES:
+                raise LayerResolutionError(
+                    f"Overlay {overlay.name!r} role for {key!r} is invalid: "
+                    f"{overlay_role!r}."
+                )
+            if key in layers and key not in overrides:
+                layers[key] = replace(layers[key], layer_type=overlay_role)
+        notes.append(f"Applied PDK stack overlay {overlay.name!r}: {overlay.note}")
+
+    merged_dielectrics: dict[str, Mapping[str, Any]] = {
+        d["name"]: d for d in (overlay.dielectrics if overlay else ())
+    }
+    for dielectric in dielectrics or ():
+        merged_dielectrics[dielectric["name"]] = dielectric
+
     drawn_layers = [layer for layer in layers.values() if layer.drawn]
     undrawn_layers = [layer for layer in layers.values() if not layer.drawn]
 
@@ -309,12 +337,13 @@ def resolve_layer_stack(
         pdk_name=pdk_name,
         layer_stack=layer_stack,
         layers=layers,
-        dielectrics=_resolve_dielectrics(dielectrics),
+        dielectrics=_resolve_dielectrics(list(merged_dielectrics.values())),
         materials=materials,
         component=component,
         wavelength_um=wavelength_um,
         drawn_z_range=_z_range(drawn_layers) or _z_range(layers.values()),
         undrawn_z_range=_z_range(undrawn_layers),
+        overlay=overlay.name if overlay is not None else None,
         notes=tuple(notes),
     )
 

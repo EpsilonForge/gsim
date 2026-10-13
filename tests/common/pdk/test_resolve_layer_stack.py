@@ -142,7 +142,7 @@ def _ihp_active() -> Iterator[None]:
 
 
 @pytest.mark.usefixtures("_ihp_active")
-def test_ihp_preserves_pdk_layers_without_synthetic_geometry() -> None:
+def test_ihp_preserves_pdk_layers_and_applies_its_overlay() -> None:
     resolved = resolve_layer_stack()
 
     assert resolved.pdk_name == "IHP"
@@ -162,8 +162,12 @@ def test_ihp_preserves_pdk_layers_without_synthetic_geometry() -> None:
     assert metal1.material == "aluminum"
     assert (metal1.zmin, metal1.zmax) == pytest.approx((0.84, 1.26))
 
-    # No synthetic oxide / substrate / background slab is inserted.
-    assert resolved.dielectrics == ()
+    # The reviewed IHP overlay supplies the implicit BEOL region and marks the
+    # tungsten interconnects as vias (explicit, not inferred in the core).
+    assert resolved.overlay == "IHP"
+    assert {d.name for d in resolved.dielectrics} == {"ild", "passivation"}
+    assert resolved.layers["via1"].layer_type == "via"
+    assert resolved.layers["cont"].layer_type == "via"
 
     # Every material token resolves (no silent "unknown" fallback).
     assert {"aluminum", "tungsten", "TiN", "poly_si", "si", "sin", "sio2"} <= set(
@@ -173,3 +177,23 @@ def test_ihp_preserves_pdk_layers_without_synthetic_geometry() -> None:
     # Real mesh orders come from info.
     assert metal1.mesh_order == 14
     assert resolved.layers["via1"].mesh_order == 15
+
+
+@pytest.mark.usefixtures("_ihp_active")
+def test_overlay_can_be_disabled_and_overridden() -> None:
+    # No overlay: nothing is synthesized, vias stay property-classified.
+    bare = resolve_layer_stack(use_pdk_overlay=False)
+    assert bare.overlay is None
+    assert bare.dielectrics == ()
+    assert bare.layers["via1"].layer_type == "conductor"
+
+    # Explicit input wins over the overlay (same region name -> override).
+    overridden = resolve_layer_stack(
+        dielectrics=[{"name": "ild", "material": "sin", "zmin": -1.0, "zmax": 5.0}],
+        role_overrides={"via1": "conductor"},
+    )
+    by_name = {d.name: d for d in overridden.dielectrics}
+    assert by_name["ild"].material == "sin"
+    assert (by_name["ild"].zmin, by_name["ild"].zmax) == (-1.0, 5.0)
+    assert by_name["passivation"].material == "sin"  # overlay still applied
+    assert overridden.layers["via1"].layer_type == "conductor"
