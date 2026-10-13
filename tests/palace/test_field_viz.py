@@ -227,16 +227,23 @@ def test_plot_fields_2d_unknown_scalar_raises(
 def test_plot_fields_2d_chip_bounds_crops(
     planar_vector_dataset: pv.DataSet,
 ) -> None:
-    """``chip_bounds`` should crop the in-plane extent."""
-    plotter = field_viz.plot_fields_2d(
-        planar_vector_dataset,
-        normal="z",
-        origin=0.0,
-        chip_bounds=(-1.0, 1.0, -1.0, 1.0),
-        show=False,
-    )
-    assert isinstance(plotter, pv.Plotter)
-    plotter.close()
+    """``chip_bounds`` should crop the in-plane extent on flat data.
+
+    Native-2D data is thin in one axis, so ``_slice_plane`` keeps that plane
+    and ignores ``normal``.  The crop must use the slice's own in-plane axes:
+    with the fixture flat in z, ``normal="x"`` used to crop the wrong axes
+    (and raise on the zero-thickness box).
+    """
+    for normal in ("z", "x"):
+        plotter = field_viz.plot_fields_2d(
+            planar_vector_dataset,
+            normal=normal,
+            origin=0.0,
+            chip_bounds=(-1.0, 1.0, -1.0, 1.0),
+            show=False,
+        )
+        assert isinstance(plotter, pv.Plotter)
+        plotter.close()
 
     with pytest.raises(ValueError, match="removed all data"):
         field_viz.plot_fields_2d(
@@ -246,3 +253,21 @@ def test_plot_fields_2d_chip_bounds_crops(
             chip_bounds=(100.0, 101.0, 100.0, 101.0),
             show=False,
         )
+
+
+def test_crop_inplane_uses_slice_axes(planar_vector_dataset: pv.DataSet) -> None:
+    """The crop follows the slice axes, not the requested ``normal``."""
+    sliced, _used_normal, _axis_idx, axes = field_viz._slice_plane(
+        planar_vector_dataset,
+        normal="x",  # mismatches the fixture's flat (z) axis
+        origin=0.0,
+    )
+    assert axes == [0, 1]  # in-plane axes are x, y
+    cropped = field_viz._crop_inplane(
+        sliced, axes=axes, chip_bounds=(-1.0, 1.0, -1.0, 1.0)
+    )
+    assert 0 < cropped.n_points < sliced.n_points
+    points = np.asarray(cropped.points)
+    # Points are kept to within one cell of the box on the two in-plane axes.
+    assert np.abs(points[:, 0]).max() <= 1.3
+    assert np.abs(points[:, 1]).max() <= 1.3

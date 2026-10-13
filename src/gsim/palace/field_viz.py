@@ -361,26 +361,36 @@ def _auto_clim(values: np.ndarray, *, signed: bool) -> tuple[float, float] | Non
     return (-vmax, vmax) if signed else (0.0, vmax)
 
 
-def _filter_to_chip_bounds(
-    dataset: pv.DataSet,
+def _crop_inplane(
+    sliced: pv.DataSet,
     *,
-    normal: Axis,
+    axes: list[int],
     chip_bounds: tuple[float, float, float, float],
 ) -> pv.DataSet:
-    """Crop a dataset to an in-plane box ``(h_min, h_max, v_min, v_max)``."""
-    axis_idx = {"x": 0, "y": 1, "z": 2}[normal]
-    axes = [i for i in range(3) if i != axis_idx]
+    """Crop a planar slice to an in-plane box ``(h_min, h_max, v_min, v_max)``.
+
+    *axes* are the slice's own in-plane axes, as returned by
+    :func:`_slice_plane`.  They are not derived from the requested ``normal``:
+    a native-2D dataset is flat in one axis and ``_slice_plane`` keeps that
+    plane regardless of ``normal``.  Filtering on the point coordinates also
+    avoids a zero-thickness clip box on flat data.
+    """
     h_min, h_max, v_min, v_max = chip_bounds
-    bounds = [float(b) for b in np.asarray(dataset.bounds, dtype=float)]
-    bounds[2 * axes[0]] = h_min
-    bounds[2 * axes[0] + 1] = h_max
-    bounds[2 * axes[1]] = v_min
-    bounds[2 * axes[1] + 1] = v_max
-    clipped = dataset.clip_box(bounds, invert=False)
-    if clipped.n_points == 0:
-        msg = f"chip_bounds={chip_bounds} removed all data for normal={normal!r}."
+    points = np.asarray(sliced.points, dtype=float)
+    if points.size == 0:
+        msg = f"chip_bounds={chip_bounds} removed all data."
         raise ValueError(msg)
-    return clipped
+    h = points[:, axes[0]]
+    v = points[:, axes[1]]
+    inside = (h >= h_min) & (h <= h_max) & (v >= v_min) & (v <= v_max)
+    if not inside.any():
+        msg = f"chip_bounds={chip_bounds} removed all data."
+        raise ValueError(msg)
+    cropped = sliced.extract_points(np.flatnonzero(inside))
+    if cropped.n_points == 0:
+        msg = f"chip_bounds={chip_bounds} removed all data."
+        raise ValueError(msg)
+    return cropped
 
 
 def plot_fields_2d(
@@ -435,8 +445,9 @@ def plot_fields_2d(
         physical_groups: Optional list of physical group names to
             restrict the plot to (e.g. ``["n_rib", "p_rib", "slab90"]``).
         chip_bounds: Optional in-plane crop ``(h_min, h_max, v_min, v_max)``
-            in the order of the in-plane axes (e.g. y- then z-axis for an
-            x-normal slice), to cut the airbox out of the view.
+            in the order of the slice's in-plane axes (e.g. y- then z-axis
+            for a volumetric x-normal slice; x- then y-axis for native-2D
+            flat data), to cut the airbox out of the view.
         cmap: Colour-map name passed to PyVista.  Defaults to ``"RdBu"``
             for signed scalars and ``"hot"`` otherwise.
         clim: Optional ``(vmin, vmax)`` for the color scale.  If None,
@@ -517,19 +528,16 @@ def plot_fields_2d(
             )
             dataset = dataset.extract_cells(keep)
 
-        if chip_bounds is not None:
-            dataset = _filter_to_chip_bounds(
-                dataset,
-                normal=normal,
-                chip_bounds=chip_bounds,
-            )
-
-        # Slice to the cross-section plane.
+        # Slice to the cross-section plane, then crop to *chip_bounds* using
+        # that slice's own in-plane axes (correct for native-2D flat data).
         sliced, _used_normal, axis_idx, axes = _slice_plane(
             dataset,
             normal=normal,
             origin=origin,
         )
+
+        if chip_bounds is not None:
+            sliced = _crop_inplane(sliced, axes=axes, chip_bounds=chip_bounds)
 
         if field not in sliced.point_data:
             available = list(sliced.point_data.keys())
