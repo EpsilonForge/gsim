@@ -19,8 +19,9 @@ Design rules (see gsim#230):
   ``info['layer_type']`` overrides that.
 * Materials are resolved with the project/gsim registry and a *hard error*
   when an unknown token appears -- no silent ``unknown`` fallback.
-* Vertical extents used for domains are computed from layers the component
-  actually draws, so undrawn process layers cannot inflate the domain.
+* The vertical extent actually drawn by a component is exposed as
+  ``drawn_z_range`` for backends to use; it is not applied to the domain by
+  this module.
 """
 
 from __future__ import annotations
@@ -56,8 +57,8 @@ def resolve_material_properties(material: str) -> MaterialProperties:
     if props is None:
         raise LayerResolutionError(
             f"No material properties found for PDK material token {material!r}. "
-            "Attach a material card to the active PDK or add the token to the "
-            "gsim material registry."
+            "Add the token to the gsim RF material registry/aliases "
+            "(gsim.common.stack.materials.MATERIALS_DB / MATERIAL_ALIASES)."
         )
     return props
 

@@ -32,6 +32,7 @@ def build_palace_layer_stack(resolved: ResolvedStack) -> LayerStack:
             material=process_layer.material,
             layer_type=process_layer.layer_type,  # ty: ignore[invalid-argument-type]
             sidewall_angle=process_layer.sidewall_angle,
+            mesh_order=process_layer.mesh_order,
         )
 
     for name, properties in resolved.materials.items():
