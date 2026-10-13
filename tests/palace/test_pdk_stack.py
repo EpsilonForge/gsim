@@ -132,6 +132,49 @@ def test_legacy_kwargs_are_rejected_with_the_flag() -> None:
 
 
 @pytest.mark.usefixtures("_ihp_active")
+def test_bare_overlay_matches_legacy_default_regions() -> None:
+    """The IHP overlay reproduces the legacy default dielectric regions."""
+    from gsim.common.stack import get_stack
+
+    legacy = sorted(
+        (d["material"], round(d["zmin"], 3), round(d["zmax"], 3))
+        for d in get_stack().dielectrics
+    )
+    auth = sorted(
+        (d.material, round(d.zmin, 3), round(d.zmax, 3))
+        for d in resolve_layer_stack().dielectrics
+    )
+    assert auth == legacy
+
+
+@pytest.mark.usefixtures("_ihp_active")
+def test_substrate_declaration_matches_legacy_regions() -> None:
+    """The explicit substrate override reproduces the legacy 180 um regions."""
+    from gsim.common.stack import get_stack
+
+    legacy = sorted(
+        (d["material"], round(d["zmin"], 3), round(d["zmax"], 3))
+        for d in get_stack(
+            include_substrate=True, substrate_thickness=180.0
+        ).dielectrics
+    )
+
+    sim = DrivenSim()
+    sim.set_stack(
+        pdk_authoritative=True,
+        dielectrics=[
+            {"name": "substrate", "material": "silicon", "zmin": -180.0, "zmax": 0.0},
+            {"name": "ild", "material": "sio2", "zmin": 0.0, "zmax": 14.03},
+        ],
+    )
+    auth = sorted(
+        (d["material"], round(d["zmin"], 3), round(d["zmax"], 3))
+        for d in sim._resolve_stack().dielectrics
+    )
+    assert auth == legacy
+
+
+@pytest.mark.usefixtures("_ihp_active")
 def test_legacy_default_is_unchanged() -> None:
     sim = DrivenSim()
     sim.set_stack()
