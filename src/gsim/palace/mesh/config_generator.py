@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     )
     from gsim.palace.models.ports import TerminalConfig
     from gsim.palace.ports.config import PalacePort
+    from gsim.palace.terminals import ResolvedTerminal
 
 
 def _resolve_impedance_boundaries(
@@ -128,6 +129,63 @@ def _resolve_impedance_boundaries(
     return entries
 
 
+def _electrostatic_net_boundaries(
+    groups: dict, resolved_terminals: list[ResolvedTerminal] | None
+) -> dict[str, Any]:
+    """Terminal and Ground entries of an electrostatic mesh with a group per net.
+
+    Each terminal drives the physical groups of its nets: the conductor shells,
+    planar conductor surfaces and via boundary faces of exactly those nets.
+    Every other conductor, planar-conductor, PEC-block and via-boundary group is
+    Ground, so the Terminal and Ground attributes never overlap.
+
+    Args:
+        groups: The mesh groups, with ``groups["nets"]`` from the net split.
+        resolved_terminals: The terminals resolved to net positions, in the
+            order of the Palace terminal indices (from 1).
+
+    Raises:
+        ValueError: If there are no resolved terminals, a terminal names a net
+            that is not in the mesh, or a terminal ends up with no surface.
+    """
+    if not resolved_terminals:
+        raise ValueError(
+            "The mesh has one physical group per net, so the terminals must be "
+            "resolved to nets; pass resolved_terminals (ElectrostaticSim does)."
+        )
+    nets = groups["nets"]
+    terminal_entries: list[dict[str, object]] = []
+    used: set[int] = set()
+    for index, terminal in enumerate(resolved_terminals, start=1):
+        bad = [k for k in terminal.nets if not 0 <= k < len(nets)]
+        if bad:
+            raise ValueError(
+                f"Terminal '{terminal.name}' refers to net position {bad[0]}, but "
+                f"the mesh has {len(nets)} nets. Run mesh() again."
+            )
+        attributes = sorted(
+            {pg for k in terminal.nets for pg in nets[k]["phys_groups"]}
+        )
+        if not attributes:
+            names = ", ".join(repr(nets[k]["name"]) for k in terminal.nets)
+            raise ValueError(
+                f"Terminal '{terminal.name}' has no surfaces to drive: its nets "
+                f"({names}) have no conductor or via faces in the mesh."
+            )
+        terminal_entries.append({"Index": index, "Attributes": attributes})
+        used.update(attributes)
+
+    every: set[int] = set()
+    for section in ("conductor_surfaces", "pec_surfaces"):
+        every.update(info["phys_group"] for info in groups.get(section, {}).values())
+    for pgs in groups.get("via_boundary_surfaces", {}).values():
+        every.update(pgs)
+    boundaries: dict[str, Any] = {"Terminal": terminal_entries}
+    if ground := sorted(every - used):
+        boundaries["Ground"] = {"Attributes": ground}
+    return boundaries
+
+
 def generate_palace_config(
     groups: dict,
     ports: list[PalacePort],
@@ -148,6 +206,7 @@ def generate_palace_config(
     terminals: list[TerminalConfig] | None = None,
     refinement_config: RefinementConfig | None = None,
     periodic_translation: tuple[float, float, float] | None = None,
+    resolved_terminals: list[ResolvedTerminal] | None = None,
 ) -> Path:
     """Generate Palace config.json file.
 
@@ -169,6 +228,9 @@ def generate_palace_config(
         hints: Additional config hints merged into the JSON
         refinement_config: Optional RefinementConfig for adaptive mesh
             refinement. Defaults to AMR off.
+        resolved_terminals: Electrostatic terminals resolved to nets; needed
+            when the mesh has one group per net (``"nets"`` in ``groups``),
+            where they replace ``terminals``.
 
     Returns:
         Path to the generated config.json
@@ -430,8 +492,15 @@ def generate_palace_config(
 
     is_electrostatic = simulation_type in ("electrostatic", "electrostatics")
 
-    if is_electrostatic and terminals:
-        terminal_layer_names: set[str] = {t.layer for t in terminals}
+    if is_electrostatic and "nets" in groups:
+        # One physical group per net: terminals and Ground follow the nets
+        boundaries = _electrostatic_net_boundaries(groups, resolved_terminals)
+
+    elif is_electrostatic and terminals:
+        # Layer-only terminals here: net or region terminals take the branch above.
+        terminal_layer_names: set[str] = {
+            t.layer for t in terminals if t.layer is not None
+        }
         via_boundary = groups.get("via_boundary_surfaces", {})
 
         def _via_touches(via_name: str, conductor_layer_name: str) -> bool:
@@ -463,7 +532,9 @@ def generate_palace_config(
                 attrs.append(pec_surfaces[terminal.layer]["phys_group"])
             # Vias touching this terminal's layer
             for via_name, via_pgs in via_boundary.items():
-                if _via_touches(via_name, terminal.layer):
+                if terminal.layer is not None and _via_touches(
+                    via_name, terminal.layer
+                ):
                     attrs.extend(via_pgs)
                     vias_on_terminal.add(via_name)
 
@@ -523,10 +594,6 @@ def generate_palace_config(
         lumped_ports: list[dict[str, object]] = []
         wave_ports: list[dict[str, object]] = []
         port_idx = 1
-        # Passive reactive ports are appended after all primary ports are assigned
-        # indices so that their synthetic indices never clash.  We collect them here
-        # and append them to lumped_ports once the primary loop finishes.
-        passive_reactive_ports: list[dict[str, object]] = []
 
         for port in ports:
             if simulation_type != "driven":
@@ -563,70 +630,47 @@ def generate_palace_config(
                             else port.direction.upper()
                         )
 
+                        # One entry per port carries R/L/C; Palace applies them in
+                        # parallel, on excited ports too. A second entry on the same
+                        # surface would have to be "Active": false, and Palace skips
+                        # inactive ports altogether (#354).
+                        entry: dict[str, object] = {
+                            "Index": port_idx,
+                            "Direction": direction,
+                            "Excitation": port_idx if port.excited else False,
+                            "Attributes": [port_group["phys_group"]],
+                        }
                         has_reactive = (
-                            port.resistance is not None
-                            or (port.inductance is not None and port.inductance > 0)
-                            or (port.capacitance is not None and port.capacitance > 0)
-                        )
-
-                        if simulation_type == "driven" and has_reactive:
-                            # Driven simulations forbid L/C on excited ports.
-                            # Emit the excited port with only R=impedance, then a
-                            # separate passive (Active: false) lumped port carrying
-                            # the reactive parameters on the same boundary surface.
-                            # Palace allows shared attributes when Active is false.
-                            port_entry: dict[str, object] = {
-                                "Index": port_idx,
-                                "R": port.impedance,
-                                "Direction": direction,
-                                "Excitation": port_idx if port.excited else False,
-                                "Attributes": [port_group["phys_group"]],
-                            }
-                            lumped_ports.append(port_entry)
-
-                            reactive_entry: dict[str, object] = {
-                                # Placeholder index - will be replaced after the
-                                # primary loop assigns all port_idx values.
-                                "Index": None,
-                                "Direction": direction,
-                                "Attributes": [port_group["phys_group"]],
-                                "Active": False,
-                            }
-                            if port.resistance is not None:
-                                reactive_entry["R"] = port.resistance
-                            if port.inductance is not None and port.inductance > 0:
-                                reactive_entry["L"] = port.inductance
-                            if port.capacitance is not None and port.capacitance > 0:
-                                reactive_entry["C"] = port.capacitance
-                            passive_reactive_ports.append(reactive_entry)
-                        else:
-                            # Eigenmode (or non-excited driven port): R/L/C on the
-                            # same port entry is supported.
-                            eigenmode_entry: dict[str, object] = {
-                                "Index": port_idx,
-                                "Direction": direction,
-                                "Excitation": port_idx if port.excited else False,
-                                "Attributes": [port_group["phys_group"]],
-                            }
-                            # A port carrying reactive elements (e.g. a lumped
-                            # Josephson junction modelled as L/C) is a pure
-                            # reactive termination. The default 50 Ohm impedance
-                            # must not be emitted in parallel with it, otherwise
-                            # it would load the junction. Only emit R from the
-                            # default impedance when the port is purely
-                            # resistive, unless a resistance is set explicitly.
-                            has_reactive = (
-                                port.inductance is not None and port.inductance > 0
-                            ) or (port.capacitance is not None and port.capacitance > 0)
-                            if port.resistance is not None:
-                                eigenmode_entry["R"] = port.resistance
-                            elif port.impedance and not has_reactive:
-                                eigenmode_entry["R"] = port.impedance
-                            if port.inductance is not None and port.inductance > 0:
-                                eigenmode_entry["L"] = port.inductance
-                            if port.capacitance is not None and port.capacitance > 0:
-                                eigenmode_entry["C"] = port.capacitance
-                            lumped_ports.append(eigenmode_entry)
+                            port.inductance is not None and port.inductance > 0
+                        ) or (port.capacitance is not None and port.capacitance > 0)
+                        if simulation_type == "driven" and port.excited:
+                            # An excited port's R is also its reference impedance,
+                            # so a separate element resistance cannot be represented.
+                            if (
+                                port.resistance is not None
+                                and port.resistance != port.impedance
+                            ):
+                                logger.warning(
+                                    "Port %s is excited: Palace uses one R as both "
+                                    "the reference impedance and the element "
+                                    "resistance, so resistance=%s is ignored and "
+                                    "R = impedance (%s ohm) is used.",
+                                    port_idx,
+                                    port.resistance,
+                                    port.impedance,
+                                )
+                            entry["R"] = port.impedance
+                        elif port.resistance is not None:
+                            entry["R"] = port.resistance
+                        elif port.impedance and not has_reactive:
+                            # A purely reactive termination (e.g. a junction as
+                            # L/C) must not get the default impedance in parallel.
+                            entry["R"] = port.impedance
+                        if port.inductance is not None and port.inductance > 0:
+                            entry["L"] = port.inductance
+                        if port.capacitance is not None and port.capacitance > 0:
+                            entry["C"] = port.capacitance
+                        lumped_ports.append(entry)
 
                     elif port.port_type == PortType.WAVEPORT:
                         wave_port_entry: dict[str, object] = {
@@ -648,14 +692,6 @@ def generate_palace_config(
                             wave_port_entry["Verbose"] = port.eigensolver_verbose
                         wave_ports.append(wave_port_entry)
             port_idx += 1
-
-        # Assign unique indices to passive reactive ports now that all primary
-        # indices are consumed (port_idx is one past the last primary index).
-        synthetic_idx = port_idx
-        for entry in passive_reactive_ports:
-            entry["Index"] = synthetic_idx
-            synthetic_idx += 1
-        lumped_ports.extend(passive_reactive_ports)
 
         boundaries: dict[str, Any] = {
             "Conductivity": conductors,
@@ -1004,6 +1040,7 @@ def write_config(
     electrostatic_config: ElectrostaticConfig | None = None,
     terminals: list[TerminalConfig] | None = None,
     refinement_config: RefinementConfig | None = None,
+    resolved_terminals: list[ResolvedTerminal] | None = None,
 ) -> Path:
     """Write Palace config.json from a MeshResult.
 
@@ -1019,6 +1056,8 @@ def write_config(
         eigenmode_config: Optional EigenmodeConfig for eigenproblems settings
         absorbing_boundary: Whether to add absorbing (PML) boundary
         hints: Additional config hints merged into the JSON
+        resolved_terminals: Electrostatic terminals resolved to nets, for a
+            mesh with one physical group per net
 
     Returns:
         Path to the generated config.json
@@ -1055,6 +1094,7 @@ def write_config(
         electrostatic_config=electrostatic_config,
         terminals=terminals,
         refinement_config=refinement_config,
+        resolved_terminals=resolved_terminals,
     )
 
     # Update the mesh_result with the config path
