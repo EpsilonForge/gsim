@@ -17,7 +17,7 @@ repos:
   - id: mixed-line-ending
   - id: name-tests-test
     args: ["--pytest-test-first"]
-    exclude: "tests/custom|tests/_[^/]+\\.py"
+    exclude: "tests/custom|(^|/)_[^/]+\\.py$"
   - id: requirements-txt-fixer
   - id: trailing-whitespace
     args: [--markdown-linebreak-ext=md]
