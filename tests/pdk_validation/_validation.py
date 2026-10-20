@@ -39,6 +39,7 @@ Design notes / limitations
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -59,6 +60,16 @@ VALIDATION_DECAY_BY = 1e-6
 VALIDATION_MAX_TIME = 20000.0
 FALLBACK_N_EFF = 2.4
 DB_FLOOR = 1e-9
+
+# "As close to validation as possible" preset: finer mesh, denser frequency
+# grid and a tighter field-energy decay stop than the default harness.  The
+# per-case resolutions are chosen so every case stays tractable on a single
+# workstation (the MZI is the 2-D effective-index plane, which scales with
+# resolution^2 instead of resolution^3).
+HIGH_RESOLUTION_RESOLUTION = 30
+HIGH_RESOLUTION_NUM_FREQS = 201
+HIGH_RESOLUTION_DECAY_BY = 1e-7
+HIGH_RESOLUTION_MAX_TIME = 40000.0
 
 Direction = Literal["2d", "3d"]
 
@@ -152,6 +163,101 @@ def build_validation_simulation(
     sim.solver.resolution = resolution
     sim.solver.subpixel = subpixel
     if dimension == "2d":
+        # XY 2-D collapses the vertical waveguide stack.  Replace the core
+        # material with the fundamental TE effective index of its vertical
+        # slab so the 2-D device has approximately the same guided mode.
+        layers = getattr(stack, "layers", None)
+        core = layers.get("core") if layers is not None else None
+        if layers is not None and core is None:
+            raise ValueError(
+                "Cannot configure 2-D effective-index mode: stack has no 'core' layer"
+            )
+        if core is not None:
+            from gsim.meep.materials import resolve_materials
+            from gsim.meep.models.api import Material
+            from gsim.meep.models.config import MaterialData
+
+            try:
+                from gsim.meep import solve_slab_mode
+
+                n_eff = solve_slab_mode(
+                    stack=stack,
+                    wavelength=wavelength,
+                    resolution=max(32, resolution),
+                ).n_eff
+            except ImportError:
+                # Notebook kernels may not contain Meep even when the FDTD
+                # subprocess does. Fall back to an asymmetric slab estimate
+                # using dielectric neighbors; conductors such as TiN heaters
+                # are not the cladding of the optical core.
+                from scipy.optimize import brentq
+
+                dielectric = [
+                    layer
+                    for layer in stack.layers.values()
+                    if layer.material != core.material
+                    and layer.layer_type == "dielectric"
+                ]
+                below = [layer for layer in dielectric if layer.zmax <= core.zmin]
+                above = [
+                    layer
+                    for layer in dielectric
+                    if layer.zmax >= core.zmax and layer.zmin <= core.zmin
+                ]
+                n_core_data = resolve_materials(
+                    {core.material}, wavelength_um=wavelength
+                )[core.material]
+
+                def refractive_index(material_data: MaterialData) -> float:
+                    epsilon_diag = material_data.epsilon_diag
+                    if epsilon_diag is None:
+                        raise ValueError(
+                            "Resolved slab material has no diagonal permittivity"
+                        )
+                    return math.sqrt(float(epsilon_diag[0]))
+
+                n_core = refractive_index(n_core_data)
+                adjacent_materials = {
+                    (
+                        max(below, key=lambda layer: layer.zmax).material
+                        if below
+                        else "air"
+                    ),
+                    (
+                        min(above, key=lambda layer: layer.zmax).material
+                        if above
+                        else "air"
+                    ),
+                }
+                resolved = resolve_materials(
+                    adjacent_materials, wavelength_um=wavelength
+                )
+                n_bottom, n_top = [
+                    refractive_index(resolved[material])
+                    for material in (
+                        max(below, key=lambda layer: layer.zmax).material
+                        if below
+                        else "air",
+                        min(above, key=lambda layer: layer.zmax).material
+                        if above
+                        else "air",
+                    )
+                ]
+                k0 = 2 * math.pi / wavelength
+
+                def slab_residual(n_eff: float) -> float:
+                    h = k0 * math.sqrt(max(n_core**2 - n_eff**2, 0.0))
+                    a0 = k0 * math.sqrt(max(n_eff**2 - n_bottom**2, 0.0))
+                    a1 = k0 * math.sqrt(max(n_eff**2 - n_top**2, 0.0))
+                    return h * core.thickness - math.atan(a0 / h) - math.atan(a1 / h)
+
+                n_eff = brentq(
+                    slab_residual, max(n_bottom, n_top) + 1e-9, n_core - 1e-9
+                )
+            sim.materials = {
+                **sim.materials,
+                core.material: Material(refractive_index=n_eff),
+            }
         # ``solver(...)`` validates mode/cut together; assigning fields
         # individually would trip the mode/cut invariant.
         sim.solver(mode="2d", z_cut="auto")
@@ -161,6 +267,96 @@ def build_validation_simulation(
     if wall_time:
         sim.solver.stop_after_walltime(wall_time)
     return sim
+
+
+# ---------------------------------------------------------------------------
+# Simulation size (in wavelengths) and timing
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SimulationSize:
+    """Physical extent and discretisation of one MEEP cell.
+
+    All lengths are micrometres.  ``size_lambda`` and ``area_lambda2`` express
+    the cell in units of the centre wavelength (``VALIDATION_WAVELENGTH_UM``),
+    which is the scale-free measure used to compare cases of very different
+    physical size.
+    """
+
+    cell_x_um: float
+    cell_y_um: float
+    cell_z_um: float
+    resolution: int
+    num_freqs: int = VALIDATION_NUM_FREQS
+    dimension: Direction = "3d"
+
+    @property
+    def size_lambda(self) -> tuple[float, float, float]:
+        """Return ``(x, y, z)`` cell extent in centre wavelengths."""
+        lam = VALIDATION_WAVELENGTH_UM
+        return (
+            self.cell_x_um / lam,
+            self.cell_y_um / lam,
+            self.cell_z_um / lam,
+        )
+
+    @property
+    def area_lambda2(self) -> float:
+        """Return the transverse (x-y) cell area in square wavelengths."""
+        lam = VALIDATION_WAVELENGTH_UM
+        return self.cell_x_um * self.cell_y_um / (lam * lam)
+
+    @property
+    def cells(self) -> int:
+        """Return the number of MEEP grid cells (ceil-rounded per axis)."""
+        axes = [self.cell_x_um, self.cell_y_um]
+        if self.dimension == "3d":
+            axes.append(self.cell_z_um)
+        return int(
+            np.prod([max(1, math.ceil(length * self.resolution)) for length in axes])
+        )
+
+
+def simulation_size(
+    result: Any,
+    *,
+    resolution: int,
+    num_freqs: int = VALIDATION_NUM_FREQS,
+    dimension: Direction = "3d",
+) -> SimulationSize:
+    """Return the :class:`SimulationSize` recorded by a MEEP run.
+
+    Reads the ``metadata.cell_size`` entry that the generated runner writes to
+    ``meep_debug.json``.  Missing axes (e.g. the collapsed z axis of a 2-D
+    run) are reported as ``0``.
+    """
+    metadata = (getattr(result, "debug_info", None) or {}).get("metadata", {})
+    cell = list(metadata.get("cell_size") or [])
+    while len(cell) < 3:
+        cell.append(0.0)
+    return SimulationSize(
+        cell_x_um=float(cell[0]),
+        cell_y_um=float(cell[1]),
+        cell_z_um=float(cell[2]),
+        resolution=int(resolution),
+        num_freqs=int(num_freqs),
+        dimension=dimension,
+    )
+
+
+def run_metadata(result: Any) -> dict[str, float]:
+    """Return the timing metadata recorded by a MEEP run.
+
+    Keys: ``wall_seconds`` (real time inside the runner), ``meep_time`` (MEEP
+    time units) and ``timesteps``.
+    """
+    metadata = (getattr(result, "debug_info", None) or {}).get("metadata", {})
+    return {
+        "wall_seconds": float(metadata.get("wall_seconds", 0.0) or 0.0),
+        "meep_time": float(metadata.get("meep_time", 0.0) or 0.0),
+        "timesteps": int(metadata.get("timesteps", 0) or 0),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -567,6 +763,46 @@ def get_case(name: str) -> ValidationCase:
     raise KeyError(f"unknown validation case: {name!r}")
 
 
+def high_resolution_overrides() -> dict[str, dict[str, Any]]:
+    """Return per-case MEEP settings for an accuracy-first run.
+
+    The default harness stops at ``resolution=20`` and ``num_freqs=101``;
+    these overrides refine the mesh, sample the band 2x more densely and
+    tighten the field-energy decay stop (``decay_by=1e-7``) so each example is
+    pushed as close to its validation reference as a single workstation
+    allows.  The tiers are chosen from the measured per-cell cost:
+
+    * the small 3-D devices (straight, coupler, Bragg) run at ``res=30``;
+    * the wide coupling/ring cases (ring_coupling, ring) run at ``res=25`` so
+      the 3-D grid (tens of millions of cells) stays tractable;
+    * the large MZI stays on the 2-D effective-index plane, where the cost
+      grows with ``resolution^2``, and is pushed to ``res=40``.
+
+    ``subpixel`` is disabled for the Bragg grating: its 10 nm DBR end-caps are
+    far below the mesh and make subpixel epsilon integration effectively hang,
+    while the 318 nm grating is fully resolved at ``res=30``.
+    """
+    common: dict[str, Any] = {
+        "num_freqs": HIGH_RESOLUTION_NUM_FREQS,
+        "decay_by": HIGH_RESOLUTION_DECAY_BY,
+        "max_time": HIGH_RESOLUTION_MAX_TIME,
+    }
+    resolutions = {
+        "straight": HIGH_RESOLUTION_RESOLUTION,
+        "coupler": HIGH_RESOLUTION_RESOLUTION,
+        "ring_coupling": 25,
+        "mzi": 40,
+        "ring": 25,
+        "bragg": HIGH_RESOLUTION_RESOLUTION,
+    }
+    overrides = {
+        name: {"resolution": resolution, **common}
+        for name, resolution in resolutions.items()
+    }
+    overrides["bragg"]["subpixel"] = False
+    return overrides
+
+
 # ---------------------------------------------------------------------------
 # Running and comparison
 # ---------------------------------------------------------------------------
@@ -582,6 +818,89 @@ class ValidationOutcome:
     reference: Reference
     metrics: dict[str, Any]
     best_port: str | None = None
+
+    # Execution record (populated by :func:`run_case`).
+    resolution: int = 0
+    num_freqs: int = 0
+    dimension: Direction = "3d"
+    wall_seconds: float = 0.0
+    meep_time: float = 0.0
+    timesteps: int = 0
+    size: SimulationSize | None = None
+
+    def summary(self) -> dict[str, Any]:
+        """Return one flat row of metadata for tabulation."""
+        size = self.size
+        best = self.metrics.get(self.best_port) if self.best_port else None
+        if best is None:
+            best = next((m for m in self.metrics.values() if m), None)
+        return {
+            "case": self.case,
+            "dimension": self.dimension,
+            "resolution": self.resolution,
+            "num_freqs": self.num_freqs,
+            "cell_x_lambda": size.size_lambda[0] if size else float("nan"),
+            "cell_y_lambda": size.size_lambda[1] if size else float("nan"),
+            "cell_z_lambda": size.size_lambda[2] if size else float("nan"),
+            "area_lambda2": size.area_lambda2 if size else float("nan"),
+            "cells": size.cells if size else 0,
+            "wall_seconds": self.wall_seconds,
+            "meep_time": self.meep_time,
+            "timesteps": self.timesteps,
+            "best_port": self.best_port,
+            "rms_db": (best or {}).get("rms_db") if best else None,
+            "corr": (best or {}).get("corr") if best else None,
+        }
+
+
+def format_summary(
+    outcomes: Mapping[str, ValidationOutcome | Exception],
+    *,
+    title: str = "MEEP PDK validation — compute budget",
+) -> str:
+    """Render a Markdown table of compute time and size in wavelengths.
+
+    Each row is one example: its mesh settings, the cell extent in centre
+    wavelengths (``lambda = 1.55 um``), the grid size and the recorded compute
+    time.  Failures are listed as ``FAILED`` rows.
+    """
+    header = (
+        "| Example | Dim | res | freqs | cell x/y/z (lambda) | area "
+        "(lambda^2) | cells | compute time (s) | MEEP time | steps | best RMS (dB) |"
+        "\n"
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+    )
+    rows: list[str] = []
+    for name, outcome in outcomes.items():
+        if isinstance(outcome, Exception):
+            rows.append(f"| {name} | - | - | - | - | - | - | FAILED | - | - | - |")
+            continue
+        row = outcome.summary()
+        cells = row["cells"]
+        cells_text = f"{cells / 1e6:.2f}M" if cells >= 1e6 else f"{cells:,}"
+        rms = row["rms_db"]
+        rms_text = f"{rms:.2f}" if isinstance(rms, (int, float)) else "-"
+        rows.append(
+            "| {case} | {dimension} | {resolution} | {num_freqs} | "
+            "{cell_x_lambda:.1f} x {cell_y_lambda:.1f} x {cell_z_lambda:.1f} | "
+            "{area_lambda2:.1f} | {cells} | {wall:.1f} | {meep:.1f} | {steps} | "
+            "{rms} |".format(
+                case=row["case"],
+                dimension=row["dimension"],
+                resolution=row["resolution"],
+                num_freqs=row["num_freqs"],
+                cell_x_lambda=row["cell_x_lambda"],
+                cell_y_lambda=row["cell_y_lambda"],
+                cell_z_lambda=row["cell_z_lambda"],
+                area_lambda2=row["area_lambda2"],
+                cells=cells_text,
+                wall=row["wall_seconds"],
+                meep=row["meep_time"],
+                steps=row["timesteps"],
+                rms=rms_text,
+            )
+        )
+    return f"### {title}\n\n" + header + "\n" + "\n".join(rows) + "\n"
 
 
 def compare(
@@ -642,23 +961,43 @@ def run_case(
     num_processes: int | None = None,
     verbose: bool = False,
     stack: Any = None,
+    resolution: int | None = None,
+    num_freqs: int | None = None,
+    decay_by: float | None = None,
+    max_time: float | None = None,
+    wall_time: float | None = None,
+    subpixel: bool | None = None,
+    dimension: Direction | None = None,
 ) -> ValidationOutcome:
     """Build, run, de-embed and compare one validation case.
 
     This is the only function here that executes MEEP.
+
+    The ``resolution``, ``num_freqs``, ``decay_by``, ``max_time``, ``wall_time``,
+    ``subpixel`` and ``dimension`` keyword arguments override the case
+    defaults, which lets a caller compare the same geometry in 2-D and 3-D.
+    The returned :class:`ValidationOutcome` records the wall-clock and MEEP
+    time and the simulation extent in wavelengths.
     """
     if isinstance(case, str):
         case = get_case(case)
+
+    effective_resolution = resolution if resolution is not None else case.resolution
+    effective_num_freqs = num_freqs if num_freqs is not None else case.num_freqs
 
     component = case.make_component()
     sim = build_validation_simulation(
         component,
         source_port=case.source_port,
-        resolution=case.resolution,
-        num_freqs=case.num_freqs,
+        resolution=effective_resolution,
+        num_freqs=effective_num_freqs,
         span=case.span,
-        dimension=case.dimension,
+        dimension=dimension or case.dimension,
         stack=stack,
+        **({"decay_by": decay_by} if decay_by is not None else {}),
+        **({"max_time": max_time} if max_time is not None else {}),
+        **({"wall_time": wall_time} if wall_time is not None else {}),
+        **({"subpixel": subpixel} if subpixel is not None else {}),
     )
     distances = monitor_distances(
         component,
@@ -667,12 +1006,15 @@ def run_case(
         distance_source_to_monitors=sim.domain.distance_source_to_monitors,
     )
 
+    started = time.perf_counter()
     result = sim.run_local(
         output_dir,
         python_executable=python_executable,
         num_processes=num_processes,
         verbose=verbose,
     )
+    wall_seconds = time.perf_counter() - started
+
     port_names = [port.name for port in component.ports]
     deembedded = deembed_s_params(
         result, port_names, distances, source_port=case.source_port
@@ -680,6 +1022,7 @@ def run_case(
     wavelengths = np.asarray(result.wavelengths, dtype=float)
     reference = case.reference(wavelengths)
     metrics, best_port = compare(wavelengths, deembedded, reference)
+    timing = run_metadata(result)
     return ValidationOutcome(
         case=case.name,
         wavelengths=np.asarray(result.wavelengths),
@@ -687,6 +1030,18 @@ def run_case(
         reference=reference,
         metrics=metrics,
         best_port=best_port,
+        resolution=effective_resolution,
+        num_freqs=effective_num_freqs,
+        dimension=dimension or case.dimension,
+        wall_seconds=wall_seconds,
+        meep_time=timing["meep_time"],
+        timesteps=timing["timesteps"],
+        size=simulation_size(
+            result,
+            resolution=effective_resolution,
+            num_freqs=effective_num_freqs,
+            dimension=dimension or case.dimension,
+        ),
     )
 
 
@@ -696,9 +1051,15 @@ def run_all(
     output_root: str | None = None,
     python_executable: str | None = None,
     verbose: bool = False,
+    overrides: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, ValidationOutcome | Exception]:
-    """Run several cases, returning outcomes (or the exception) per case."""
+    """Run several cases, returning outcomes (or the exception) per case.
+
+    ``overrides`` maps a case name to keyword arguments forwarded to
+    :func:`run_case` (for example a higher ``resolution``).
+    """
     selected = [get_case(name) for name in names] if names else build_cases()
+    overrides = overrides or {}
     results: dict[str, ValidationOutcome | Exception] = {}
     for case in selected:
         output_dir = None
@@ -710,6 +1071,7 @@ def run_all(
                 output_dir=output_dir,
                 python_executable=python_executable,
                 verbose=verbose,
+                **dict(overrides.get(case.name, {})),
             )
         except Exception as error:
             results[case.name] = error
@@ -723,6 +1085,10 @@ __all__ = [
     "DBR_W1",
     "DBR_W2",
     "FALLBACK_N_EFF",
+    "HIGH_RESOLUTION_DECAY_BY",
+    "HIGH_RESOLUTION_MAX_TIME",
+    "HIGH_RESOLUTION_NUM_FREQS",
+    "HIGH_RESOLUTION_RESOLUTION",
     "MZI_DELTA_LENGTH_UM",
     "RING_GAP_UM",
     "RING_LENGTH_X_UM",
@@ -736,6 +1102,7 @@ __all__ = [
     "VALIDATION_SPAN_UM",
     "VALIDATION_WAVELENGTH_UM",
     "Reference",
+    "SimulationSize",
     "ValidationCase",
     "ValidationOutcome",
     "agreement_db",
@@ -744,13 +1111,17 @@ __all__ = [
     "compare",
     "dbr_two_port",
     "deembed_s_params",
+    "format_summary",
     "get_case",
+    "high_resolution_overrides",
     "monitor_distances",
     "n_eff_by_port",
     "normalize_measured_spectrum",
     "power_conservation",
     "run_all",
     "run_case",
+    "run_metadata",
     "s_param_indices",
+    "simulation_size",
     "to_db",
 ]
