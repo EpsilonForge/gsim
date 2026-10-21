@@ -2,10 +2,10 @@
   "variants": [
     {
       "id": "pdk-validation",
-      "title": "PDK validation \u2014 layouts & runs",
-      "description": "GDS layouts and completed Meep runs for the six PDK validation cases",
+      "title": "PDK validation \u2014 notebook & layouts",
+      "description": "GDS layouts, recorded runs and reference data (executed notebook pending)",
       "url": "pdk-validation/",
-      "updated": "2026-10-21T03:15Z"
+      "updated": "2026-10-21T03:31Z"
     }
   ]
 }

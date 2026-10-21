@@ -1,4 +1,5 @@
-# PDK validation layouts & runs
+# PDK validation notebook & layouts
 
-GDS layouts for all six cases, plus the committed Meep run data and comparison plots.
-The executed notebook render is pending; see `index.html`.
+Executed validation notebook, GDS layouts for all six cases, recorded Meep
+runs and reference comparisons. Rebuild with
+`scripts/build_pdk_validation_variant.py`.
