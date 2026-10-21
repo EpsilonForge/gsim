@@ -1,0 +1,11 @@
+{
+  "variants": [
+    {
+      "id": "results",
+      "title": "PDK validation results",
+      "description": "Meep FDTD vs PDK reference data (branch pdk-validation).",
+      "url": "results/",
+      "updated": "2026-10-17T14:00Z"
+    }
+  ]
+}

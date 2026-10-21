@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gsim — documentation variants</title>
+<style>
+  :root { color-scheme: light dark; --fg:#1f2328; --muted:#656d76; --bg:#fff; --card:#f6f8fa; --line:#d0d7de; --accent:#0969da; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e6edf3; --muted:#8b949e; --bg:#0d1117; --card:#161b22; --line:#30363d; --accent:#4493f8; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; color:var(--fg); background:var(--bg); }
+  header, main, footer { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+  header { padding-top: 48px; padding-bottom: 8px; }
+  h1 { font-size: 1.9rem; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .muted { color: var(--muted); }
+  main { display: grid; gap: 14px; padding-top: 24px; padding-bottom: 48px; }
+  .card { display:block; text-decoration:none; color:inherit; border:1px solid var(--line); border-radius:12px; padding:18px 20px; background:var(--card); transition: border-color .15s, transform .15s; }
+  .card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .card h2 { font-size:1.1rem; margin:0 0 4px; color:var(--accent); }
+  .card p { margin:0 0 8px; }
+  .meta { font-size:.8rem; color:var(--muted); font-variant-numeric: tabular-nums; }
+  footer { padding-bottom: 40px; font-size:.85rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>gsim — documentation variants</h1>
+  <p class="muted">Generated docs and results hosted from <code>EpsilonForge/gsim</code>. Independent of the upstream PR.</p>
+</header>
+<main id="variants"><p class="muted">Loading variants…</p></main>
+<footer>
+  <p>Upstream documentation: <a href="https://gdsfactory.github.io/gsim/">gdsfactory.github.io/gsim</a></p>
+</footer>
+<script>
+const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+}[c]));
+fetch("variants.json", { cache: "no-store" })
+  .then((response) => response.json())
+  .then((data) => {
+    const items = (data.variants || []).slice().sort(
+      (a, b) => String(b.updated || "").localeCompare(String(a.updated || ""))
+    );
+    const host = document.getElementById("variants");
+    if (!items.length) {
+      host.innerHTML = '<p class="muted">No variants published yet.</p>';
+      return;
+    }
+    host.innerHTML = items.map((variant) => `
+      <a class="card" href="${escapeHtml(variant.url)}">
+        <h2>${escapeHtml(variant.title)}</h2>
+        <p>${escapeHtml(variant.description || "")}</p>
+        <span class="meta">${escapeHtml(variant.updated || "")}</span>
+      </a>`).join("");
+  })
+  .catch((error) => {
+    document.getElementById("variants").innerHTML =
+      '<p class="muted">Could not load variants.json: ' + escapeHtml(error.message) + "</p>";
+  });
+</script>
+</body>
+</html>
