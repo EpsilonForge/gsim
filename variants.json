@@ -3,9 +3,9 @@
     {
       "id": "pdk-validation",
       "title": "PDK validation \u2014 notebook & layouts",
-      "description": "Executed notebook with all six cases plus GDS layouts",
+      "description": "Corrected comparisons: MZI dL=214 um, double-bus ring, sinusoidal DBR reflection",
       "url": "pdk-validation/",
-      "updated": "2026-10-21T16:18Z"
+      "updated": "2026-10-21T17:01Z"
     }
   ]
 }

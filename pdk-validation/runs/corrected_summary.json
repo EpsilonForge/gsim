@@ -32,5 +32,22 @@
     "best_port": "S31",
     "rms_db": 9.69621247717878,
     "corr": 0.2542643547054784
+  },
+  "ring": {
+    "case": "ring",
+    "dimension": "2d",
+    "resolution": 20,
+    "num_freqs": 501,
+    "cell_x_lambda": 15.81290322580645,
+    "cell_y_lambda": 16.587096774193547,
+    "cell_z_lambda": 0.0,
+    "area_lambda2": 262.29015608740895,
+    "cells": 252865,
+    "wall_seconds": 522.1830559979426,
+    "meep_time": 4000.0,
+    "timesteps": 160000,
+    "best_port": "S21",
+    "rms_db": 25.426760935113258,
+    "corr": -0.1043810563244481
   }
 }
