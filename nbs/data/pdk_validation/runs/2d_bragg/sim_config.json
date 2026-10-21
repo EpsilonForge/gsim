@@ -4,7 +4,7 @@
   "y_cut": null,
   "fiber_source": null,
   "gds_filename": "layout.gds",
-  "component_bbox": [-0.01, -0.8, 6.37, 0.8],
+  "component_bbox": [0.0, -0.28, 63.6, 0.28],
   "layer_stack": [
     {
       "layer_name": "box",
@@ -66,7 +66,7 @@
   "ports": [
     {
       "name": "o1",
-      "center": [-0.01, 0.0, 0.0],
+      "center": [0.0, 0.0, 0.0],
       "orientation": 180.0,
       "width": 0.5,
       "normal_axis": 0,
@@ -75,7 +75,7 @@
     },
     {
       "name": "o2",
-      "center": [6.37, 0.0, 0.0],
+      "center": [63.6, 0.0, 0.0],
       "orientation": 0.0,
       "width": 0.5,
       "normal_axis": 0,
@@ -112,7 +112,7 @@
   "fdtd": {
     "wavelength": 1.55,
     "bandwidth": 0.1,
-    "num_freqs": 201,
+    "num_freqs": 501,
     "fcen": 0.6451612903225806,
     "df": 0.04166666666666663
   },
@@ -123,16 +123,16 @@
   },
   "stopping": {
     "mode": "energy_decay",
-    "run_after_sources": 40000.0,
+    "run_after_sources": 1500.0,
     "decay_dt": 50.0,
     "decay_component": "Ey",
-    "decay_by": 1e-7,
+    "decay_by": 0.001,
     "decay_monitor_port": null,
     "dft_min_run_time": 100.0,
-    "wall_time_max": 0.0
+    "wall_time_max": 1500.0
   },
   "resolution": {
-    "pixels_per_um": 30
+    "pixels_per_um": 20
   },
   "domain": {
     "z_bounds": null,

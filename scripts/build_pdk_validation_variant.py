@@ -48,7 +48,6 @@ PLOTS = {
     "straight": "straight_three_way.png",
     "coupler": "coupler_2d_vs_reference.png",
     "ring_coupling": "ring_coupling_2d_vs_reference.png",
-    "bragg": "bragg_three_way.png",
 }
 
 STATUS = {
@@ -132,7 +131,15 @@ def render_data_plot(name: str, title: str, out_png: Path) -> str:
     figure, axis = plt.subplots(figsize=(8, 3.5))
     if outcome is not None:
         measured = outcome.reference.transmission_db is not None
-        for s_name, values in sorted(outcome.s_params.items()):
+        keys = (
+            outcome.reference.sim_ports
+            or tuple(outcome.reference.s_params)
+            or tuple(outcome.s_params)
+        )
+        for s_name in keys:
+            if s_name not in outcome.s_params:
+                continue
+            values = outcome.s_params[s_name]
             curve = V.to_db(values)
             if measured:
                 curve = curve - np.nanmax(curve)
@@ -194,6 +201,9 @@ def build(
     metrics = RUNS / "results_metrics.json"
     if metrics.is_file():
         shutil.copy2(metrics, out / "runs" / metrics.name)
+    corrected = RUNS / "corrected_summary.json"
+    if corrected.is_file():
+        shutil.copy2(corrected, out / "runs" / corrected.name)
     runs_dir = RUNS / "runs"
     if runs_dir.is_dir():
         destination = out / "runs" / "runs"
@@ -321,8 +331,8 @@ def build(
 {"".join(cards)}
 </main>
 <footer class="page small muted" style="max-width:1100px;margin:0 auto;padding:0 24px 40px">
-  Raw S-parameters under <a href="runs/runs/">runs/</a>; metrics in
-  <a href="runs/results_metrics.json">results_metrics.json</a>.
+  Raw S-parameters under <a href="runs/runs/">runs/</a>; corrected metrics in
+  <a href="runs/corrected_summary.json">corrected_summary.json</a>.
 </footer>
 </body>
 </html>

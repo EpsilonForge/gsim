@@ -588,9 +588,50 @@ def dbr_two_port(
     return c
 
 
-# ---------------------------------------------------------------------------
-# Case registry
-# ---------------------------------------------------------------------------
+def sinusoidal_dbr(
+    n_periods: int = 200,
+    *,
+    period: float = 0.318,
+    width: float = 0.5,
+    delta_width: float = 0.12,
+    points_per_period: int = 8,
+    layer: tuple[int, int] = (1, 0),
+) -> Any:
+    """Build a sidewall-modulated (sinusoidal) Bragg grating.
+
+    The measured UBC Set 1 design #10 is a sinusoidal DBR with
+    ``delta_width = 120 nm`` and ~200 periods, so the rectangular
+    :func:`dbr_two_port` is not the same device.  Here the width varies as
+    ``width + delta_width/2 * sin(2*pi*z/period)`` along the guide.
+
+    Args:
+        n_periods: Number of grating periods.
+        period: Grating period in um (318 nm for the UBC design).
+        width: Mean waveguide width in um.
+        delta_width: Peak-to-peak width modulation in um.
+        points_per_period: Polygon resolution along the grating.
+        layer: GDS layer for the core (default: ubcpdk WG).
+
+    Returns:
+        A two-port gdsfactory ``Component`` on ``layer``.
+    """
+    import gdsfactory as gf
+
+    length = n_periods * period
+    x = np.linspace(0.0, length, n_periods * points_per_period + 1)
+    widths = width + 0.5 * delta_width * np.sin(2.0 * np.pi * x / period)
+    top = np.column_stack([x, widths / 2.0])
+    bottom = np.column_stack([x, -widths / 2.0])[::-1]
+    component = gf.Component()
+    component.add_polygon(np.vstack([top, bottom]), layer=layer)
+    component.add_port(
+        "o1", center=(0.0, 0.0), width=width, orientation=180, layer=layer
+    )
+    component.add_port(
+        "o2", center=(length, 0.0), width=width, orientation=0, layer=layer
+    )
+    return component
+
 
 STRAIGHT_LENGTH_UM = 20.0
 COUPLER_GAP_UM = 0.2
@@ -598,10 +639,12 @@ COUPLER_LENGTH_UM = 10.0
 RING_GAP_UM = 0.1
 RING_RADIUS_UM = 10.0
 RING_LENGTH_X_UM = 4.0
-MZI_DELTA_LENGTH_UM = 10.0
+MZI_DELTA_LENGTH_UM = 214.215
 DBR_W1 = 0.5
 DBR_W2 = 0.6
-DBR_PERIODS = 20
+DBR_PERIODS = 200
+DBR_PERIOD_UM = 0.318
+DBR_DELTA_WIDTH_UM = 0.12
 
 
 @dataclass
@@ -622,6 +665,7 @@ class Reference:
     s_params: dict[str, np.ndarray] = field(default_factory=dict)
     transmission_db: tuple[np.ndarray, np.ndarray] | None = None
     label: str = ""
+    sim_ports: tuple[str, ...] = ()
 
 
 @dataclass
@@ -683,16 +727,29 @@ def _ref_ring_coupling(wavelengths: np.ndarray) -> Reference:
     )
 
 
-def _measured(path: str, label: str) -> Callable[[np.ndarray], Reference]:
+def _measured(
+    path: str,
+    label: str,
+    *,
+    port: int = 0,
+    sim_ports: tuple[str, ...] = (),
+) -> Callable[[np.ndarray], Reference]:
+    """Return a loader for a recorded UBC measurement.
+
+    ``port`` selects the measured detector column (0 for the MZI/ring through
+    spectra, 1 for the Bragg reflection measurement).  ``sim_ports`` names the
+    simulated S-parameters that correspond to that column.
+    """
     from tests.pdk_validation import _fetch
 
     def _reference(wavelengths: np.ndarray) -> Reference:
         local = _fetch.fetch_ubc(path)
-        wavelength_nm, power_db = _fetch.load_ubc_spectrum(local)
+        wavelength_nm, power_db = _fetch.load_ubc_spectrum(local, port=port)
         return Reference(
             wavelengths,
             transmission_db=(wavelength_nm / 1000.0, power_db),
             label=label,
+            sim_ports=sim_ports,
         )
 
     return _reference
@@ -730,28 +787,54 @@ def build_cases() -> list[ValidationCase]:
         ValidationCase(
             name="mzi",
             make_component=lambda: ubcpdk.cells.mzi(delta_length=MZI_DELTA_LENGTH_UM),
-            reference=_measured(_fetch.UBC_MZI_MAT, "measured UBC MZI spectrum"),
+            reference=_measured(
+                _fetch.UBC_MZI_MAT,
+                "measured UBC MZI3 (dL = 214.215 um), port 0",
+                port=0,
+                sim_ports=("S31", "S41"),
+            ),
             dimension="2d",
             notes=(
-                "~2475 lambda^2 device; 2-D effective-index plane (3-D res=20 "
-                "is ~1.7e8 cells). Compare normalised transmission."
+                "Matched to UBC MZI3: dL = 214.215 um (measured FSR ~2.6 nm). "
+                "The measurement is one 2x2 output (port 0); both simulated "
+                "outputs are reported. 2-D effective-index plane."
             ),
         ),
         ValidationCase(
             name="ring",
-            make_component=lambda: ubcpdk.cells.ring_single(
+            make_component=lambda: ubcpdk.cells.ring_double(
                 gap=RING_GAP_UM, radius=RING_RADIUS_UM
             ),
-            reference=_measured(_fetch.UBC_RING_MAT, "measured UBC ring spectrum"),
-            notes="Measured TE r10 g100 spectrum; compare notches (normalised).",
+            reference=_measured(
+                _fetch.UBC_RING_MAT,
+                "measured UBC double-bus ring (TE, r=10, g=100 nm), port 0",
+                port=0,
+                sim_ports=("S21",),
+            ),
+            notes=(
+                "Matched to the measured double-bus (add-drop) ring; port 0 is "
+                "the through spectrum (dips). Column 1 is a smooth reference, "
+                "not a drop port."
+            ),
         ),
         ValidationCase(
             name="bragg",
-            make_component=lambda: dbr_two_port(w1=DBR_W1, w2=DBR_W2, n=DBR_PERIODS),
-            reference=_measured(_fetch.UBC_BRAGG_MAT, "measured UBC Bragg spectrum"),
+            make_component=lambda: sinusoidal_dbr(
+                n_periods=DBR_PERIODS,
+                period=DBR_PERIOD_UM,
+                width=DBR_W1,
+                delta_width=DBR_DELTA_WIDTH_UM,
+            ),
+            reference=_measured(
+                _fetch.UBC_BRAGG_MAT,
+                "measured UBC Set1 design #10 (sinusoidal, dw=120 nm), "
+                "reflection port 1",
+                port=1,
+                sim_ports=("S11",),
+            ),
             notes=(
-                "Two-port DBR (gdsfactory dbr exposes only o1); compare stopband "
-                "(normalised)."
+                "Matched to Set1 #10: sinusoidal DBR, dw = 120 nm, 200 periods. "
+                "The measurement is reflection (UBC reads port 1); compare |S11|."
             ),
         ),
     ]
@@ -803,6 +886,30 @@ def high_resolution_overrides() -> dict[str, dict[str, Any]]:
     }
     overrides["bragg"]["subpixel"] = False
     return overrides
+
+
+def fast_overrides() -> dict[str, dict[str, Any]]:
+    """Return 2-D settings that finish the corrected cases in under ~30 min.
+
+    The MZI at the measured ``dL = 214.215 um`` is much larger than the old
+    ``dL = 10 um`` device, so it uses a coarse 2-D mesh and a shorter run time
+    (the group delay of the extra 214 um is ~920 MEEP time units).  Subpixel
+    averaging is disabled: on the large MZI cell and the long sinusoidal DBR
+    it makes ``init_sim`` dominate, and the DBR's end-caps are far below the
+    mesh anyway.  ``wall_time`` is a safety cap, not the expected runtime.
+    """
+    common: dict[str, Any] = {
+        "num_freqs": 501,
+        "decay_by": 1e-3,
+        "max_time": 1500.0,
+        "wall_time": 1500.0,
+        "subpixel": False,
+    }
+    return {
+        "mzi": {"resolution": 10, **common},
+        "ring": {"resolution": 20, **common},
+        "bragg": {"resolution": 20, **common},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -931,27 +1038,25 @@ def compare(
     elif reference.transmission_db is not None:
         ref_wl, ref_power_db = reference.transmission_db
         ref_db = normalize_measured_spectrum(ref_power_db)
-        # Pick the port with the strongest average transmission as the through
-        # port (large devices do not always label it S21).
-        candidates = {
-            name: float(np.nanmean(np.abs(np.asarray(values, dtype=complex))))
-            for name, values in s_params.items()
-        }
-        if candidates:
-            best_port = max(candidates, key=lambda name: candidates[name])
-            metrics[best_port] = agreement_db(
-                wavelengths,
-                to_db(s_params[best_port]),
-                ref_wl,
-                ref_db,
-                normalize=True,
-            )
-        for name, values in s_params.items():
-            if name == best_port:
-                continue
+        if reference.sim_ports:
+            keys = [name for name in reference.sim_ports if name in s_params]
+        elif s_params:
+            keys = [
+                max(
+                    s_params,
+                    key=lambda name: float(
+                        np.nanmean(np.abs(np.asarray(s_params[name], dtype=complex)))
+                    ),
+                )
+            ]
+        else:
+            keys = []
+        for name in keys:
             metrics[name] = agreement_db(
-                wavelengths, to_db(values), ref_wl, ref_db, normalize=True
+                wavelengths, to_db(s_params[name]), ref_wl, ref_db, normalize=True
             )
+        if keys:
+            best_port = keys[0]
     return metrics, best_port
 
 
@@ -1234,7 +1339,9 @@ def run_all(
 __all__ = [
     "COUPLER_GAP_UM",
     "COUPLER_LENGTH_UM",
+    "DBR_DELTA_WIDTH_UM",
     "DBR_PERIODS",
+    "DBR_PERIOD_UM",
     "DBR_W1",
     "DBR_W2",
     "FALLBACK_N_EFF",
@@ -1264,6 +1371,7 @@ __all__ = [
     "compare",
     "dbr_two_port",
     "deembed_s_params",
+    "fast_overrides",
     "find_recorded_run",
     "format_summary",
     "get_case",
@@ -1278,5 +1386,6 @@ __all__ = [
     "run_metadata",
     "s_param_indices",
     "simulation_size",
+    "sinusoidal_dbr",
     "to_db",
 ]
