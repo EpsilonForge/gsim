@@ -3,9 +3,9 @@
     {
       "id": "pdk-validation",
       "title": "PDK validation \u2014 notebook & layouts",
-      "description": "GDS layouts, recorded runs and reference data (executed notebook pending)",
+      "description": "Executed notebook with all six cases plus GDS layouts",
       "url": "pdk-validation/",
-      "updated": "2026-10-21T03:31Z"
+      "updated": "2026-10-21T12:43Z"
     }
   ]
 }
