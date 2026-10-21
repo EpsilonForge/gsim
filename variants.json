@@ -1,6 +1,13 @@
 {
   "variants": [
     {
+      "id": "pdk-validation",
+      "title": "PDK validation \u2014 layouts & runs",
+      "description": "GDS layouts and completed Meep runs for the six PDK validation cases",
+      "url": "pdk-validation/",
+      "updated": "2026-10-21T03:15Z"
+    },
+    {
       "id": "results",
       "title": "PDK validation results",
       "description": "Meep FDTD vs PDK reference data (branch pdk-validation).",

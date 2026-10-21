@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gsim — PDK validation layouts &amp; runs</title>
+<style>
+  :root { color-scheme: light dark; --fg:#1f2328; --muted:#656d76; --bg:#fff; --card:#f6f8fa; --line:#d0d7de; --accent:#0969da; }
+  @media (prefers-color-scheme: dark) { :root { --fg:#e6edf3; --muted:#8b949e; --bg:#0d1117; --card:#161b22; --line:#30363d; --accent:#4493f8; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; color:var(--fg); background:var(--bg); }
+  header.page, main, footer { max-width:1100px; margin:0 auto; padding:0 24px; }
+  header.page { padding-top:40px; }
+  h1 { font-size:1.7rem; margin:0 0 4px; letter-spacing:-.01em; }
+  .small { font-size:.85rem; }
+  .muted { color:var(--muted); }
+  a { color:var(--accent); }
+  main { display:grid; grid-template-columns:repeat(auto-fit,minmax(460px,1fr)); gap:20px; padding-top:24px; padding-bottom:48px; }
+  .card { border:1px solid var(--line); border-radius:14px; padding:16px; background:var(--card); }
+  .card-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+  .card h2 { font-size:1.05rem; margin:0 0 2px; }
+  .badge { font-size:.75rem; padding:3px 9px; border-radius:999px; border:1px solid var(--line); white-space:nowrap; }
+  .badge.ok { color:#1a7f37; border-color:#1a7f37; }
+  .badge.warn { color:#9a6700; border-color:#9a6700; }
+  .layout, .plot { width:100%; border-radius:8px; background:#fff; border:1px solid var(--line); margin:8px 0; }
+  .chip { display:inline-block; font-size:.75rem; padding:2px 8px; border:1px solid var(--line); border-radius:999px; margin:2px 4px 2px 0; text-decoration:none; }
+  .notice { border-left:4px solid #9a6700; background:color-mix(in srgb, #9a6700 10%, transparent); padding:12px 16px; border-radius:8px; }
+  code { font-size:.85em; }
+</style>
+</head>
+<body>
+<header class="page">
+  <p><a href="../">← all variants</a></p>
+  <h1>PDK validation — layouts &amp; runs</h1>
+  <p class="muted">GDS geometry for each case plus the completed Meep runs and reference comparisons from branch <code>pdk-validation</code>.</p>
+  <div class="notice small">
+    <strong>Executed notebook render pending.</strong> The committed notebook runs the six 3-D
+    high-res cases, re-runs them again via <code>run_all</code>, then runs five 2-D cases
+    (15–20 h). MZI and a full ring have no completed run yet. The layouts and completed
+    runs below are the data that exist now.
+  </div>
+</header>
+<main>
+
+            <article class="card">
+              <header class="card-head">
+                <div>
+                  <h2>Straight waveguide</h2>
+                  <p class="muted small">L = 20 µm · 23.00 × 0.50 µm</p>
+                </div>
+                <span class="badge ok">Complete</span>
+              </header>
+              <a href="gds/straight.gds"><img class="layout" src="gds/straight.png" alt="Straight waveguide layout"></a>
+              <p class="small"><a href="gds/straight.gds">download GDS</a> · 2-D res 30 + 3-D res 20/30</p>
+              <a href="plots/straight_three_way.png"><img class="plot" src="plots/straight_three_way.png" alt="Straight waveguide comparison"></a>
+              <p class="small">runs: <a class="chip" href="runs/runs/2d_straight/s_parameters.csv">2d_straight</a><a class="chip" href="runs/runs/3d_straight/s_parameters.csv">3d_straight</a></p>
+            </article>
+            
+            <article class="card">
+              <header class="card-head">
+                <div>
+                  <h2>Directional coupler</h2>
+                  <p class="muted small">gap = 0.2 µm, L = 10 µm · 33.00 × 4.50 µm</p>
+                </div>
+                <span class="badge warn">2-D complete</span>
+              </header>
+              <a href="gds/coupler.gds"><img class="layout" src="gds/coupler.png" alt="Directional coupler layout"></a>
+              <p class="small"><a href="gds/coupler.gds">download GDS</a> · 3-D not converged</p>
+              <a href="plots/coupler_2d_vs_reference.png"><img class="plot" src="plots/coupler_2d_vs_reference.png" alt="Directional coupler comparison"></a>
+              <p class="small">runs: <a class="chip" href="runs/runs/2d_coupler/s_parameters.csv">2d_coupler</a></p>
+            </article>
+            
+            <article class="card">
+              <header class="card-head">
+                <div>
+                  <h2>Ring coupling area</h2>
+                  <p class="muted small">gap = 0.1 µm, r = 10 µm · 28.50 × 13.10 µm</p>
+                </div>
+                <span class="badge warn">2-D complete</span>
+              </header>
+              <a href="gds/ring_coupling.gds"><img class="layout" src="gds/ring_coupling.png" alt="Ring coupling area layout"></a>
+              <p class="small"><a href="gds/ring_coupling.gds">download GDS</a> · 3-D not converged</p>
+              <a href="plots/ring_coupling_2d_vs_reference.png"><img class="plot" src="plots/ring_coupling_2d_vs_reference.png" alt="Ring coupling area comparison"></a>
+              <p class="small">runs: <a class="chip" href="runs/runs/2d_ring_coupling/s_parameters.csv">2d_ring_coupling</a></p>
+            </article>
+            
+            <article class="card">
+              <header class="card-head">
+                <div>
+                  <h2>MZI</h2>
+                  <p class="muted small">ΔL = 10 µm · 112.10 × 53.50 µm</p>
+                </div>
+                <span class="badge warn">Not run</span>
+              </header>
+              <a href="gds/mzi.gds"><img class="layout" src="gds/mzi.png" alt="MZI layout"></a>
+              <p class="small"><a href="gds/mzi.gds">download GDS</a> · 2-D res 40 was reaped</p>
+              <p class="muted small">No comparison plot for this case yet.</p>
+              <p class="small">runs: <span class="chip muted">no completed run</span></p>
+            </article>
+            
+            <article class="card">
+              <header class="card-head">
+                <div>
+                  <h2>Ring resonator</h2>
+                  <p class="muted small">r = 10 µm, gap = 0.1 µm · 28.50 × 21.70 µm</p>
+                </div>
+                <span class="badge warn">Exploratory</span>
+              </header>
+              <a href="gds/ring.gds"><img class="layout" src="gds/ring.png" alt="Ring resonator layout"></a>
+              <p class="small"><a href="gds/ring.gds">download GDS</a> · 2-D res 15, 51 points</p>
+              <p class="muted small">No comparison plot for this case yet.</p>
+              <p class="small">runs: <a class="chip" href="runs/runs/2d_ring_exploratory/s_parameters.csv">2d_ring_exploratory</a></p>
+            </article>
+            
+            <article class="card">
+              <header class="card-head">
+                <div>
+                  <h2>Bragg grating</h2>
+                  <p class="muted small">n = 20 periods · 9.38 × 0.60 µm</p>
+                </div>
+                <span class="badge ok">Complete</span>
+              </header>
+              <a href="gds/bragg.gds"><img class="layout" src="gds/bragg.png" alt="Bragg grating layout"></a>
+              <p class="small"><a href="gds/bragg.gds">download GDS</a> · 2-D res 30 + 3-D res 30</p>
+              <a href="plots/bragg_three_way.png"><img class="plot" src="plots/bragg_three_way.png" alt="Bragg grating comparison"></a>
+              <p class="small">runs: <a class="chip" href="runs/runs/2d_bragg/s_parameters.csv">2d_bragg</a><a class="chip" href="runs/runs/3d_bragg/s_parameters.csv">3d_bragg</a></p>
+            </article>
+            
+</main>
+<footer class="page small muted" style="max-width:1100px;margin:0 auto;padding:0 24px 40px">
+  Cell sizes and per-case settings are in <a href="runs/results_metrics.json">results_metrics.json</a>;
+  raw S-parameters are under <a href="runs/runs/">runs/</a>.
+</footer>
+</body>
+</html>
