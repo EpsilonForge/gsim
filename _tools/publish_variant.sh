@@ -85,7 +85,8 @@ git -C "$root" add -A
 if git -C "$root" diff --cached --quiet; then
   echo "no changes to publish"
 else
-  git -C "$root" commit -m "docs: publish variant '$variant'"
+  # The orphan gh-pages branch has no pre-commit config of its own.
+  PRE_COMMIT_ALLOW_NO_CONFIG=1 git -C "$root" commit -m "docs: publish variant '$variant'"
 fi
 
 if [[ "$push" == "1" ]]; then
