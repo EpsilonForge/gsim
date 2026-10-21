@@ -38,7 +38,9 @@ Design notes / limitations
 
 from __future__ import annotations
 
+import json
 import math
+import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -953,6 +955,143 @@ def compare(
     return metrics, best_port
 
 
+def _recorded_dimension(config: Mapping[str, Any]) -> Direction:
+    """Return the dimensionality recorded in a generated ``sim_config.json``."""
+    return "2d" if config.get("is_3d") is False else "3d"
+
+
+def _size_from_config(
+    config: Mapping[str, Any],
+    *,
+    resolution: int,
+    num_freqs: int,
+    dimension: Direction,
+) -> SimulationSize | None:
+    """Reconstruct the simulated cell extent from a ``sim_config.json``."""
+    bbox = config.get("component_bbox")
+    domain = config.get("domain") or {}
+    if not bbox:
+        return None
+    dpml = float(domain.get("dpml", 0.0) or 0.0)
+    x0, y0, x1, y1 = (float(value) for value in bbox)
+    cell_x = (
+        (x1 - x0)
+        + float(domain.get("margin_x_low", 0.0))
+        + float(domain.get("margin_x_high", 0.0))
+        + 2 * dpml
+    )
+    cell_y = (
+        (y1 - y0)
+        + float(domain.get("margin_y_low", 0.0))
+        + float(domain.get("margin_y_high", 0.0))
+        + 2 * dpml
+    )
+    cell_z = 0.0
+    if dimension == "3d":
+        z_bounds = domain.get("z_bounds")
+        if z_bounds:
+            cell_z = float(z_bounds[1]) - float(z_bounds[0]) + 2 * dpml
+    return SimulationSize(
+        cell_x_um=cell_x,
+        cell_y_um=cell_y,
+        cell_z_um=cell_z,
+        resolution=resolution,
+        num_freqs=num_freqs,
+        dimension=dimension,
+    )
+
+
+def find_recorded_run(
+    name: str,
+    root: str | Path,
+    *,
+    dimension: Direction | None = None,
+    fallback_to_2d: bool = True,
+) -> Path | None:
+    """Find a recorded run directory for ``name`` under ``root``.
+
+    Looks for ``<dimension>_<name>/`` first, then ``<name>/``.  When
+    ``fallback_to_2d`` is set, a missing 3-D run falls back to ``2d_<name>/``
+    so a 2-D-complete render can reuse the effective-index results.
+    """
+    root = Path(root)
+    candidates: list[Path] = []
+    if dimension:
+        candidates.append(root / f"{dimension}_{name}")
+    candidates.append(root / name)
+    for candidate in candidates:
+        if (candidate / "s_parameters.csv").is_file():
+            return candidate
+    if fallback_to_2d and dimension != "2d":
+        candidate = root / f"2d_{name}"
+        if (candidate / "s_parameters.csv").is_file():
+            return candidate
+    return None
+
+
+def load_outcome(case: ValidationCase | str, run_dir: str | Path) -> ValidationOutcome:
+    """Reconstruct a :class:`ValidationOutcome` from a recorded run.
+
+    This is the reuse counterpart of :func:`run_case`: it reads
+    ``s_parameters.csv`` (and, when present, ``sim_config.json`` and
+    ``meta.json``) and runs the same de-embedding/comparison pipeline without
+    executing MEEP.
+    """
+    from gsim.meep.models.results import SParameterResult
+
+    if isinstance(case, str):
+        case = get_case(case)
+    run_dir = Path(run_dir)
+
+    result = SParameterResult.from_csv(run_dir / "s_parameters.csv")
+    config: dict[str, Any] = {}
+    config_path = run_dir / "sim_config.json"
+    if config_path.is_file():
+        config = json.loads(config_path.read_text(encoding="utf8"))
+
+    dimension = _recorded_dimension(config)
+    resolution = int(
+        (config.get("resolution") or {}).get("pixels_per_um", case.resolution)
+    )
+    num_freqs = int((config.get("fdtd") or {}).get("num_freqs", case.num_freqs))
+
+    component = case.make_component()
+    distances = monitor_distances(component, source_port=case.source_port)
+    port_names = [port.name for port in component.ports]
+    deembedded = deembed_s_params(
+        result, port_names, distances, source_port=case.source_port
+    )
+    wavelengths = np.asarray(result.wavelengths, dtype=float)
+    reference = case.reference(wavelengths)
+    metrics, best_port = compare(wavelengths, deembedded, reference)
+
+    timing: dict[str, Any] = {}
+    meta_path = run_dir / "meta.json"
+    if meta_path.is_file():
+        timing = json.loads(meta_path.read_text(encoding="utf8"))
+
+    return ValidationOutcome(
+        case=case.name,
+        wavelengths=wavelengths,
+        s_params=deembedded,
+        reference=reference,
+        metrics=metrics,
+        best_port=best_port,
+        resolution=resolution,
+        num_freqs=num_freqs,
+        dimension=dimension,
+        wall_seconds=float(timing.get("wall_seconds", 0.0) or 0.0),
+        meep_time=float(timing.get("meep_time", 0.0) or 0.0),
+        timesteps=int(timing.get("timesteps", 0) or 0),
+        size=_size_from_config(
+            config,
+            resolution=resolution,
+            num_freqs=num_freqs,
+            dimension=dimension,
+        ),
+    )
+
+
 def run_case(
     case: ValidationCase | str,
     *,
@@ -968,10 +1107,13 @@ def run_case(
     wall_time: float | None = None,
     subpixel: bool | None = None,
     dimension: Direction | None = None,
+    force_run: bool = False,
 ) -> ValidationOutcome:
-    """Build, run, de-embed and compare one validation case.
+    """Build, run (or reuse), de-embed and compare one validation case.
 
-    This is the only function here that executes MEEP.
+    When ``GSIM_PDK_REUSE`` points at a recorded-runs root, a matching run is
+    loaded via :func:`load_outcome` instead of executing MEEP.  3-D requests
+    fall back to a 2-D recording unless ``GSIM_PDK_REUSE_FALLBACK_2D=0``.
 
     The ``resolution``, ``num_freqs``, ``decay_by``, ``max_time``, ``wall_time``,
     ``subpixel`` and ``dimension`` keyword arguments override the case
@@ -981,6 +1123,17 @@ def run_case(
     """
     if isinstance(case, str):
         case = get_case(case)
+
+    reuse_root = os.environ.get("GSIM_PDK_REUSE")
+    if reuse_root and not force_run:
+        recorded = find_recorded_run(
+            case.name,
+            reuse_root,
+            dimension=dimension or case.dimension,
+            fallback_to_2d=os.environ.get("GSIM_PDK_REUSE_FALLBACK_2D", "1") != "0",
+        )
+        if recorded is not None:
+            return load_outcome(case, recorded)
 
     effective_resolution = resolution if resolution is not None else case.resolution
     effective_num_freqs = num_freqs if num_freqs is not None else case.num_freqs
@@ -1111,9 +1264,11 @@ __all__ = [
     "compare",
     "dbr_two_port",
     "deembed_s_params",
+    "find_recorded_run",
     "format_summary",
     "get_case",
     "high_resolution_overrides",
+    "load_outcome",
     "monitor_distances",
     "n_eff_by_port",
     "normalize_measured_spectrum",

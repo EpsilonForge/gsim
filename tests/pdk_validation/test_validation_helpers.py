@@ -217,6 +217,109 @@ def test_power_conservation():
 
 
 # ---------------------------------------------------------------------------
+# Size in wavelengths and timing record
+# ---------------------------------------------------------------------------
+
+
+def test_simulation_size_in_wavelengths():
+    size = validation.SimulationSize(
+        cell_x_um=23.0, cell_y_um=3.5, cell_z_um=3.22, resolution=20
+    )
+    lam = validation.VALIDATION_WAVELENGTH_UM
+    assert size.size_lambda == pytest.approx((23.0 / lam, 3.5 / lam, 3.22 / lam))
+    assert size.area_lambda2 == pytest.approx(23.0 * 3.5 / lam**2)
+    assert size.cells == 460 * 70 * 65
+
+
+def test_simulation_size_2d_ignores_z():
+    size = validation.SimulationSize(
+        cell_x_um=10.0, cell_y_um=20.0, cell_z_um=0.0, resolution=10, dimension="2d"
+    )
+    assert size.cells == 100 * 200
+
+
+def test_simulation_size_reads_runner_metadata():
+    result = _Result(
+        [1.5, 1.55, 1.6],
+        {"S11": [1, 1, 1]},
+        {
+            "metadata": {
+                "cell_size": [23.0, 3.5, 3.22],
+                "wall_seconds": 321.5,
+                "meep_time": 180.0,
+                "timesteps": 7200,
+            }
+        },
+    )
+    size = validation.simulation_size(result, resolution=20, num_freqs=101)
+    assert size.cell_x_um == pytest.approx(23.0)
+    assert size.cell_y_um == pytest.approx(3.5)
+    assert size.cell_z_um == pytest.approx(3.22)
+    timing = validation.run_metadata(result)
+    assert timing == {
+        "wall_seconds": pytest.approx(321.5),
+        "meep_time": pytest.approx(180.0),
+        "timesteps": 7200,
+    }
+
+
+def test_run_metadata_defaults_when_absent():
+    assert validation.run_metadata(_Result([1.55], {}, {})) == {
+        "wall_seconds": 0.0,
+        "meep_time": 0.0,
+        "timesteps": 0,
+    }
+
+
+def test_format_summary_reports_time_and_size():
+    outcome = validation.ValidationOutcome(
+        case="straight",
+        wavelengths=np.array([1.5, 1.55, 1.6]),
+        s_params={"S21": np.ones(3)},
+        reference=validation.Reference(np.array([1.5, 1.6]), {"S21": np.ones(2)}),
+        metrics={"S21": {"rms_db": 0.25, "corr": 0.99}},
+        best_port="S21",
+        resolution=30,
+        num_freqs=201,
+        dimension="3d",
+        wall_seconds=123.4,
+        meep_time=90.0,
+        timesteps=3600,
+        size=validation.SimulationSize(23.0, 3.5, 3.22, 30, 201, "3d"),
+    )
+    table = validation.format_summary({"straight": outcome})
+    assert "compute time (s)" in table
+    assert "cell x/y/z (lambda)" in table
+    assert "123.4" in table
+    assert "14.8 x 2.3 x 2.1" in table
+
+
+def test_format_summary_lists_failures():
+    table = validation.format_summary({"mzi": RuntimeError("boom")})
+    assert "FAILED" in table
+
+
+def test_high_resolution_overrides_are_accuracy_first():
+    overrides = validation.high_resolution_overrides()
+    assert set(overrides) == {
+        "straight",
+        "coupler",
+        "ring_coupling",
+        "mzi",
+        "ring",
+        "bragg",
+    }
+    for settings in overrides.values():
+        assert settings["resolution"] > validation.VALIDATION_RESOLUTION
+        assert settings["num_freqs"] >= validation.VALIDATION_NUM_FREQS
+        assert settings["decay_by"] <= validation.VALIDATION_DECAY_BY
+    # The large MZI is pushed hardest on the cheap 2-D plane.
+    assert overrides["mzi"]["resolution"] >= 40
+    # The DBR cannot use subpixel averaging (10 nm end-caps hang init_sim).
+    assert overrides["bragg"]["subpixel"] is False
+
+
+# ---------------------------------------------------------------------------
 # Simulation configuration (no run)
 # ---------------------------------------------------------------------------
 
