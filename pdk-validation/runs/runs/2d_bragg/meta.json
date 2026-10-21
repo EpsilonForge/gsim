@@ -1,0 +1,8 @@
+{
+  "wall_seconds": 38.80880612100009,
+  "meep_time": 650.325,
+  "timesteps": 26013,
+  "resolution": 20,
+  "num_freqs": 501,
+  "dimension": "2d"
+}

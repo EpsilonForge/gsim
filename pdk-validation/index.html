@@ -30,7 +30,7 @@
 </head>
 <body>
 <header class="page">
-  <p><a href="../">← all variants</a></p>
+  <p><a href="../">&larr; all variants</a></p>
   <h1>PDK validation — notebook &amp; layouts</h1>
   <p class="muted">Executed notebook plus GDS geometry for each of the six cases, from branch <code>pdk-validation</code>.</p>
   
@@ -88,7 +88,7 @@
               <header class="card-head">
                 <div>
                   <h2>MZI</h2>
-                  <p class="muted small">ΔL = 10 µm · 112.10 x 53.50 µm</p>
+                  <p class="muted small">dL = 10 µm · 112.10 x 53.50 µm</p>
                 </div>
                 <span class="badge ok">2-D complete</span>
               </header>
@@ -122,14 +122,14 @@
               </header>
               <a href="gds/bragg.gds"><img class="layout" src="gds/bragg.png" alt="Bragg grating layout"></a>
               <p class="small"><a href="gds/bragg.gds">download GDS</a> · 2-D res 30 + 3-D res 30</p>
-              <a href="plots/bragg_three_way.png"><img class="plot" src="plots/bragg_three_way.png" alt="Bragg grating comparison"></a>
+              <a href="plots/bragg_data.png"><img class="plot" src="plots/bragg_data.png" alt="Bragg grating Meep vs reference"></a><p class="muted small">Meep vs reference</p>
               <p class="small">runs: <a class="chip" href="runs/runs/3d_bragg/s_parameters.csv">3d_bragg</a><a class="chip" href="runs/runs/2d_bragg/s_parameters.csv">2d_bragg</a></p>
             </article>
             
 </main>
 <footer class="page small muted" style="max-width:1100px;margin:0 auto;padding:0 24px 40px">
-  Raw S-parameters under <a href="runs/runs/">runs/</a>; metrics in
-  <a href="runs/results_metrics.json">results_metrics.json</a>.
+  Raw S-parameters under <a href="runs/runs/">runs/</a>; corrected metrics in
+  <a href="runs/corrected_summary.json">corrected_summary.json</a>.
 </footer>
 </body>
 </html>
