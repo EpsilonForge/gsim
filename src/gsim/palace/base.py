@@ -996,9 +996,12 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
 
         # PDK-authoritative path (gsim#230): build directly from the PDK
         # LayerStack, with no synthetic geometry or silent material fallbacks.
-        dielectrics = self._stack_kwargs.pop("dielectrics", None)
-        role_overrides = self._stack_kwargs.pop("role_overrides", None)
-        pdk_authoritative = bool(self._stack_kwargs.pop("pdk_authoritative", False))
+        # Read (do not pop) these options: if resolution raises, a caller that
+        # follows the error's advice (e.g. calls set_airbox() and retries) must
+        # still resolve through the authoritative path.
+        dielectrics = self._stack_kwargs.get("dielectrics")
+        role_overrides = self._stack_kwargs.get("role_overrides")
+        pdk_authoritative = bool(self._stack_kwargs.get("pdk_authoritative", False))
         if pdk_authoritative:
             from gsim.common.pdk import resolve_layer_stack
             from gsim.palace.stack import build_palace_layer_stack
@@ -1043,6 +1046,11 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             self.stack = canonical
             return canonical
 
+        # Legacy path: the authoritative-only options must not reach the
+        # inferred extractor.
+        dielectrics = self._stack_kwargs.pop("dielectrics", None)
+        role_overrides = self._stack_kwargs.pop("role_overrides", None)
+        self._stack_kwargs.pop("pdk_authoritative", None)
         if dielectrics or role_overrides:
             logger.warning(
                 "set_stack(dielectrics=/role_overrides=) only applies with "
