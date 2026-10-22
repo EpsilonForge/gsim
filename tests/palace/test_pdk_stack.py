@@ -120,6 +120,36 @@ def test_missing_bulk_dielectric_and_airbox_raises() -> None:
         sim._resolve_stack()
 
 
+@pytest.mark.usefixtures("_no_overlay_pdk_active")
+def test_failed_resolution_preserves_authoritative_options() -> None:
+    """Following the error's advice must not fall back to the legacy stack."""
+    sim = DrivenSim()
+    sim.set_stack(pdk_authoritative=True)
+    with pytest.raises(ValueError, match="No dielectric volumes"):
+        sim._resolve_stack()
+
+    assert sim._stack_kwargs["pdk_authoritative"] is True
+    sim.set_airbox(margin_x=0, margin_y=0, z_above=1.0, z_below=1.0)
+    stack = sim._resolve_stack()
+    assert stack.simulation["pdk_authoritative"] is True
+
+
+@pytest.mark.usefixtures("_ihp_active")
+def test_explicit_dielectric_material_reaches_palace_materials() -> None:
+    """A dielectric-only material token must carry its bulk properties."""
+    sim = DrivenSim()
+    sim.set_stack(
+        pdk_authoritative=True,
+        dielectrics=[
+            {"name": "substrate", "material": "silicon", "zmin": -180.0, "zmax": 0.0}
+        ],
+    )
+    stack = sim._resolve_stack()
+
+    assert stack.materials["silicon"]["permittivity"] == pytest.approx(11.9)
+    assert stack.materials["silicon"]["conductivity"] == pytest.approx(2.0)
+
+
 @pytest.mark.usefixtures("_ihp_active")
 def test_legacy_kwargs_are_rejected_with_the_flag() -> None:
     sim = DrivenSim()
