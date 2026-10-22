@@ -197,8 +197,10 @@ def _flatten_results(raw_results: dict) -> dict[str, Path]:
 _SIGNAL_EXIT_CODES = {
     134: "exit 134 is SIGABRT — an assertion failure or out-of-memory abort. "
     "Try a coarser mesh, fewer frequency points, or a larger instance.",
-    137: "exit 137 is SIGKILL — almost always the container hitting its "
-    "memory limit. Try a coarser mesh or a larger instance.",
+    137: "exit 137 is SIGKILL — the container was killed, often because it ran "
+    "out of memory (memory limit). Try a coarser mesh or a smaller model. "
+    "Cloud resources are selected automatically; contact support with the job ID "
+    "if more memory is needed.",
     139: "exit 139 is SIGSEGV — a solver crash. Please report the mesh and "
     "config that reproduce it.",
 }
@@ -222,6 +224,9 @@ def _handle_failed_job(job, output_dir: Path, verbose: bool) -> None:
         error_parts = [f"Simulation failed with exit code {exit_code}"]
 
     error_parts.append(f"Status: {_status_value(job.status)}")
+    job_id = getattr(job, "id", None)
+    if job_id:
+        error_parts.append(f"Job ID: {job_id}")
 
     status_reason = getattr(job, "status_reason", None)
     detail_reason = getattr(job, "detail_reason", None)
@@ -232,6 +237,11 @@ def _handle_failed_job(job, output_dir: Path, verbose: bool) -> None:
 
     if exit_code in _SIGNAL_EXIT_CODES:
         error_parts.append(f"Note: {_SIGNAL_EXIT_CODES[exit_code]}")
+    if exit_code == 137 and _extract_solver_from_job(job) == "palace":
+        error_parts.append(
+            "Palace: lowering the field order (sim.solver.order) also reduces "
+            "DOFs. Recheck convergence after changing the mesh or field order."
+        )
 
     # Try to download logs even though job failed
     try:
@@ -641,6 +651,8 @@ def wait_for_results(
 
     # Track how many lines we printed last time (for overwriting multi-job)
     prev_lines = 0
+    # Highest percentage shown per job, so the bar never moves backwards
+    shown_progress: dict[str, int] = {}
 
     # Log cursors for streaming (one per job)
     log_cursors: dict[str, str | None] = dict.fromkeys(job_ids, None)
@@ -654,6 +666,7 @@ def wait_for_results(
                 prev_lines,
                 end_times=end_times,
                 estimated_runtime_seconds=estimated_runtime_seconds,
+                shown_progress=shown_progress,
             )
 
         time.sleep(poll_interval)
@@ -690,6 +703,7 @@ def wait_for_results(
             end_times=end_times,
             final=True,
             estimated_runtime_seconds=estimated_runtime_seconds,
+            shown_progress=shown_progress,
         )
 
     # Download + parse all
@@ -726,6 +740,16 @@ def _output_mode() -> str:
     return "pipe"
 
 
+# Progress shown for each lifecycle state before the solver starts running,
+# in the order the cloud service reports them.
+_PRE_RUN_PROGRESS = {
+    "created": 5,
+    "pending": 10,
+    "queued": 15,
+    "starting": 30,
+}
+
+
 def _print_status_table(
     jobs: dict[str, Any],
     start_times: dict[str, float],
@@ -734,6 +758,7 @@ def _print_status_table(
     end_times: dict[str, float] | None = None,
     final: bool = False,
     estimated_runtime_seconds: float | None = None,
+    shown_progress: dict[str, int] | None = None,
 ) -> int:
     """Print job status, updating in place.
 
@@ -742,6 +767,10 @@ def _print_status_table(
       *last* state, giving one clean line in rendered docs.
     * **TTY (terminal)** — uses carriage-return / ANSI cursor-up to overwrite.
     * **Pipe / plain CI** — only prints the final status.
+
+    ``shown_progress`` maps job IDs to the highest percentage already
+    displayed. Pass the same dict on every poll so a job's bar never moves
+    backwards; it is updated in place.
 
     Returns the number of lines printed (for the TTY path to erase).
     """
@@ -769,7 +798,7 @@ def _print_status_table(
         mins, secs = divmod(int(t), 60)
         return f"{mins}m {secs:02d}s"
 
-    def _progress(jid: str, job: Any) -> tuple[int, str]:
+    def _lifecycle_progress(jid: str, job: Any) -> tuple[int, str]:
         """Return a conservative lifecycle-based completion estimate.
 
         The cloud API reports lifecycle states but not solver iteration counts.
@@ -789,9 +818,16 @@ def _print_status_table(
                 mins, secs = divmod(round(remaining), 60)
                 return percent, f"running, ETA {mins}m {secs:02d}s"
             return 50, "running"
-        if status == "queued":
-            return 15, "queued"
-        return 5, status or "starting"
+        return _PRE_RUN_PROGRESS.get(status, 5), status or "starting"
+
+    def _progress(jid: str, job: Any) -> tuple[int, str]:
+        percent, phase = _lifecycle_progress(jid, job)
+        # If the service reports a lower state than before (out of order or
+        # unknown), keep the highest value shown; the label still follows it.
+        if shown_progress is not None:
+            percent = max(percent, shown_progress.get(jid, 0))
+            shown_progress[jid] = percent
+        return percent, phase
 
     def _bar(percent: int, width: int = 20) -> str:
         filled = round(width * percent / 100)
@@ -855,6 +891,10 @@ def upload_simulation_dir(
         input_hash: Optional cache key recorded with the job. Silently
             dropped when the installed SDK does not support it.
 
+    Palace and FDTD counts are read from root-level ``metadata.json`` and sent
+    as ``sizing_requirements`` to DataLab, including with older SDK versions.
+    Other submissions retain the SDK's existing fixed-resource upload path.
+
     Returns:
         PreJob object from gdsfactoryplus
 
@@ -872,7 +912,14 @@ def upload_simulation_dir(
                 "Installed gdsfactoryplus does not accept input_hash; "
                 "uploading without a cache key"
             )
+    from gsim._cloud_submission import read_sizing_requirements, upload_sized_simulation
+
+    requirements = read_sizing_requirements(input_dir, job_type)
     try:
+        if requirements is not None:
+            return upload_sized_simulation(
+                input_dir, job_type.casefold(), requirements, input_hash=input_hash
+            )
         return sim.upload_simulation(
             path=input_dir, job_definition=job_definition, **kwargs
         )

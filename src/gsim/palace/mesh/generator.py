@@ -32,6 +32,8 @@ from .geometry import (
 )
 from .groups import assign_physical_groups
 from .metadata import write_metadata
+from .net_groups import check_via_merging, split_groups_by_net
+from .nets import extract_nets
 from .symmetry import clamp_xy_bounds
 
 if TYPE_CHECKING:
@@ -1238,6 +1240,7 @@ def generate_mesh(
     algorithm_3d: Literal["delaunay", "hxt"] = "delaunay",
     threads: int = 1,
     surface_threads: int = 1,
+    split_conductors_by_net: bool = False,
 ) -> MeshResult:
     """Generate mesh for Palace EM simulation.
 
@@ -1281,7 +1284,11 @@ def generate_mesh(
         symmetry_plane: Optional PEC/PMC symmetry plane; only the kept half of
             the domain is meshed. Not supported with ``boundarymode`` or with
             a ``periodic_axis`` equal to the plane axis.
-        merge_via_distance: Max gap between vias to merge (um)
+        merge_via_distance: Max gap between vias to merge (um). Merging
+            fills the gaps between the vias, so a dense via array can
+            grow to several times its drawn area; a warning is logged
+            when the area grows by more than 5%. Pass 0 to keep every
+            via as drawn.
         curve_fit_mode: Patterned dielectric boundary mode: line/spline/bspline
         curve_fit_layers: Layer names where curve fitting is applied
         curve_fit_tolerance_um: Point merge tolerance before curve fitting
@@ -1300,6 +1307,11 @@ def generate_mesh(
         threads: Threads for 3D meshing
         surface_threads: Threads for 1D and 2D meshing; above 1 the mesh
             differs from run to run
+        split_conductors_by_net: Electrostatic terminals by net: give each
+            conductor, planar-conductor and via-boundary group one physical
+            group per electrical net (``<name>@<net>``) and list the nets
+            in ``groups["nets"]``. Needs ``write_config=False``, since the
+            config needs the terminals. Ignored for boundary mode.
 
     Returns:
         MeshResult with paths and metadata
@@ -1340,6 +1352,23 @@ def generate_mesh(
         raise ValueError(
             "refinement_boxes apply to native-2D cross-section meshes only."
         )
+
+    # Terminals by net: find the nets and make sure that via merging keeps them
+    # apart, before any meshing work is done.
+    nets = None
+    if split_conductors_by_net and simulation_type != "boundarymode":
+        if write_config:
+            raise ValueError(
+                "split_conductors_by_net needs write_config=False: the config "
+                "is written afterwards, from the terminals."
+            )
+        nets = extract_nets(
+            geometry,
+            stack,
+            [p for p in component.ports if p.port_type == "electrical"],
+        )
+        logger.info("  Nets: %s", len(nets))
+        check_via_merging(geometry, stack, nets, merge_via_distance)
 
     # The mesh must depend only on gsim's settings, not on the user's Gmsh options file
     gmsh.initialize(readConfigFiles=False)
@@ -1514,6 +1543,8 @@ def generate_mesh(
                     boundary_mode_config,
                     absorbing_boundary,
                     periodic_axis,
+                    # tensors are written in the 2D mesh frame (_to_section_frame)
+                    hints={"_cross_section_axis": cross_section.axis},
                 )
 
             return MeshResult(
@@ -1771,6 +1802,13 @@ def generate_mesh(
                         "elements: %s",
                         exc,
                     )
+
+        # One physical group per net instead of per layer
+        if nets is not None:
+            logger.info("Splitting conductor groups by net...")
+            split_groups_by_net(
+                groups, nets, stack, merge_via_distance=merge_via_distance
+            )
 
         # Collect mesh statistics
         mesh_stats = collect_mesh_stats(
