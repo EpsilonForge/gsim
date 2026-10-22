@@ -197,6 +197,7 @@ def test_synthetic_pdk_layer_names_flow_through_ports(tmp_path) -> None:
                 excited=True,
             )
 
+        assert sim.stack is not None
         assert sim.stack.layers["trace_sheet"].zmin == 9
         assert all(
             port.from_layer == "return_sheet" and port.to_layer == "trace_sheet"

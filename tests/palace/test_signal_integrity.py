@@ -86,24 +86,32 @@ def test_check_network_rejects_incomplete_or_nonuniform_data() -> None:
 class _Parameters:
     """Minimal SParams facade for complete_network tests."""
 
-    def __init__(self, net: rf.Network) -> None:
+    def __init__(
+        self, net: rf.Network, keys: list[tuple[str, str]] | None = None
+    ) -> None:
         self._net = net
+        self._keys = keys or [(a, b) for a in PORTS for b in PORTS]
 
     def keys(self) -> list[tuple[str, str]]:
-        return [(a, b) for a in PORTS for b in PORTS]
+        return self._keys
 
     def to_skrf(self) -> rf.Network:
         return self._net
 
 
-def test_complete_network_rejects_missing_entries() -> None:
+def test_complete_network_rejects_missing_or_unexpected_entries() -> None:
     net = _network(np.zeros((3, 4, 4), complex), np.arange(3) * 1e9)
     net.port_names = list(PORTS)
-    parameters = _Parameters(net)
-    parameters.keys = lambda: [(a, b) for a in PORTS for b in PORTS][:-1]  # type: ignore[method-assign]
-
+    full = [(a, b) for a in PORTS for b in PORTS]
     with pytest.raises(ValueError, match="Incomplete"):
-        complete_network(parameters, ports=PORTS)
+        complete_network(_Parameters(net, full[:-1]), ports=PORTS)
+    with pytest.raises(ValueError, match="Incomplete"):
+        complete_network(_Parameters(net, [*full, ("p1", "p9")]), ports=PORTS)
+    wrong_reference = _network(np.zeros((3, 4, 4), complex), np.arange(3) * 1e9)
+    wrong_reference.port_names = list(PORTS)
+    wrong_reference.z0 = 75.0
+    with pytest.raises(ValueError, match="reference"):
+        complete_network(_Parameters(wrong_reference), ports=PORTS)
 
 
 def test_complete_network_preserves_order_and_reference() -> None:
@@ -179,3 +187,55 @@ def test_interpolate_complex_preserves_shape_and_values() -> None:
     assert out.shape == (2, 2, 2)
     np.testing.assert_allclose(out[:, 0, 1], [1.5, 2.5])
     np.testing.assert_allclose(out[:, 1, 0], [1.5j, 2.5j])
+
+
+def test_network_validation_rejects_wrong_count_and_duplicate_names() -> None:
+    net = _network(np.zeros((3, 4, 4), complex), np.arange(3) * 1e9)
+    net.port_names = list(PORTS)
+
+    with pytest.raises(ValueError, match="Expected a 2-port"):
+        check_network(net, n_ports=2)
+
+    net.port_names = ["p1", "p1", "p2", "p3"]
+    with pytest.raises(ValueError, match="Unique port names"):
+        check_network(net)
+
+
+def test_mixed_mode_defaults_to_network_order_and_rejects_bad_pair_shape() -> None:
+    net = _network(np.zeros((3, 4, 4), complex), np.arange(3) * 1e9)
+    net.port_names = ["a", "b", "c", "d"]
+
+    ordered, _ = mixed_mode(net)
+    assert ordered.port_names == ["a", "b", "c", "d"]
+
+    with pytest.raises(ValueError, match="ordered"):
+        mixed_mode(net, pairs=(("a", "b", "c"), ("d",)))
+
+
+def test_tdr_rejects_bad_inputs() -> None:
+    f = F[1:]
+    good = np.zeros(len(f), complex)
+
+    with pytest.raises(ValueError, match="scalar reflection"):
+        tdr(f, good[:-1], 50.0)
+    with pytest.raises(ValueError, match="Nonfinite"):
+        tdr(f, np.r_[np.nan, good[1:]], 50.0)
+    with pytest.raises(ValueError, match="positive reference"):
+        tdr(f, good, 0.0)
+    with pytest.raises(ValueError, match="Start at DC"):
+        tdr(np.array([2e9, 3e9, 4e9]), np.zeros(3, complex), 50.0)
+    with pytest.raises(ValueError, match="DC reflection must be real"):
+        tdr(np.r_[0.0, f], np.r_[1 + 1j, good], 50.0)
+
+
+def test_differential_delay_rejects_unusable_transmission() -> None:
+    empty = _network(np.zeros((len(F), 4, 4), complex))
+    empty.port_names = ["d_near", "d_far", "c_near", "c_far"]
+    with pytest.raises(ValueError, match="Insufficient"):
+        differential_delay(empty)
+
+    delayed = _network(np.zeros((len(F), 4, 4), complex))
+    delayed.s[:, 1, 0] = np.exp(2j * np.pi * F * 10e-12)
+    delayed.port_names = ["d_near", "d_far", "c_near", "c_far"]
+    with pytest.raises(ValueError, match="Nonpositive"):
+        differential_delay(delayed)
