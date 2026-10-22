@@ -52,6 +52,50 @@ def _make_pdk(*, core_material: str = "Si") -> gf.Pdk:
     return gf.Pdk(name="stack_test", layer_stack=layer_stack)
 
 
+def _make_ihp2_pdk() -> gf.Pdk:
+    """Synthetic IHP-2.0-style stack with prefixed material tokens."""
+    layer_stack = GfLayerStack(
+        layers={
+            "cont": LayerLevel(
+                layer=(1, 0),
+                thickness=0.64,
+                zmin=0.2,
+                material="sg13g2_cont",
+                info={"mesh_order": 13},
+            ),
+            "metal1": LayerLevel(
+                layer=(2, 0),
+                thickness=0.42,
+                zmin=0.84,
+                material="alcu_sg13g2_metal1",
+                info={"mesh_order": 14},
+            ),
+            "via1": LayerLevel(
+                layer=(3, 0),
+                thickness=0.54,
+                zmin=1.26,
+                material="tungsten_sg13g2_via1",
+                info={"mesh_order": 15},
+            ),
+            "mim": LayerLevel(
+                layer=(4, 0),
+                thickness=0.15,
+                zmin=5.53,
+                material="sg13g2_mim",
+                info={"mesh_order": 23, "layer_type": "conductor"},
+            ),
+            "passiv": LayerLevel(  # codespell:ignore passiv
+                layer=(5, 0),
+                thickness=1.9,
+                zmin=14.03,
+                material="sin",
+                info={"mesh_order": 29},
+            ),
+        }
+    )
+    return gf.Pdk(name="IHP", layer_stack=layer_stack)
+
+
 def _component_on(*layers: tuple[int, int]) -> gf.Component:
     component = gf.Component()
     for layer in layers:
@@ -118,6 +162,47 @@ def test_classify_layer_role_from_properties() -> None:
     assert classify_layer_role(resolve_material_properties("SiO2")) == "dielectric"
 
 
+def test_ihp_2_material_tokens_resolve_to_bulk_properties() -> None:
+    """IHP >= 2.0 prefixes process materials with the PDK/alloy name."""
+    tokens = {
+        "sg13g2_cont": "tungsten",
+        "sg13g2_vmim": "tungsten",
+        "sg13g2_mim": "TiN",
+        "alcu_sg13g2_metal1": "aluminum",
+        "alcu_sg13g2_topmetal2": "aluminum",
+        "tungsten_sg13g2_via1": "tungsten",
+        "tungsten_sg13g2_topvia2": "tungsten",
+    }
+    for token, canonical in tokens.items():
+        props = resolve_material_properties(token)
+        assert props == resolve_material_properties(canonical)
+
+
+def test_ihp_2_tokens_are_classified_and_overlaid_as_vias() -> None:
+    resolved = resolve_layer_stack(pdk=_make_ihp2_pdk())
+
+    assert resolved.overlay == "IHP"
+    assert resolved.layers["cont"].layer_type == "via"
+    assert resolved.layers["via1"].layer_type == "via"
+    assert resolved.layers["metal1"].layer_type == "conductor"
+    assert resolved.layers["mim"].layer_type == "conductor"
+    assert {d.material for d in resolved.dielectrics} == {"sio2", "sin"}
+
+
+def test_explicit_dielectric_materials_reach_the_stack_materials() -> None:
+    """A dielectric token used by no process layer still carries properties."""
+    resolved = resolve_layer_stack(
+        pdk=_make_pdk(),
+        dielectrics=[
+            {"name": "substrate", "material": "silicon", "zmin": -2.0, "zmax": 0.0}
+        ],
+    )
+
+    assert "silicon" in resolved.materials
+    substrate = next(d for d in resolved.dielectrics if d.name == "substrate")
+    assert resolved.materials["silicon"] == substrate.material_properties
+
+
 # ---------------------------------------------------------------------------
 # IHP integration
 # ---------------------------------------------------------------------------
@@ -146,7 +231,9 @@ def test_ihp_preserves_pdk_layers_and_applies_its_overlay() -> None:
     resolved = resolve_layer_stack()
 
     assert resolved.pdk_name == "IHP"
-    assert len(resolved.layers) == 31
+    # Preserve every layer the active IHP release declares (the count differs
+    # between 0.2.x and 2.0.x, which adds ``mim_diel``).
+    assert len(resolved.layers) == len(resolved.layer_stack.layers)
 
     # PDK passivation is preserved as a distinct dielectric region.
     passivation_layer = resolved.layers["passiv"]  # codespell:ignore passiv
@@ -156,10 +243,13 @@ def test_ihp_preserves_pdk_layers_and_applies_its_overlay() -> None:
         (14.03, 15.93)
     )
 
-    # Conductors keep their PDK z-extent and material.
+    # Conductors keep their PDK z-extent and material (IHP >= 2.0 uses the
+    # prefixed ``alcu_sg13g2_metal1`` token for the same aluminium alloy).
     metal1 = resolved.layers["metal1"]
     assert metal1.layer_type == "conductor"
-    assert metal1.material == "aluminum"
+    assert resolve_material_properties(metal1.material) == resolve_material_properties(
+        "aluminum"
+    )
     assert (metal1.zmin, metal1.zmax) == pytest.approx((0.84, 1.26))
 
     # The reviewed IHP overlay supplies the implicit BEOL region and marks the
@@ -169,10 +259,13 @@ def test_ihp_preserves_pdk_layers_and_applies_its_overlay() -> None:
     assert resolved.layers["via1"].layer_type == "via"
     assert resolved.layers["cont"].layer_type == "via"
 
-    # Every material token resolves (no silent "unknown" fallback).
-    assert {"aluminum", "tungsten", "TiN", "poly_si", "si", "sin", "sio2"} <= set(
+    # Every material token resolves (no silent "unknown" fallback).  IHP 2.0
+    # prefixes metals/vias with the PDK name, so compare against the tokens the
+    # active stack actually declares rather than a release-specific list.
+    assert {layer.material for layer in resolved.layers.values()} <= set(
         resolved.materials
     )
+    assert {"TiN", "poly_si", "si", "sin", "sio2"} <= set(resolved.materials)
 
     # Real mesh orders come from info.
     assert metal1.mesh_order == 14

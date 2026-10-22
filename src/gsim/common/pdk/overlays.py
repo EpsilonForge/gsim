@@ -27,8 +27,18 @@ from typing import Any
 IHP_BACKGROUND_DEPTH_UM = 2.0
 
 #: IHP BEOL interconnects are tungsten; metals are aluminium.
-_IHP_VIA_MATERIAL = "tungsten"
+#:
+#: IHP < 2.0 exposes the bare material names; 2.0 prefixes them with the PDK
+#: name (``tungsten_sg13g2_via1``) and uses dedicated contact/MIM-via tokens.
+_IHP_VIA_MATERIALS = frozenset({"tungsten", "sg13g2_cont", "sg13g2_vmim"})
+_IHP_VIA_MATERIAL_PREFIX = "tungsten_sg13g2_"
 _IHP_ILD_MATERIAL = "sio2"
+
+
+def _is_ihp_via_material(material: str) -> bool:
+    """Return whether *material* is an IHP tungsten interconnect token."""
+    token = material.lower().strip()
+    return token in _IHP_VIA_MATERIALS or token.startswith(_IHP_VIA_MATERIAL_PREFIX)
 
 
 @dataclass(frozen=True)
@@ -73,7 +83,7 @@ def _ihp_overlay(layers: Mapping[str, Any]) -> StackOverlay:
     role_overrides = {
         name: "via"
         for name, layer in layers.items()
-        if layer.material == _IHP_VIA_MATERIAL
+        if _is_ihp_via_material(layer.material)
     }
     return StackOverlay(
         name="IHP",

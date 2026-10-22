@@ -333,11 +333,21 @@ def resolve_layer_stack(
             "domain will fall back to the full declared stack."
         )
 
+    resolved_dielectrics = _resolve_dielectrics(list(merged_dielectrics.values()))
+    # Palace (and other backends) look material properties up by the material
+    # token written on each dielectric region.  A caller can legitimately use a
+    # token that no process layer uses verbatim (IHP names silicon ``si`` while
+    # a notebook may declare ``"silicon"``), so keep those resolved properties
+    # in the shared material map instead of dropping them.
+    for dielectric in resolved_dielectrics:
+        if dielectric.material not in materials:
+            materials[dielectric.material] = dielectric.material_properties
+
     return ResolvedStack(
         pdk_name=pdk_name,
         layer_stack=layer_stack,
         layers=layers,
-        dielectrics=_resolve_dielectrics(list(merged_dielectrics.values())),
+        dielectrics=resolved_dielectrics,
         materials=materials,
         component=component,
         wavelength_um=wavelength_um,
