@@ -14,11 +14,13 @@ import yaml
 from gdsfactory.technology import LayerStack as GfLayerStack
 from pydantic import BaseModel, ConfigDict, Field
 
+from gsim.common.materials.registry import get_project_material_cards
 from gsim.common.stack._layer_utils import classify_layer_type, get_gds_layer_tuple
 from gsim.common.stack.materials import (
     MATERIALS_DB,
     get_material_properties,
 )
+from gsim.common.stack.rf_materials import constant_rf_properties
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +86,8 @@ class ValidationResult(BaseModel):
     valid: bool
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    info: list[str] = Field(default_factory=list)
+    """Informational notes (e.g. the active settings); not problems."""
 
     def __bool__(self) -> bool:
         """Returns True if the validation passed, False otherwise."""
@@ -102,6 +106,9 @@ class ValidationResult(BaseModel):
         if self.warnings:
             lines.append("Warnings:")
             lines.extend([f"  - {w}" for w in self.warnings])
+        if self.info:
+            lines.append("Info:")
+            lines.extend([f"  - {i}" for i in self.info])
         return "\n".join(lines)
 
 
@@ -771,6 +778,14 @@ def extract_from_pdk(
         raise ValueError(f"Could not find layer stack in PDK: {pdk_module}")
 
     stack = extract_layer_stack(gf_layer_stack, pdk_name=pdk_name, **kwargs)
+
+    # PDK process values take precedence over generic bulk-material defaults.
+    cards = get_project_material_cards(pdk_module)
+    for material_name in stack.materials:
+        if (card := cards.get(material_name)) is not None:
+            properties = constant_rf_properties(card)
+            if properties is not None:
+                stack.materials[material_name] = properties
 
     if output_path:
         stack.to_yaml(output_path)

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from math import isfinite
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Any
+from tempfile import TemporaryDirectory, mkdtemp
+from typing import Any, Self
 
 import gdsfactory as gf
 from pdk_schema import Index, ScalarValue
 
+from gsim.common.cloud import CloudJobMixin
 from gsim.common.materials import (
     MaterialResolutionError,
     MaterialSnapshot,
@@ -24,16 +26,18 @@ from gsim.fdtd.api import (
     Domain,
     GaussianBeamSource,
     Geometry,
+    Heatmap,
     LineCurrentSource,
     Materials,
     Monitors,
     PlaneMonitor,
     PortSource,
+    SignedAxis,
     Solver,
     SourceType,
 )
-from gsim.fdtd.cloud import CloudWorkflowMixin
 from gsim.fdtd.mesh import generate_mesh
+from gsim.fdtd.metadata import write_metadata
 from gsim.fdtd.models import (
     FDTDConfigError,
     FDTDGeometryError,
@@ -94,8 +98,10 @@ def _constant_material_card(name: str, refractive_index: float) -> Any:
     )
 
 
-class Simulation(CloudWorkflowMixin, RuntimeConfigMixin):
+class Simulation(CloudJobMixin, RuntimeConfigMixin):
     """Configure, serialize, and run a GDSFactory FDTD simulation."""
+
+    _cloud_job_type = "fdtd"
 
     def __init__(
         self,
@@ -134,9 +140,6 @@ class Simulation(CloudWorkflowMixin, RuntimeConfigMixin):
         self.solver = Solver.model_validate(solver_data)
         self.geometry.bind(self._resolve_geometry)
         self._resolved: ResolvedPassivePcell | None = None
-        self._job_id: str | None = None
-        self._input_hash: str | None = None
-        self._config_dir: Path | None = None
         self._last_artifacts: SimulationArtifacts | None = None
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -211,6 +214,94 @@ class Simulation(CloudWorkflowMixin, RuntimeConfigMixin):
         """Cloud job identifier after upload or run."""
         return self._job_id
 
+    def add_monitors(
+        self, *, xy: bool = True, z_um: float | None = None, margin_um: float = 0.75
+    ) -> Self:
+        """Add center-wavelength port intensity images and an optional XY overview.
+
+        Args:
+            xy: Include the component-wide XY overview (default: True).
+            z_um: Overview height in micrometers. None uses the resolved geometry's
+                vertical midpoint. Ignored when xy is False.
+            margin_um: Nonnegative cladding margin on each side of a port's
+                active cross section, in micrometers (default: 0.75).
+
+        Returns:
+            This simulation, with the diagnostic planes added to its monitors.
+
+        Notes:
+            Optical port windows follow the port width and owning PDK layer's
+            vertical bounds, plus margin_um, three Yee cells inward from each
+            port. Each plane records only the source center wavelength,
+            without additional flux measurements. Guided S-parameter measurements
+            remain implicit. Existing monitors are preserved; duplicate names
+            raise ValueError before any planes are added. This method does not
+            mesh, submit or run a simulation.
+        """
+        if not isfinite(margin_um) or margin_um < 0:
+            raise ValueError("margin_um must be finite and nonnegative")
+        resolved = self._resolve_geometry()
+        wavelength_um = self.source.wavelength_um
+        offset_um = 3 * self.solver.cell_size_nm / 1000
+        planes: list[PlaneMonitor] = []
+        for port in resolved.ports.values():
+            if port.port_type != "optical":
+                continue
+            nx, ny, _ = port.normal
+            if port.layer_key is None:
+                raise FDTDGeometryError(
+                    f"Optical port {port.name!r} has no owning layer"
+                )
+            z_lower, z_upper = resolved.layers[port.layer_key].z_bounds
+            width_um = port.width + 2 * margin_um
+            height_um = z_upper - z_lower + 2 * margin_um
+            normal: SignedAxis = (
+                ("+x" if nx > 0 else "-x") if nx else ("+y" if ny > 0 else "-y")
+            )
+            planes.append(
+                PlaneMonitor(
+                    name=f"port_{port.name}",
+                    center_um=(
+                        port.center[0] - nx * offset_um,
+                        port.center[1] - ny * offset_um,
+                        port.center[2],
+                    ),
+                    size_um=(0, width_um, height_um)
+                    if nx
+                    else (width_um, 0, height_um),
+                    normal=normal,
+                    flux=False,
+                    wavelengths_um=[wavelength_um],
+                    heatmap=Heatmap(
+                        quantity="intensity", wavelengths_um=[wavelength_um]
+                    ),
+                )
+            )
+        if xy:
+            if z_um is None:
+                z_um = (resolved.bounds[0][2] + resolved.bounds[1][2]) / 2
+            component = resolved.component
+            planes.append(
+                PlaneMonitor(
+                    name="overview_xy",
+                    center_um=(component.dx, component.dy, z_um),
+                    size_um=(component.dxsize, component.dysize, 0),
+                    normal="+z",
+                    flux=False,
+                    wavelengths_um=[wavelength_um],
+                    heatmap=Heatmap(
+                        quantity="intensity", wavelengths_um=[wavelength_um]
+                    ),
+                )
+            )
+        existing_names = {monitor.name for monitor in self.monitors}
+        for plane in planes:
+            if plane.name in existing_names:
+                raise ValueError(f"monitor {plane.name!r} already exists")
+        for plane in planes:
+            self.monitors.add(plane)
+        return self
+
     def _resolve_geometry(self) -> ResolvedPassivePcell:
         """Resolve current geometry at the current source wavelength."""
         if self.geometry.component is None:
@@ -275,8 +366,15 @@ class Simulation(CloudWorkflowMixin, RuntimeConfigMixin):
                 snapshots[name],
                 refractive_index=material.refractive_index,
                 extinction_coefficient=0.0,
+                card=_constant_material_card(name, material.refractive_index),
             )
         return snapshots
+
+    def _prepare_upload_dir(self) -> Path:
+        """Write the cloud artifacts to a fresh staging directory."""
+        directory = Path(mkdtemp(prefix="fdtd_"))
+        self.write(directory)
+        return directory
 
     def write(self, output_dir: str | Path) -> SimulationArtifacts:
         """Write ``mesh.msh`` and ``config.json`` for cloud execution."""
@@ -307,7 +405,9 @@ class Simulation(CloudWorkflowMixin, RuntimeConfigMixin):
         config_path.write_text(
             config.model_dump_json(indent=2, exclude_none=True) + "\n",
             encoding="utf8",
+            newline="\n",
         )
+        write_metadata(manifest, config, mesh_path)
         self._last_artifacts = SimulationArtifacts(
             mesh_path=mesh_path,
             config_path=config_path,

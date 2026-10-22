@@ -13,18 +13,53 @@ import gsim.palace as pa
 
 sim = pa.EigenmodeSim()
 sim.solver.order = 1
-sim.solver.linear.tolerance = 1e-6
+sim.solver.linear.tolerance = 1e-9
 sim.solver.linear.max_iterations = 400
 sim.solver.eigenmode.num_modes = 2
 sim.solver.eigenmode.target = 4e9  # Hz; required before meshing/exporting
-sim.solver.eigenmode.tolerance = 1e-8
+sim.solver.eigenmode.tolerance = 1e-9
 sim.solver.eigenmode.save = 2
 ```
 
 The linear tolerance controls each linear solve. The eigenmode tolerance controls
-eigenvalue convergence. They are independent. Field order defaults to **2**, linear
-tolerance to **1e-6**, and maximum linear iterations to **400**. The backend and
-preconditioner default to `"Default"`, and the device defaults to `"CPU"`.
+eigenvalue convergence. They are independent. All Palace simulation types default
+to **GMRES with complex MUMPS multigrid**, field order **2**, **400** maximum linear
+iterations, and `"CPU"`. Linear tolerance defaults to **1e-6**, except for
+`EigenmodeSim`, whose linear and eigenvalue tolerances both default to **1e-9**.
+An omitted linear tolerance uses the simulation-specific default through grouped
+dictionaries, settings models, and legacy `numerical` constructors or assignments.
+An explicitly supplied tolerance, including `1e-6`, is preserved.
+
+The configurable multigrid controls live under `sim.solver.linear`:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `solver_type` | `"MUMPS"` | Coarse solver backend; `"Default"` asks Palace to choose. |
+| `mg_max_levels` | `100` | Maximum multigrid levels; Palace uses the available hierarchy. Set 1 for a full-system solve. |
+| `pc_mat_real` | `False` | Set True to use a real approximation of the preconditioner matrix. |
+| `complex_coarse_solve` | `True` | Use a complex coarse solve for complex-valued problems. |
+
+Real-only problems such as electrostatics still solve real equations. The complex
+controls do not turn materials or fields into complex quantities in those problems.
+MUMPS no longer forces one Krylov iteration, disables multigrid, or disables the
+mesh error estimator or divergence-free projection. Explicit settings are exported
+without backend-specific overrides.
+
+```python
+sim.solver.linear.pc_mat_real = True
+sim.solver.linear.complex_coarse_solve = False  # lower-memory real approximation
+sim.solver.linear.mg_max_levels = 1  # full-system solve; can need much more RAM
+```
+
+`solver_type="SuperLU"`, `"STRUMPACK"`, and `"Default"` remain available.
+`preconditioner="AMS"` or `"BoomerAMG"` applies when `solver_type="Default"`.
+Use `pc_mat_real=True` and `complex_coarse_solve=False` to request a real
+preconditioner with another backend. These settings can also be supplied to
+`set_solver(...)` or in the constructor's `solver={"linear": ...}` group.
+
+The defaults are a starting point. Check convergence and mesh resolution for each
+problem, especially when extracting quality factors. Driven adaptive-sweep controls
+are separate and retain their existing defaults.
 
 You can also supply grouped settings at construction:
 
@@ -52,18 +87,19 @@ boundary.solver.boundary_mode.freq = 5e9
 boundary.solver.boundary_mode.num_modes = 2
 ```
 
-All four share six controls: `order`, `device`, and
-`linear.{solver_type, preconditioner, tolerance, max_iterations}`.
+All four share nine controls: `order`, `device`, and
+`linear.{solver_type, preconditioner, tolerance, max_iterations, mg_max_levels,
+pc_mat_real, complex_coarse_solve}`.
 
 | Simulation | Problem group | Problem settings | Total settings |
 | --- | --- | --- | --- |
-| DrivenSim | `solver.driven` | 12 | 18 |
-| EigenmodeSim | `solver.eigenmode` | 8 | 14 |
-| ElectrostaticSim | `solver.electrostatic` | 1 | 7 |
-| BoundaryModeSim | `solver.boundary_mode` | 7 | 13 |
+| DrivenSim | `solver.driven` | 13 | 22 |
+| EigenmodeSim | `solver.eigenmode` | 8 | 17 |
+| ElectrostaticSim | `solver.electrostatic` | 1 | 10 |
+| BoundaryModeSim | `solver.boundary_mode` | 7 | 16 |
 
 `sim.set_solver(...)` replaces the common controls using the same defaults as
-`SolverConfig()`, while preserving the problem-specific settings. Assign individual
+the simulation constructor, including its linear tolerance, while preserving the problem-specific settings. Assign individual
 attributes to retain other common values. The generated Palace JSON continues to
 use `Solver.Order`, `Solver.Device`, `Solver.Linear`, and the applicable problem block.
 
@@ -85,6 +121,21 @@ inputs still load; simulation serialization uses the grouped `solver` field.
 | `sim.electrostatic.save_fields` | `sim.solver.electrostatic.save_fields` |
 | `sim.boundary_mode.freq` | `sim.solver.boundary_mode.freq` |
 
+### MUMPS behavior change
+
+Reloading a saved gsim settings model with `solver_type="MUMPS"` now uses the saved
+iteration limit and the new multigrid defaults when multigrid controls are absent.
+Previously, gsim forced `MaxIts=1` and `MGMaxLevels=1`, regardless of the saved
+iteration limit. Old settings still load, but their generated Palace configuration
+and solve behavior can change. Explicit saved tolerances are retained.
+
+For a full-system solve, set `mg_max_levels=1`; set `max_iterations=1` to also
+request the former iteration limit. This does not reproduce the entire old block:
+gsim no longer writes the forced `EstimatorMaxIts=0`, `EstimatorTol=1e-6`,
+`DivFreeMaxIts=0`, or `DivFreeTol=1e-6`. Those auxiliary controls are not currently
+exposed by the settings API, so Palace applies its defaults. Exposing them is
+deferred; there is no automatic legacy-mode fallback.
+
 Calling `set_numerical()` without an explicit order now uses **2**, matching the
 constructor and `set_solver()`. Pass `order=1` to retain the previous setter behavior.
 Such calls emit a temporary `FutureWarning` explaining this change. Explicit-order
@@ -104,7 +155,7 @@ including its problem group; a new eigenmode group defaults to `target=None`.
 
 `sim.numerical` is a deprecated alias for `sim.solver`, so its `model_dump()` uses
 the grouped format. `NumericalConfig(**sim.numerical.model_dump())` accepts that
-format and copies the six common numerical controls into a flat legacy model.
+format and copies the nine common numerical controls into a flat legacy model.
 For new code, use `sim.solver.model_copy(deep=True)` to copy all solver settings.
 
 - [`SolverConfig`][gsim.palace.SolverConfig]
@@ -115,7 +166,8 @@ For new code, use `sim.solver.model_copy(deep=True)` to copy all solver settings
 - [`BoundaryModeConfig`][gsim.palace.BoundaryModeConfig]
 
 See [result validation](../palace-validation.md) for independent solver,
-adaptive sampling, mode identity, and provenance checks.
+adaptive sampling, mode identity, wave-port mode continuity, and
+provenance checks.
 
 ## Numeric wave-port boundaries
 
@@ -188,6 +240,60 @@ config generation also support `z` for supplied mesh metadata.
 `compute_floquet_wave_vector()` now require an explicit length on the config or as a `periodic_length` argument; the old `l0`
 argument and frequency-based length estimate are removed. Old mesh results without translation metadata must be regenerated.
 
+## Electrostatic terminals
+
+An `ElectrostaticSim` terminal selects conductors by connected net, by region or by
+layer. A net is the metal that touches on one layer plus the metal that vias join on
+other layers, so two electrodes on one layer are two nets (see `sim.nets()`).
+
+```python
+sim.add_terminal("TOP", net="PLUS")  # net by port name, or by its name in sim.nets()
+sim.add_terminal("LEFT", region=(0, 0, 20, 20), layer="m1")  # nets with an m1 shape in the box
+sim.add_terminal("SHIELD", net="net3", floating=True)  # solved, then eliminated
+sim.add_terminal("T1", layer="metal5")  # a whole layer, as before
+sim.unassigned_conductors = "ground"  # the default; or "floating"
+print(sim.resolve_terminals())  # check the selection before meshing
+cap = sim.load_capacitance(sim.run())  # floating terminals are eliminated
+cap.between("TOP", "LEFT")
+cap.to_ground("LEFT")
+cap.pairs()  # every pair and every terminal-to-ground value, as a table
+```
+
+- **Net names** are the names of the ports on the net joined by `+`, or `net<k>`
+  (`k` counts from 1 in layout order). `net=` matches the whole name or any one port
+  name; if several nets carry the same port name they all go into that terminal.
+  `net<k>` changes when the layout is edited, so prefer port names or `region=`.
+  GDS text labels are not used.
+- **`region=`** is a box `(xmin, ymin, xmax, ymax)` or a list of at least three
+  `(x, y)` points, in um. It selects every net with a conductor or via shape that
+  overlaps the region, only on `layer` when that is given. It always selects whole
+  nets, because part of a conductor cannot be at another potential.
+- **`layer=` alone** keeps the old behaviour while no terminal uses `net`, `region` or
+  `floating`: every shape on that layer, and vias by z-overlap. Once any terminal uses
+  nets, `layer=` means every net with a shape on that layer, including the metal that
+  vias join to it on other layers. `net=` cannot be combined with `region=` or `layer=`.
+- **Conductors in no terminal** are grounded, as before. With
+  `unassigned_conductors="floating"` each becomes an extra terminal named after its
+  net. PEC blocks are always grounded. A net in two terminals is an error.
+- **Floating conductors** are solved as terminals, one extra Palace excitation each,
+  and `load_capacitance` removes them with a Schur complement of the Maxwell matrix,
+  `C_tt - C_tf C_ff^-1 C_ft`, which is exact for electrostatics. Pass
+  `eliminate_floating=False` to keep them. The rows are the terminals in the order
+  they were added, then the automatic floating terminals in net order.
+- **Vias and merging.** `mesh()` merges vias closer than `merge_via_distance` (2 um by
+  default). If that would join the vias of two nets it raises a `ValueError` naming the
+  via layer and the nets; set `merge_via_distance` below the gap between them.
+  Merging also fills the gaps between vias, so their area grows; a warning names
+  the layer and the area ratio when it grows by more than 5%. Pass
+  `merge_via_distance=0` to keep every via as drawn.
+- **Changing the selection style.** A mesh made for layer terminals cannot serve net
+  terminals and the other way round; `write_config()` raises and asks you to call
+  `mesh()` again. In net mode `write_config()` also writes `terminals.json`, which
+  `load_capacitance` reads when the simulation object is new.
+- **Reading the results.** `cap.between(a, b)` is the capacitance between two
+  electrodes and `cap.to_ground(a)` the one to ground; `cap.pairs()` lists both kinds
+  apart. If no conductor is grounded, `to_ground` comes out near zero.
+
 ## Capacitance
 
 - [`CapacitanceMatrices`][gsim.palace.CapacitanceMatrices]
@@ -251,6 +357,24 @@ phase and frequency must be finite, while dB magnitudes permit negative infinity
 
 ## Mesh
 
+Presets select mesh-size targets near conductors and in the bulk. Explicit
+`refined_mesh_size` and `max_mesh_size` arguments override those targets.
+`auto_size=True` only scales a preset when `refined_mesh_size` is omitted;
+an explicit size is always preserved, even with `auto_size=True`.
+
+Feature detection merges touching polygons on each conductor layer before
+checking trace/neck widths and gaps, including notches and holes. Distances
+below two layout database units are ignored as grid artifacts. Gap searches
+for sizing stop at the smallest width already found (and at 500 um); larger
+gaps cannot change the size. Cross-layer spacing and arbitrary tapered or
+curved widths are not measured.
+
+Resolution warnings compare the **effective** size with the detected conductor
+feature divided by `cells_per_feature` (2 by default). They suggest a smaller
+explicit size when an override is present. This feature-based rule is a heuristic;
+mesh validation and a lack of warnings do not establish convergence of resonance
+frequencies, Q, or S-parameters. Compare results across mesh refinements.
+
 `sim.mesh()` also reports **Estimated Field DOFs** for tetrahedral 3D driven and
 eigenmode problems, using the configured field order. For order 2, the estimate
 is `2 * unique_edges + 2 * unique_triangular_faces`, counting interior and shared
@@ -275,8 +399,9 @@ metadata["mesh"]["kappa"]["max"]  # numerical distortion, not formatted text
 problem type, solver settings and refinement controls. The result object is a
 snapshot from meshing. Consumers should accept additional metadata keys so new
 measurements can be added. Allocation rules remain in DataLab; these are sizing
-hints. The current cloud API does not accept a separate metadata parameter, so
-the metadata travels as an input artifact pending that API integration.
+hints. gsim sends supported tetrahedron and field-DOF counts to DataLab before
+upload, including with older SDK versions. See
+[cloud sizing metadata](cloud.md#sizing-metadata) for the calibration assumptions.
 The root-level `metadata.json` name is reserved for these diagnostics. It is
 excluded from the Palace result-cache key so measurements can evolve without
 rerunning identical mesh/config inputs. The full `compute_dir_digest()` includes
@@ -293,6 +418,20 @@ as infinite and stored as `max=None` with a nonzero `singular_elements` count.
 
 - [`MeshConfig`][gsim.palace.MeshConfig]
 - [`generate_mesh`][gsim.palace.generate_mesh]
+
+### Feature-based sizing
+
+Automatic sizing uses a same-layer geometry heuristic. Touching and overlapping
+conductor polygons are merged before measuring widths and spacing. Nearly
+parallel opposing edges reveal narrow traces and necks; spacing checks also
+include notches and holes within one connected conductor. Polygon bounding boxes
+provide a fallback for shapes without suitable opposing edges.
+
+Zero distances and distances below two layout database units are ignored. Gap
+searches are limited to 500 um; cross-layer gaps and arbitrary tapered or curved
+widths are not measured. These limitations make the estimate useful for choosing
+an initial mesh, rather than establishing simulation accuracy. Compare results
+across refinements before relying on resonance frequencies, Q, or S-parameters.
 
 ## Nets
 
@@ -334,3 +473,12 @@ as infinite and stored as `max=None` with a nonzero `singular_elements` count.
 See [Transmission-line analysis](../transmission_line_analysis.md) for using
 `load_sparams(...).to_skrf()` with scikit-rf's multiline TRL calibration,
 physical impedance normalization and independent-length checks.
+
+## Terminal S-parameters
+
+See [Terminal (multi-pin) Wave Ports](../terminal_wave_ports.md) for the
+conventions and a worked example.
+
+::: gsim.palace.terminal
+    options:
+      show_source: false

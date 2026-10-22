@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Literal
 
 import klayout.db as kdb
 from shapely import Polygon as ShapelyPolygon
-from shapely import buffer
+from shapely import STRtree, buffer, make_valid
 from shapely.ops import unary_union
 
 from gsim.palace.ports.config import PortType
@@ -28,6 +28,7 @@ from .symmetry import (
     clamp_xy_bounds,
     classify_interval,
     clip_polygon,
+    plane_position_dbu,
 )
 
 if TYPE_CHECKING:
@@ -37,6 +38,13 @@ if TYPE_CHECKING:
     from gsim.palace.ports.config import PalacePort
 
 logger = logging.getLogger(__name__)
+
+# Merging vias warns when the merged area is more than this factor of the
+# drawn area (the gaps between nearby vias get filled in)
+VIA_MERGE_AREA_WARN_RATIO = 1.05
+
+# Relative area change below which merged vias count as left as drawn
+_VIA_UNCHANGED_TOL = 1e-6
 
 
 def _contains_air_token(name: str | None) -> bool:
@@ -292,31 +300,33 @@ def _clamp_regions_to_plane(
     return clamped
 
 
-def _parse_klayout_polygon(poly) -> tuple[list, list, list] | None:
-    """Convert a KLayout polygon to ``(pts_x, pts_y, holes)`` in um (nm / 1000).
+def _parse_klayout_polygon(poly, dbu: float) -> tuple[list, list, list] | None:
+    """Convert a KLayout polygon to ``(pts_x, pts_y, holes)`` in um.
+
+    Use the owning layout's database unit for hulls and holes.
 
     Returns None for degenerate polygons with fewer than three hull points.
     """
     points = list(poly.each_point_hull())
     if len(points) < 3:
         return None
-    pts_x = [pt.x / 1000.0 for pt in points]
-    pts_y = [pt.y / 1000.0 for pt in points]
+    pts_x = [pt.x * dbu for pt in points]
+    pts_y = [pt.y * dbu for pt in points]
     holes = []
     for hole_idx in range(poly.holes()):
         hole_pts = list(poly.each_point_hole(hole_idx))
         if len(hole_pts) >= 3:
-            hx = [pt.x / 1000.0 for pt in hole_pts]
-            hy = [pt.y / 1000.0 for pt in hole_pts]
+            hx = [pt.x * dbu for pt in hole_pts]
+            hy = [pt.y * dbu for pt in hole_pts]
             holes.append((hx, hy))
     return pts_x, pts_y, holes
 
 
-def _verify_symmetry(regions: dict, plane: SymmetryPlaneConfig) -> None:
+def _verify_symmetry(regions: dict, plane: SymmetryPlaneConfig, dbu: float) -> None:
     """Raise ``ValueError`` if layers are not mirror-symmetric about the plane."""
     if not plane.verify_symmetry:
         return
-    bad = asymmetric_layers(regions, plane)
+    bad = asymmetric_layers(regions, plane, dbu=dbu)
     if bad:
         raise ValueError(
             f"Layers {bad} are not mirror-symmetric about "
@@ -353,13 +363,18 @@ def extract_geometry(
         ValueError: If the layout is not mirror-symmetric or nothing is left
             on the kept side.
     """
+    dbu = component.kcl.layout.dbu
+    if symmetry_plane is not None:
+        plane_position_dbu(symmetry_plane, dbu=dbu)
     full_regions: dict[tuple[int, int], kdb.Region] = {}
     polygons = []
     global_bbox = [math.inf, math.inf, -math.inf, -math.inf]
     layer_bboxes = {}
 
-    # Get polygons from component
-    polygons_by_index = component.get_polygons()
+    # Preserve named aliases: tuple-based lookup can select an empty duplicate.
+    polygons_by_index = component.get_polygons(
+        layers=list(component.kcl.layout.layer_indexes())
+    )
 
     if decimate_tolerance is not None:
         from gsim.common.polygon_utils import decimate
@@ -370,7 +385,7 @@ def extract_geometry(
         for layer_index, polys in polygons_by_index.items():
             total_before += sum(p.num_points_hull() for p in polys)
             decimated_by_index[layer_index] = decimate(
-                polys, relative_tolerance=decimate_tolerance, verbose=True
+                polys, relative_tolerance=decimate_tolerance, verbose=True, dbu=dbu
             )
             total_after += sum(
                 p.num_points_hull() for p in decimated_by_index[layer_index]
@@ -410,7 +425,7 @@ def extract_geometry(
             continue
 
         for poly in polys:
-            parsed = _parse_klayout_polygon(poly)
+            parsed = _parse_klayout_polygon(poly, dbu)
             if parsed is None:
                 continue
 
@@ -427,8 +442,8 @@ def extract_geometry(
                 full_regions.setdefault(gds_tuple, kdb.Region()).insert(poly)
                 pieces = [
                     p
-                    for piece in clip_polygon(poly, symmetry_plane)
-                    if (p := _parse_klayout_polygon(piece)) is not None
+                    for piece in clip_polygon(poly, symmetry_plane, dbu=dbu)
+                    if (p := _parse_klayout_polygon(piece, dbu)) is not None
                 ]
 
             for pts_x, pts_y, holes in pieces:
@@ -446,7 +461,7 @@ def extract_geometry(
                     bbox[3] = max(bbox[3], ymax)
 
     if symmetry_plane is not None:
-        _verify_symmetry(full_regions, symmetry_plane)
+        _verify_symmetry(full_regions, symmetry_plane, dbu)
         if not polygons:
             raise ValueError(
                 f"Symmetry plane {symmetry_plane.axis}={symmetry_plane.position} "
@@ -564,6 +579,146 @@ def _merge_via_polygons(
         )
 
     return result
+
+
+def _via_shapes(
+    polys: list[tuple[list[float], list[float], list]],
+) -> list[ShapelyPolygon]:
+    """Shapely polygons (holes included) of ``(pts_x, pts_y, holes)`` tuples."""
+    shapes = []
+    for pts_x, pts_y, holes in polys:
+        if len(pts_x) < 3:
+            continue
+        shape = ShapelyPolygon(
+            list(zip(pts_x, pts_y, strict=True)),
+            [list(zip(hx, hy, strict=True)) for hx, hy in holes],
+        )
+        if not shape.is_valid:
+            shape = make_valid(shape)
+        shapes.append(shape)
+    return shapes
+
+
+def _smallest_via_gap(shapes: list[ShapelyPolygon]) -> float:
+    """Smallest distance (um) from a via polygon to its nearest neighbour."""
+    if len(shapes) < 2:
+        return 0.0
+    tree = STRtree(shapes)
+    _, distances = tree.query_nearest(
+        shapes, return_distance=True, all_matches=False, exclusive=True
+    )
+    return float(distances.min()) if len(distances) else 0.0
+
+
+def _union_area(shapes: list[ShapelyPolygon]) -> float:
+    """Area (um^2) covered by *shapes*, overlaps counted once, holes left out."""
+    return float(unary_union(shapes).area) if shapes else 0.0
+
+
+def _distance_keeps_vias_as_drawn(
+    drawn: list[tuple[list[float], list[float], list]],
+    distance: float,
+    drawn_area: float,
+) -> bool:
+    """True when merging *drawn* at *distance* joins nothing and adds no area.
+
+    Used to check a suggested ``merge_via_distance`` before recommending it.
+    """
+    kept = _merge_via_polygons(drawn, distance)
+    if len(kept) != len(drawn):
+        return False
+    kept_area = _union_area(_via_shapes(kept))
+    return kept_area <= drawn_area * VIA_MERGE_AREA_WARN_RATIO
+
+
+def _warn_if_via_merge_inflates_area(
+    layer_name: str,
+    drawn: list[tuple[list[float], list[float], list]],
+    merged: list[tuple[list[float], list[float], list]],
+    merge_distance: float,
+) -> float | None:
+    """Log one warning when merging made a via layer cover more area.
+
+    Merging fills the gaps between vias that are closer than the merge
+    distance, so a dense array of small cuts becomes one slab. It also fills
+    the recesses and holes inside a single via (a U-shaped cut becomes a
+    block) without changing the number of polygons, so the areas are compared
+    whenever positive-distance merging ran, whatever the polygon count. The
+    areas are compared with overlapping drawn vias counted once; holes of the
+    merged polygons are subtracted.
+
+    Args:
+        layer_name: Name of the via layer, for the message.
+        drawn: The via polygons as drawn, ``(pts_x, pts_y, holes)`` tuples.
+        merged: What :func:`_merge_via_polygons` made of *drawn*.
+        merge_distance: The merge distance used, in um.
+
+    Returns:
+        merged area / drawn area, or None when merging did not run or left the
+        geometry as drawn.
+    """
+    n_drawn, n_merged = len(drawn), len(merged)
+    # _merge_via_polygons returns its input untouched for <= 1 via or distance 0
+    if merge_distance <= 0 or n_drawn <= 1 or merged is drawn:
+        return None
+    drawn_shapes = _via_shapes(drawn)
+    drawn_union = unary_union(drawn_shapes)
+    drawn_area = float(drawn_union.area)
+    if drawn_area <= 0:
+        return None
+    merged_union = unary_union(_via_shapes(merged))
+    if (
+        n_merged == n_drawn
+        and drawn_union.symmetric_difference(merged_union).area
+        <= _VIA_UNCHANGED_TOL * drawn_area
+    ):
+        return None  # every via came back as drawn
+    merged_area = float(merged_union.area)
+    ratio = merged_area / drawn_area
+    if ratio <= VIA_MERGE_AREA_WARN_RATIO:
+        return ratio
+
+    if n_merged < n_drawn:
+        # Vias were joined, so a smaller distance can keep them apart. It only
+        # helps when it also stops the infill inside each polygon, so check it.
+        gap = _smallest_via_gap(drawn_shapes)
+        # Merging reaches a little further than merge_distance: the offset has
+        # a 0.01 um margin on each side and mitre joins reach sqrt(2) times as
+        # far at corners, so suggest a third of the gap.
+        if gap <= 0.06:
+            fix = "merge_via_distance=0 (some vias touch or are closer than 0.06 um)"
+        elif _distance_keeps_vias_as_drawn(drawn, gap / 3, drawn_area):
+            fix = (
+                f"merge_via_distance={gap / 3:.2g} (below the smallest gap between "
+                f"vias, {gap:.3g} um) or merge_via_distance=0"
+            )
+        else:
+            fix = (
+                "merge_via_distance=0 (a smaller distance would still fill in "
+                "recesses within the vias)"
+            )
+        what = f"merged {n_drawn} via polygons into {n_merged} volume(s)"
+        why = "the gaps between nearby vias are filled in"
+    else:
+        # Same polygon count: the growth is infill within the polygons (the
+        # recess of a U, a hole), which no gap between vias can prevent.
+        fix = "merge_via_distance=0"
+        what = f"kept {n_drawn} via polygons but reshaped them"
+        why = "recesses and holes within the vias are filled in"
+    logger.warning(
+        "Via layer '%s': merge_via_distance=%g um %s and grew the via area by a "
+        "factor of %.2f (drawn %.4g um^2, merged %.4g um^2), because %s. "
+        "Pass %s to keep the cuts as drawn.",
+        layer_name,
+        merge_distance,
+        what,
+        ratio,
+        drawn_area,
+        merged_area,
+        why,
+        fix,
+    )
+    return ratio
 
 
 def _is_covered_by_dielectric_box(layer, stack: LayerStack) -> bool:
@@ -791,6 +946,12 @@ def add_metals(
             # Merge nearby via polygons before creating gmsh surfaces
             if layer_type == "via":
                 polys = _merge_via_polygons(polys, merge_via_distance)
+                _warn_if_via_merge_inflates_area(
+                    layer_name,
+                    polygons_by_layer[layernum],
+                    polys,
+                    merge_via_distance,
+                )
 
             # Create surfaces for all polygons on this layer. Conductor, via
             # and shaped-dielectric contours can be curve-fitted (spline /
@@ -1445,9 +1606,12 @@ def extract_pec_polygons(
     Returns:
         List of (pts_x, pts_y, holes) tuples in microns
     """
-    polygons_by_index = component.get_polygons()
-
     layout = component.kcl.layout
+    dbu = layout.dbu
+    if symmetry_plane is not None:
+        plane_position_dbu(symmetry_plane, dbu=dbu)
+    polygons_by_index = component.get_polygons(layers=list(layout.layer_indexes()))
+
     index_to_gds = {}
     for layer_index in layout.layer_indexes():
         if layout.is_valid_layer(layer_index):
@@ -1460,7 +1624,7 @@ def extract_pec_polygons(
         if index_to_gds.get(layer_index) != gds_layer:
             continue
         for poly in polys:
-            parsed = _parse_klayout_polygon(poly)
+            parsed = _parse_klayout_polygon(poly, dbu)
             if parsed is None:
                 continue
             if symmetry_plane is None:
@@ -1469,12 +1633,12 @@ def extract_pec_polygons(
             full_region.insert(poly)
             result.extend(
                 p
-                for piece in clip_polygon(poly, symmetry_plane)
-                if (p := _parse_klayout_polygon(piece)) is not None
+                for piece in clip_polygon(poly, symmetry_plane, dbu=dbu)
+                if (p := _parse_klayout_polygon(piece, dbu)) is not None
             )
 
     if symmetry_plane is not None:
-        _verify_symmetry({gds_layer: full_region}, symmetry_plane)
+        _verify_symmetry({gds_layer: full_region}, symmetry_plane, dbu)
 
     return result
 
@@ -2146,6 +2310,11 @@ def add_ports(
                     zmax = zmax + port.z_margin
                     zmin = max(zmin, layer_zmin)
                     zmax = min(zmax, layer_zmax)
+                    # Stack layers can reach past the meshed domain; a port
+                    # face outside it has no volume to attach to.
+                    if domain_bounds is not None:
+                        zmin = max(zmin, domain_bounds[2])
+                        zmax = min(zmax, domain_bounds[5])
 
                 # Guard against inverted/degenerate z extents.
                 if zmax <= zmin:

@@ -2,6 +2,58 @@
 
 from __future__ import annotations
 
+import numpy as np
+import pytest
+from numpy.typing import ArrayLike, NDArray
+
+
+def skip_without_devsim() -> None:
+    """Skip the caller when DEVSIM cannot be imported.
+
+    Goes through :func:`gsim.tcad.runtime.require_devsim` rather than a
+    bare import, so the first import picks up scipy-openblas32 the way a
+    user's does: DEVSIM loads its BLAS/LAPACK library only on that first
+    import, and cannot initialise again in the same process after a
+    failure. ``pytest.importorskip("devsim")`` would bypass both.
+    """
+    from gsim.tcad.runtime import require_devsim
+
+    try:
+        require_devsim()
+    except ImportError as err:
+        pytest.skip(f"DEVSIM is unavailable: {err}", allow_module_level=True)
+
+
+def series_rc_admittance(
+    freq_hz: ArrayLike, r_ohm_m: float | ArrayLike, c_f_per_m: float | ArrayLike
+) -> NDArray[np.complex128]:
+    """Admittance of a series-RC branch, straight from Z = R + 1/(jwC)."""
+    omega = 2 * np.pi * np.asarray(freq_hz, dtype=np.float64)
+    return np.asarray(
+        1.0 / (np.asarray(r_ohm_m) + 1.0 / (1j * omega * np.asarray(c_f_per_m))),
+        dtype=np.complex128,
+    )
+
+
+def draw_rectangle(comp, layer, *, width: float, height: float, x0: float, y: float):
+    """Draw a ``width`` x ``height`` rectangle into ``comp``, centred on ``y``.
+
+    Drawn directly rather than through a cached ``gf.c.rectangle`` cell: a
+    cell cached before another test registers a PDK that names these GDS
+    numbers (IHP names ``(30, *)`` its Metal3 layers) keeps its shapes on a
+    layer index that ``(30, 0)`` no longer resolves to, and the region reads
+    as empty.
+    """
+    comp.add_polygon(
+        [
+            (x0, y - height / 2),
+            (x0 + width, y - height / 2),
+            (x0 + width, y + height / 2),
+            (x0, y + height / 2),
+        ],
+        layer=layer,
+    )
+
 
 def draw_pn_rib(
     *,
@@ -27,10 +79,8 @@ def draw_pn_rib(
 
     gf.gpdk.PDK.activate()
     comp = gf.Component()
-    wg = comp << gf.c.rectangle((10.0, rib_width), centered=True, layer=(1, 0))
-    wg.y = center_y
-    slab = comp << gf.c.rectangle((10.0, 100.0), centered=True, layer=(3, 0))
-    slab.y = -5.0
+    draw_rectangle(comp, (1, 0), width=10.0, height=rib_width, x0=-5.0, y=center_y)
+    draw_rectangle(comp, (3, 0), width=10.0, height=100.0, x0=-5.0, y=-5.0)
 
     halves = {
         "n_rib": ((20, 0), (center_y - rib_width / 2, center_y)),
@@ -63,3 +113,29 @@ def draw_pn_rib(
         verbose=False,
     )
     return comp, stack
+
+
+def longest_edge_in_box(
+    mesh_path, h: tuple[float, float], z: tuple[float, float]
+) -> float:
+    """Longest edge (um) of the triangles lying wholly inside a box.
+
+    A triangle with a corner outside the box straddles its border, where the
+    size field steps from the box's size to the surrounding one; such an
+    element measures the transition, not the box.
+    """
+    import meshio
+
+    mesh = meshio.read(str(mesh_path))
+    points = mesh.points[:, :2]
+    triangles = np.vstack([c.data for c in mesh.cells if c.type == "triangle"])
+    corners = points[triangles]
+    inside = (
+        (corners[..., 0] > h[0])
+        & (corners[..., 0] < h[1])
+        & (corners[..., 1] > z[0])
+        & (corners[..., 1] < z[1])
+    ).all(axis=1)
+    corners = corners[inside]
+    edges = np.linalg.norm(corners - np.roll(corners, 1, axis=1), axis=-1)
+    return float(edges.max())

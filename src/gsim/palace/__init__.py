@@ -82,7 +82,11 @@ from gsim.palace.eigenmode import EigenmodeSim
 from gsim.palace.electrostatic import ElectrostaticSim
 
 # Visualization
-from gsim.palace.field_viz import plot_fields_2d, resolve_physical_groups
+from gsim.palace.field_viz import (
+    extract_streamplot_inputs_2d,
+    plot_fields_2d,
+    resolve_physical_groups,
+)
 
 # Field-visualization (NaN-free direct mesh rendering)
 from gsim.palace.fields import (
@@ -188,6 +192,15 @@ from gsim.palace.runtime import (
     resolve_palace_binary,
     resolve_palace_library_dir,
 )
+
+# Terminal (multi-pin) port S-parameters from modal S-parameters
+from gsim.palace.terminal import (
+    currents_from_reaction,
+    degenerate_mode_groups,
+    modal_to_terminal_s,
+    terminal_to_modal_s,
+    uniform_line_modal_s,
+)
 from gsim.viz import (
     close_interactive_view,
     close_interactive_views,
@@ -264,6 +277,8 @@ __all__ = [
     "configure_interlayer_port",
     "configure_two_terminal_port",
     "configure_via_port",
+    "currents_from_reaction",
+    "degenerate_mode_groups",
     "differential_impedance",
     "extract_axis_slice",
     "extract_boundary_cells",
@@ -294,6 +309,7 @@ __all__ = [
     "load_stack_yaml",
     "load_volume_field_data",
     "local_abort_report",
+    "modal_to_terminal_s",
     "parse_layer_stack",
     "plot_boundary_field",
     "plot_cross_section",
@@ -320,6 +336,8 @@ __all__ = [
     "s_to_z",
     "set_interactive_mode",
     "set_trame_backend",
+    "terminal_to_modal_s",
+    "uniform_line_modal_s",
     "y_to_s",
     "y_to_z",
     "z_rlc",
