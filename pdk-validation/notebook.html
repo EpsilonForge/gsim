@@ -8047,13 +8047,13 @@ PDK cladding (not the substrate).</p>
 <tbody>
 <tr>
 <td><code>resolution</code></td>
-<td>30-40 px/um; MZI 5 px/um</td>
-<td>Four cells across 100 nm gaps for the coupling/ring cases. The very large MZI uses a coarse tractability run that is labelled as such.</td>
+<td>30-40 px/um</td>
+<td>Four cells across 100 nm gaps for the coupling/ring cases. The measured MZI is runtime-excluded and is not part of the quantitative table.</td>
 </tr>
 <tr>
 <td><code>num_freqs</code></td>
-<td>101 (MZI 21)</td>
-<td>Resolves the measured ring/MZI/Bragg features; the coarse MZI is explicitly marked.</td>
+<td>101</td>
+<td>Resolves the measured ring/Bragg features.</td>
 </tr>
 <tr>
 <td>stopping</td>
@@ -8233,7 +8233,7 @@ FDTD run must reproduce.</p>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>WARNING:2026-10-23 20:06:50,409:jax._src.xla_bridge:852: An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+<pre>WARNING:2026-10-23 20:31:19,010:jax._src.xla_bridge:852: An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
 </pre>
 </div>
 </div>
@@ -8710,7 +8710,7 @@ validation target, alongside the compact MZI model
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[15]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;matplotlib.legend.Legend at 0x75ea3e54fd10&gt;</pre>
+<pre>&lt;matplotlib.legend.Legend at 0x77177efe7950&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -8729,7 +8729,9 @@ validation target, alongside the compact MZI model
 <div class="jp-InputPrompt jp-InputArea-prompt">In [16]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="nb">print</span><span class="p">(</span><span class="s2">"MZI excluded from quantitative validation: runtime too large at &gt;=20 px/um; see runs/_excluded_runtime/README.md"</span><span class="p">)</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="nb">print</span><span class="p">(</span>
+    <span class="s2">"MZI excluded from quantitative validation: runtime too large at &gt;=20 px/um; see runs/_excluded_runtime/README.md"</span>
+<span class="p">)</span>
 </pre></div>
 </div>
 </div>
@@ -9091,7 +9093,7 @@ siepic_coupler: 2d res=40 freqs=101 | cell 18.7 x 8.9 x 0.0 lambda | area 167 la
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=b1068198">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=34">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -9103,7 +9105,7 @@ the provenance recorded in each <code>sim_config.json</code>.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=f60eedf7">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=35">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -9133,13 +9135,35 @@ the provenance recorded in each <code>sim_config.json</code>.</p>
         <span class="n">component</span><span class="p">,</span> <span class="n">pdk</span><span class="o">=</span><span class="n">target</span><span class="o">.</span><span class="n">pdk</span><span class="p">,</span> <span class="n">dielectrics</span><span class="o">=</span><span class="n">target</span><span class="o">.</span><span class="n">dielectrics</span><span class="p">,</span> <span class="n">wavelength_um</span><span class="o">=</span><span class="mf">1.55</span>
     <span class="p">)</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">### </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">case</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">resolved</span><span class="o">.</span><span class="n">pdk_name</span><span class="si">}</span><span class="s2">, overlay=</span><span class="si">{</span><span class="n">resolved</span><span class="o">.</span><span class="n">overlay</span><span class="si">}</span><span class="s2">)"</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">"layers:"</span><span class="p">,</span> <span class="p">[(</span><span class="n">row</span><span class="p">[</span><span class="s2">"layer"</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s2">"layer_type"</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s2">"mesh_order"</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s2">"drawn"</span><span class="p">])</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">stack_report</span><span class="p">(</span><span class="n">resolved</span><span class="p">)])</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="s2">"layers:"</span><span class="p">,</span>
+        <span class="p">[</span>
+            <span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s2">"layer"</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s2">"layer_type"</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s2">"mesh_order"</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s2">"drawn"</span><span class="p">])</span>
+            <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">stack_report</span><span class="p">(</span><span class="n">resolved</span><span class="p">)</span>
+        <span class="p">],</span>
+    <span class="p">)</span>
     <span class="n">materials</span> <span class="o">=</span> <span class="n">material_report</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">wavelength_um</span><span class="o">=</span><span class="mf">1.55</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">"materials:"</span><span class="p">,</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"refractive_index"</span><span class="p">),</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"behavior"</span><span class="p">))</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">materials</span><span class="o">.</span><span class="n">items</span><span class="p">()})</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="s2">"materials:"</span><span class="p">,</span>
+        <span class="p">{</span>
+            <span class="n">name</span><span class="p">:</span> <span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"refractive_index"</span><span class="p">),</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"behavior"</span><span class="p">))</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">materials</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="p">},</span>
+    <span class="p">)</span>
     <span class="n">geometry</span> <span class="o">=</span> <span class="n">geometry_report</span><span class="p">(</span><span class="n">component</span><span class="p">,</span> <span class="n">resolved</span><span class="p">,</span> <span class="n">wavelength_um</span><span class="o">=</span><span class="mf">1.55</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">"drawn area (um^2):"</span><span class="p">,</span> <span class="p">{</span><span class="n">row</span><span class="p">[</span><span class="s2">"layer"</span><span class="p">]:</span> <span class="n">row</span><span class="p">[</span><span class="s2">"area_um2"</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">geometry</span><span class="p">[</span><span class="s2">"layers"</span><span class="p">]</span> <span class="k">if</span> <span class="n">row</span><span class="p">[</span><span class="s2">"area_um2"</span><span class="p">]})</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="s2">"drawn area (um^2):"</span><span class="p">,</span>
+        <span class="p">{</span>
+            <span class="n">row</span><span class="p">[</span><span class="s2">"layer"</span><span class="p">]:</span> <span class="n">row</span><span class="p">[</span><span class="s2">"area_um2"</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">geometry</span><span class="p">[</span><span class="s2">"layers"</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">row</span><span class="p">[</span><span class="s2">"area_um2"</span><span class="p">]</span>
+        <span class="p">},</span>
+    <span class="p">)</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">"ports:"</span><span class="p">,</span> <span class="p">[(</span><span class="n">port</span><span class="p">[</span><span class="s2">"name"</span><span class="p">],</span> <span class="n">port</span><span class="p">[</span><span class="s2">"layer"</span><span class="p">])</span> <span class="k">for</span> <span class="n">port</span> <span class="ow">in</span> <span class="n">geometry</span><span class="p">[</span><span class="s2">"ports"</span><span class="p">]])</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">"feature resolution:"</span><span class="p">,</span> <span class="n">V</span><span class="o">.</span><span class="n">case_feature_report</span><span class="p">(</span><span class="n">case</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">resolution</span><span class="o">=</span><span class="n">case</span><span class="o">.</span><span class="n">resolution</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="s2">"feature resolution:"</span><span class="p">,</span>
+        <span class="n">V</span><span class="o">.</span><span class="n">case_feature_report</span><span class="p">(</span><span class="n">case</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">resolution</span><span class="o">=</span><span class="n">case</span><span class="o">.</span><span class="n">resolution</span><span class="p">),</span>
+    <span class="p">)</span>
 </pre></div>
 </div>
 </div>
@@ -9166,16 +9190,16 @@ materials: {'Aluminum': (None, 'conductive'), 'SiO2': (1.444023621703261, 'diele
 drawn area (um^2): {}
 ports: [('o1', 'WG'), ('o2', 'WG'), ('o3', 'WG'), ('o4', 'WG')]
 feature resolution: {'resolution': 20.0, 'grid_step_um': 0.05, 'required_cells': 4.0, 'resolved': True, 'features': [{'name': 'gap', 'size_um': 0.2, 'cells': 4.0, 'required_cells': 4.0, 'resolved': True}, {'name': 'waveguide_width', 'size_um': 0.45, 'cells': 9.0, 'required_cells': 4.0, 'resolved': True}, {'name': 'core_thickness', 'size_um': 0.22, 'cells': 4.4, 'required_cells': 4.0, 'resolved': True}], 'suggested_resolution': 20.0}
+
+### generic: siepic_coupler (generic, overlay=None)
+layers: [('substrate', 'dielectric', 101, False), ('box', 'dielectric', 9, False), ('core', 'dielectric', 2, True), ('shallow_etch', 'dielectric', 1, False), ('deep_etch', 'dielectric', 1, False), ('clad', 'dielectric', 10, False), ('slab150', 'dielectric', 3, False), ('slab90', 'dielectric', 2, False), ('nitride', 'dielectric', 2, False), ('ge', 'dielectric', 1, False), ('undercut', 'dielectric', 1, False), ('via_contact', 'conductor', 1, False), ('metal1', 'conductor', 2, False), ('heater', 'conductor', 2, False), ('via1', 'conductor', 1, False), ('metal2', 'conductor', 2, False), ('via2', 'conductor', 1, False), ('metal3', 'conductor', 2, False)]
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>
-### generic: siepic_coupler (generic, overlay=None)
-layers: [('substrate', 'dielectric', 101, False), ('box', 'dielectric', 9, False), ('core', 'dielectric', 2, True), ('shallow_etch', 'dielectric', 1, False), ('deep_etch', 'dielectric', 1, False), ('clad', 'dielectric', 10, False), ('slab150', 'dielectric', 3, False), ('slab90', 'dielectric', 2, False), ('nitride', 'dielectric', 2, False), ('ge', 'dielectric', 1, False), ('undercut', 'dielectric', 1, False), ('via_contact', 'conductor', 1, False), ('metal1', 'conductor', 2, False), ('heater', 'conductor', 2, False), ('via1', 'conductor', 1, False), ('metal2', 'conductor', 2, False), ('via2', 'conductor', 1, False), ('metal3', 'conductor', 2, False)]
-materials: {'Aluminum': (None, 'conductive'), 'TiN': (None, 'conductive'), 'air': (1.0, 'dielectric'), 'ge': (4.0, 'dielectric'), 'si': (3.475687046286856, 'dielectric'), 'sin': (1.9962797317138814, 'dielectric'), 'sio2': (1.444023621703261, 'dielectric')}
+<pre>materials: {'Aluminum': (None, 'conductive'), 'TiN': (None, 'conductive'), 'air': (1.0, 'dielectric'), 'ge': (4.0, 'dielectric'), 'si': (3.475687046286856, 'dielectric'), 'sin': (1.9962797317138814, 'dielectric'), 'sio2': (1.444023621703261, 'dielectric')}
 drawn area (um^2): {'core': 29.637178}
 ports: [('o1', 'WG'), ('o2', 'WG'), ('o3', 'WG'), ('o4', 'WG')]
 feature resolution: {'resolution': 20.0, 'grid_step_um': 0.05, 'required_cells': 4.0, 'resolved': False, 'features': [{'name': 'gap', 'size_um': 0.1, 'cells': 2.0, 'required_cells': 4.0, 'resolved': False}, {'name': 'waveguide_width', 'size_um': 0.5, 'cells': 10.0, 'required_cells': 4.0, 'resolved': True}, {'name': 'core_thickness', 'size_um': 0.22, 'cells': 4.4, 'required_cells': 4.0, 'resolved': True}], 'suggested_resolution': 40.0}
@@ -9193,7 +9217,7 @@ feature resolution: {'resolution': 20.0, 'grid_step_um': 0.05, 'required_cells':
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d898c1fa">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=36">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -9203,7 +9227,7 @@ feature resolution: {'resolution': 20.0, 'grid_step_um': 0.05, 'required_cells':
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=053c16fd">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=37">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -9220,14 +9244,26 @@ feature resolution: {'resolution': 20.0, 'grid_step_um': 0.05, 'required_cells':
     <span class="k">if</span> <span class="n">run</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">continue</span>
     <span class="n">cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">((</span><span class="n">run</span> <span class="o">/</span> <span class="s2">"sim_config.json"</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">())</span>
-    <span class="nb">print</span><span class="p">(</span><span class="n">case</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s2">"pdk="</span><span class="p">,</span> <span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"pdk_name"</span><span class="p">),</span> <span class="s2">"overlay="</span><span class="p">,</span> <span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"pdk_overlay"</span><span class="p">),</span> <span class="s2">"hash="</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"pdk_stack_hash"</span><span class="p">))[:</span><span class="mi">12</span><span class="p">],</span> <span class="s2">"layers="</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"layer_stack"</span><span class="p">,</span> <span class="p">[])),</span> <span class="s2">"materials="</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"materials"</span><span class="p">,</span> <span class="p">{})))</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="k">case</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+        <span class="s2">"pdk="</span><span class="p">,</span>
+        <span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"pdk_name"</span><span class="p">),</span>
+        <span class="s2">"overlay="</span><span class="p">,</span>
+        <span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"pdk_overlay"</span><span class="p">),</span>
+        <span class="s2">"hash="</span><span class="p">,</span>
+        <span class="nb">str</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"pdk_stack_hash"</span><span class="p">))[:</span><span class="mi">12</span><span class="p">],</span>
+        <span class="s2">"layers="</span><span class="p">,</span>
+        <span class="nb">len</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"layer_stack"</span><span class="p">,</span> <span class="p">[])),</span>
+        <span class="s2">"materials="</span><span class="p">,</span>
+        <span class="nb">len</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"materials"</span><span class="p">,</span> <span class="p">{})),</span>
+    <span class="p">)</span>
 </pre></div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=34">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=38">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -9250,7 +9286,7 @@ built with the generic photonic PDK (220 nm Si).</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=35">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=39">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -9299,7 +9335,7 @@ siepic_coupler: RMS dB per port {'S31': 1.2, 'S41': 6.18}
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=36">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=40">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -9311,7 +9347,8 @@ siepic_coupler: RMS dB per port {'S31': 1.2, 'S41': 6.18}
 <span class="c1"># a 2-D case because its 3-D grid is prohibitively large.</span>
 <span class="n">two_d_outcomes</span> <span class="o">=</span> <span class="p">{}</span>
 <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">[</span>
-    <span class="k">case</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">case</span> <span class="ow">in</span> <span class="n">V</span><span class="o">.</span><span class="n">build_cases</span><span class="p">()</span>
+    <span class="k">case</span><span class="o">.</span><span class="n">name</span>
+    <span class="k">for</span> <span class="n">case</span> <span class="ow">in</span> <span class="n">V</span><span class="o">.</span><span class="n">build_cases</span><span class="p">()</span>
     <span class="k">if</span> <span class="n">case</span><span class="o">.</span><span class="n">dimension</span> <span class="o">==</span> <span class="s2">"2d"</span> <span class="ow">and</span> <span class="n">case</span><span class="o">.</span><span class="n">name</span> <span class="o">!=</span> <span class="s2">"mzi"</span>
 <span class="p">]:</span>
     <span class="n">outcome</span> <span class="o">=</span> <span class="n">V</span><span class="o">.</span><span class="n">run_case</span><span class="p">(</span>
@@ -9483,18 +9520,18 @@ siepic_coupler S41: RMS=6.18 dB  max=8.43 dB  corr=-0.999
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=37">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=41">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Simulation-plan-and-recorded-run-status">Simulation plan and recorded run status<a class="anchor-link" href="#Simulation-plan-and-recorded-run-status">¶</a></h2><p>The run cells below define matched-geometry comparisons against the SAX/Cornerstone compact models or measured spectra. The recorded results are the fresh authoritative-stack runs committed under <code>data/pdk_validation/runs/</code>; all nine cases were re-run locally.</p>
+<h2 id="Simulation-plan-and-recorded-run-status">Simulation plan and recorded run status<a class="anchor-link" href="#Simulation-plan-and-recorded-run-status">¶</a></h2><p>The run cells below define matched-geometry comparisons against the SAX/Cornerstone compact models or measured spectra. The recorded results are the fresh authoritative-stack runs committed under <code>data/pdk_validation/runs/</code>; eight quantitative cases were re-run locally; the measured MZI is runtime-excluded and is not counted as a validation result.</p>
 <p>Measured spectra are normalized to their 99th-percentile level before computing dB errors. Compact-model S-parameters are compared at absolute level. <code>RMS</code> and <code>max</code> are dB errors; <code>bias</code> is mean simulation-minus-reference error. Correlation is useful for spectrally varying curves but not for nearly flat straight-waveguide transmission.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=38">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=42">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -9780,13 +9817,13 @@ siepic_coupler S41: RMS=6.18 dB  max=8.43 dB  corr=-0.999
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=39">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=43">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Recorded-validation-results-(fresh-authoritative-stack-rerun)">Recorded validation results (fresh authoritative-stack rerun)<a class="anchor-link" href="#Recorded-validation-results-(fresh-authoritative-stack-rerun)">¶</a></h2><p>These are the actual committed results, not an earlier narrative. The publication rerun uses the 2-D effective-index plane; the MZI is a coarse tractability run (5 px/um, 21 frequencies) and should be read as such. Poor agreement is reported honestly rather than hidden.</p>
+<h2 id="Recorded-validation-results-(fresh-authoritative-stack-rerun)">Recorded validation results (fresh authoritative-stack rerun)<a class="anchor-link" href="#Recorded-validation-results-(fresh-authoritative-stack-rerun)">¶</a></h2><p>These are the actual committed results, not an earlier narrative. The publication rerun uses the 2-D effective-index plane. The measured MZI is <strong>runtime-excluded</strong>: it is too large to run at &gt;=20 px/um in the validation window on this workstation, and its coarse smoke run is kept under <code>runs/_excluded_runtime/</code> rather than being cited as validation.</p>
 <table>
 <thead>
 <tr>
@@ -9818,13 +9855,6 @@ siepic_coupler S41: RMS=6.18 dB  max=8.43 dB  corr=-0.999
 <td>S41</td>
 <td>9.47</td>
 <td>-0.9890151543430252</td>
-</tr>
-<tr>
-<td>mzi</td>
-<td>5</td>
-<td>S31</td>
-<td>13.73</td>
-<td>None</td>
 </tr>
 <tr>
 <td>ring</td>
@@ -9863,7 +9893,7 @@ siepic_coupler S41: RMS=6.18 dB  max=8.43 dB  corr=-0.999
 </tr>
 </tbody>
 </table>
-<p>The straight guide is physical (|S21| ≈ 1, RMS 0.006 dB). The couplers capture the wavelength trend but still have an absolute-level offset. The ring, Bragg and coarse MZI cases remain materially discrepant and are not claimed as quantitative matches. Raw spectra, configs and debug metadata are under <code>data/pdk_validation/runs/</code>.</p>
+<p>The straight guide is physical (|S21| ≈ 1, RMS 0.006 dB). The couplers capture the wavelength trend but still have an absolute-level offset. The ring and Bragg cases remain materially discrepant and are not claimed as quantitative matches. Raw spectra, configs, diagnostics and debug metadata are under <code>data/pdk_validation/runs/</code>.</p>
 </div>
 </div>
 </div>

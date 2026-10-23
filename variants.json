@@ -3,9 +3,9 @@
     {
       "id": "pdk-validation",
       "title": "PDK validation \u2014 notebook & layouts",
-      "description": "Fresh UBC, Cornerstone and generic-PDK SiEPIC comparisons with diagnostics and honest metrics; MZI runtime-excluded",
+      "description": "Eight quantitative authoritative-stack comparisons plus diagnostics; measured MZI runtime-excluded",
       "url": "pdk-validation/",
-      "updated": "2026-10-23T23:07Z"
+      "updated": "2026-10-23T23:31Z"
     },
     {
       "id": "IHP-validation",
