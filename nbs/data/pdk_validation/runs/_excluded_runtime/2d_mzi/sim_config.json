@@ -227,16 +227,16 @@
   },
   "stopping": {
     "mode": "energy_decay",
-    "run_after_sources": 10.0,
+    "run_after_sources": 20.0,
     "decay_dt": 50.0,
     "decay_component": "Ey",
-    "decay_by": 0.05,
+    "decay_by": 0.01,
     "decay_monitor_port": null,
     "dft_min_run_time": 100.0,
-    "wall_time_max": 60.0
+    "wall_time_max": 180.0
   },
   "resolution": {
-    "pixels_per_um": 5
+    "pixels_per_um": 20
   },
   "domain": {
     "z_bounds": null,
