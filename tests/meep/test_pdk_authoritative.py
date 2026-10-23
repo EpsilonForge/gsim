@@ -18,6 +18,8 @@ from gsim.meep import Simulation
 def _make_pdk() -> gf.Pdk:
     return gf.Pdk(
         name="meep_auth_test",
+        layers=gf.gpdk.PDK.layers,
+        cross_sections=gf.gpdk.PDK.cross_sections,
         layer_stack=GfLayerStack(
             layers={
                 "core": LayerLevel(
@@ -95,6 +97,8 @@ def _authoritative_sim(pdk: gf.Pdk) -> Simulation:
 def _derived_pdk() -> gf.Pdk:
     return gf.Pdk(
         name="meep_derived_test",
+        layers=gf.gpdk.PDK.layers,
+        cross_sections=gf.gpdk.PDK.cross_sections,
         layer_stack=GfLayerStack(
             layers={
                 "core": LayerLevel(

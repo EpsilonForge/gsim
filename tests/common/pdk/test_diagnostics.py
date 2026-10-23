@@ -34,6 +34,7 @@ def _make_pdk() -> gf.Pdk:
                 ),
                 "grating": LayerLevel(
                     layer=LogicalLayer(layer=(1, 0)) & LogicalLayer(layer=(3, 0)),
+                    derived_layer=LogicalLayer(layer=(3, 0)),
                     thickness=0.15,
                     zmin=0.0,
                     material="Si",
