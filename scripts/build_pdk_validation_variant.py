@@ -93,7 +93,7 @@ def render_gds(gds_path: Path, out_png: Path, title: str) -> tuple[float, float]
     """Render a GDS layout to PNG; return its drawn extent in micrometres."""
     library = gdstk.read_gds(str(gds_path))
     top = library.top_level()
-    polygons = top[0].get_polygons() if top else []
+    polygons = top[0].get_polygons() if top else []  # ty: ignore[unresolved-attribute]
     xs = [point[0] for polygon in polygons for point in polygon.points]
     ys = [point[1] for polygon in polygons for point in polygon.points]
     fig, axis = plt.subplots(figsize=(9, 4))
