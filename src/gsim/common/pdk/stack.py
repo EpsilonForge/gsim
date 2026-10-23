@@ -26,6 +26,8 @@ Design rules (see gsim#230):
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal, cast
@@ -131,6 +133,56 @@ class ResolvedStack:
     undrawn_z_range: tuple[float, float] | None = None
     overlay: str | None = None
     notes: tuple[str, ...] = field(default_factory=tuple)
+
+    def provenance(self) -> dict[str, Any]:
+        """Return an auditable, JSON-serialisable description of this stack."""
+        return {
+            "pdk_name": self.pdk_name,
+            "overlay": self.overlay,
+            "wavelength_um": self.wavelength_um,
+            "drawn_z_range": list(self.drawn_z_range)
+            if self.drawn_z_range is not None
+            else None,
+            "undrawn_z_range": list(self.undrawn_z_range)
+            if self.undrawn_z_range is not None
+            else None,
+            "layers": {
+                key: {
+                    "gds_layer": list(layer.gds_layer),
+                    "material": layer.material,
+                    "zmin": layer.zmin,
+                    "zmax": layer.zmax,
+                    "thickness": layer.thickness,
+                    "sidewall_angle": layer.sidewall_angle,
+                    "mesh_order": layer.mesh_order,
+                    "layer_type": layer.layer_type,
+                    "drawn": layer.drawn,
+                }
+                for key, layer in self.layers.items()
+            },
+            "dielectrics": [
+                {
+                    "name": dielectric.name,
+                    "material": dielectric.material,
+                    "zmin": dielectric.zmin,
+                    "zmax": dielectric.zmax,
+                    "source": dielectric.source,
+                }
+                for dielectric in self.dielectrics
+            ],
+            "notes": list(self.notes),
+        }
+
+    @property
+    def stack_hash(self) -> str:
+        """Return a deterministic SHA-256 digest of the resolved stack."""
+        payload = json.dumps(
+            self.provenance(),
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        return hashlib.sha256(payload.encode("utf8")).hexdigest()
 
 
 def _drawn_layers(component: Any) -> set[tuple[int, int]] | None:
