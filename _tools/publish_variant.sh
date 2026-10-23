@@ -31,7 +31,7 @@ if [[ -z "$variant" || -z "$source_dir" ]]; then
   sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 fi
-if [[ ! "$variant" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
+if [[ ! "$variant" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
   echo "error: variant id must match [a-z0-9][a-z0-9._-]*" >&2
   exit 2
 fi
