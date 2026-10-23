@@ -1235,6 +1235,7 @@ def compare(
                 reference.wavelengths,
                 to_db(ref_values),
             )
+        best_port = next((name for name, metric in metrics.items() if metric), None)
     elif reference.transmission_db is not None:
         ref_wl, ref_power_db = reference.transmission_db
         ref_db = normalize_measured_spectrum(ref_power_db)

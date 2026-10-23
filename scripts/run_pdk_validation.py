@@ -189,6 +189,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="MPI processes per case (default: single process).",
     )
+    parser.add_argument(
+        "--dimension",
+        choices=("2d", "3d"),
+        default=None,
+        help="Override every case to this simulation plane.",
+    )
     return parser.parse_args(argv)
 
 
@@ -214,6 +220,7 @@ def main(argv: list[str] | None = None) -> int:
             "decay_by": args.decay_by,
             "max_time": args.max_time,
             "wall_time": args.wall_time,
+            "dimension": args.dimension,
         }.items()
         if value is not None
     }

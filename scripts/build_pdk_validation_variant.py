@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -214,12 +215,22 @@ def build(
         source = RUNS / plot_name
         if source.is_file():
             shutil.copy2(source, out / "plots" / source.name)
-    metrics = RUNS / "results_metrics.json"
-    if metrics.is_file():
-        shutil.copy2(metrics, out / "runs" / metrics.name)
-    corrected = RUNS / "corrected_summary.json"
-    if corrected.is_file():
-        shutil.copy2(corrected, out / "runs" / corrected.name)
+    summary_source = RUNS / "runs" / "summary.json"
+    if summary_source.is_file():
+        shutil.copy2(summary_source, out / "runs" / "summary.json")
+        summary = json.loads(summary_source.read_text(encoding="utf8"))
+        metrics = {
+            name: {
+                "best_port": record.get("best_port"),
+                "metrics": record.get("metrics"),
+                "summary": record.get("summary"),
+            }
+            for name, record in summary.items()
+            if isinstance(record, dict)
+        }
+        (out / "runs" / "results_metrics.json").write_text(
+            json.dumps(metrics, indent=2) + "\n", encoding="utf8"
+        )
     runs_dir = RUNS / "runs"
     if runs_dir.is_dir():
         destination = out / "runs" / "runs"
@@ -347,8 +358,9 @@ def build(
 {"".join(cards)}
 </main>
 <footer class="page small muted" style="max-width:1100px;margin:0 auto;padding:0 24px 40px">
-  Raw S-parameters under <a href="runs/runs/">runs/</a>; corrected metrics in
-  <a href="runs/corrected_summary.json">corrected_summary.json</a>.
+  Raw S-parameters under <a href="runs/runs/">runs/</a>; metrics in
+  <a href="runs/results_metrics.json">results_metrics.json</a> and
+  <a href="runs/summary.json">summary.json</a>.
 </footer>
 </body>
 </html>
