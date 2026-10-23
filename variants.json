@@ -1,18 +1,18 @@
 {
   "variants": [
     {
+      "id": "pdk-validation",
+      "title": "PDK validation \u2014 notebook & layouts",
+      "description": "Fresh UBC, Cornerstone and generic-PDK SiEPIC comparisons with diagnostics and honest metrics; MZI runtime-excluded",
+      "url": "pdk-validation/",
+      "updated": "2026-10-23T23:07Z"
+    },
+    {
       "id": "IHP-validation",
       "title": "IHP L2n0 \u2014 30 GHz validation",
       "description": "Palace/gsim vs IHP measured S-parameters; OpenEMS fallback and nominal 2 nH evidence recorded",
       "url": "IHP-validation/",
       "updated": "2026-10-23T20:44Z"
-    },
-    {
-      "id": "pdk-validation",
-      "title": "PDK validation \u2014 notebook & layouts",
-      "description": "Fresh UBC, Cornerstone and generic-PDK SiEPIC comparisons with authoritative stack provenance and honest agreement metrics",
-      "url": "pdk-validation/",
-      "updated": "2026-10-23T20:43Z"
     }
   ]
 }
