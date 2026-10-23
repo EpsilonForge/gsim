@@ -3,9 +3,9 @@
     {
       "id": "pdk-validation",
       "title": "PDK validation \u2014 notebook & layouts",
-      "description": "Fresh UBC, Cornerstone and generic-PDK SiEPIC comparisons with authoritative stack provenance",
+      "description": "Fresh UBC, Cornerstone and generic-PDK SiEPIC comparisons with authoritative stack provenance and honest agreement metrics",
       "url": "pdk-validation/",
-      "updated": "2026-10-23T19:45Z"
+      "updated": "2026-10-23T20:43Z"
     },
     {
       "id": "IHP-validation",

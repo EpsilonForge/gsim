@@ -212,11 +212,11 @@
       "valid_freq_range": null
     }
   },
-  "background_material": "si",
+  "background_material": "sio2",
   "fdtd": {
     "wavelength": 1.55,
     "bandwidth": 0.1,
-    "num_freqs": 51,
+    "num_freqs": 101,
     "fcen": 0.6451612903225806,
     "df": 0.04166666666666663
   },
@@ -227,13 +227,13 @@
   },
   "stopping": {
     "mode": "energy_decay",
-    "run_after_sources": 100.0,
+    "run_after_sources": 1000.0,
     "decay_dt": 50.0,
     "decay_component": "Ey",
-    "decay_by": 0.01,
+    "decay_by": 0.0001,
     "decay_monitor_port": null,
     "dft_min_run_time": 100.0,
-    "wall_time_max": 60.0
+    "wall_time_max": 300.0
   },
   "resolution": {
     "pixels_per_um": 30

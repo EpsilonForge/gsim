@@ -212,7 +212,7 @@
       "valid_freq_range": null
     }
   },
-  "background_material": "si",
+  "background_material": "sio2",
   "fdtd": {
     "wavelength": 1.55,
     "bandwidth": 0.1,
@@ -233,7 +233,7 @@
     "decay_by": 0.05,
     "decay_monitor_port": null,
     "dft_min_run_time": 100.0,
-    "wall_time_max": 20.0
+    "wall_time_max": 60.0
   },
   "resolution": {
     "pixels_per_um": 5
