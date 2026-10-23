@@ -2106,7 +2106,10 @@ class Simulation(CloudJobMixin, BaseModel):
         self._run_verbose = "quiet" if not verbose else "status"
         if output_dir is None:
             output_dir = Path(tempfile.mkdtemp(prefix="meep_local_"))
-        output_dir = Path(output_dir)
+        # ``run_local`` executes the runner with cwd=output_dir.  Resolve once
+        # so a relative output path does not turn the script argument into
+        # ``<output_dir>/<output_dir>/run_meep.py``.
+        output_dir = Path(output_dir).resolve()
         self.write_config(output_dir)
 
         script_path = output_dir / "run_meep.py"
