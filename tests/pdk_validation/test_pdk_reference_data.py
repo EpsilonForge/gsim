@@ -9,6 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.pdk_validation import _validation as validation
+
 pytestmark = pytest.mark.pdk_data
 
 
@@ -46,3 +48,31 @@ def test_cspdk_luts_open_as_dataarrays(cspdk_dc_lut, cspdk_racetrack_lut):
     assert set(cspdk_racetrack_lut.dims) == {"wavelength", "gap", "radius", "length_x"}
     assert cspdk_dc_lut.wavelength.min() >= 1.5
     assert cspdk_dc_lut.wavelength.max() <= 1.6
+
+
+def test_cspdk_references_build_finite_scattering_matrices(
+    cspdk_dc_lut, cspdk_racetrack_lut
+):
+    assert cspdk_dc_lut is not None
+    assert cspdk_racetrack_lut is not None
+    wavelengths = np.linspace(1.5, 1.6, 21)
+    for builder in (
+        validation._ref_cspdk_coupler,
+        validation._ref_cspdk_ring_coupling,
+    ):
+        reference = builder(wavelengths)
+        assert set(reference.s_params) == {"S31", "S41"}
+        for values in reference.s_params.values():
+            assert values.shape == wavelengths.shape
+            assert np.all(np.isfinite(values))
+
+
+def test_siepic_reference_parses_measured_scattering_matrix(siepic_coupler):
+    assert siepic_coupler
+    wavelengths = np.linspace(1.5, 1.6, 21)
+    reference = validation._ref_siepic_coupler(wavelengths)
+    assert set(reference.s_params) == {"S31", "S41"}
+    for values in reference.s_params.values():
+        assert values.shape == wavelengths.shape
+        assert np.all(np.isfinite(values))
+        assert np.all(np.abs(values) > 0)

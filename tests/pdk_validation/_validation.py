@@ -116,6 +116,8 @@ def build_validation_simulation(
     dimension: Direction = "3d",
     materials: Mapping[str, Any] | None = None,
     stack: Any = None,
+    pdk: Any = None,
+    dielectrics: Any = None,
     decay_dt: float = VALIDATION_DECAY_DT,
     decay_by: float = VALIDATION_DECAY_BY,
     max_time: float = VALIDATION_MAX_TIME,
@@ -133,7 +135,11 @@ def build_validation_simulation(
         span: Wavelength span in um.
         dimension: ``"3d"`` (default) or ``"2d"`` effective-index plane.
         materials: Optional material override; ``None`` uses the PDK stack.
-        stack: Optional pre-built layer stack; ``None`` uses ``get_stack()``.
+        stack: Optional pre-built layer stack; ``None`` resolves the active (or
+            explicit *pdk*) LayerStack through the canonical PDK resolver.
+        pdk: Optional PDK object/module used when *stack* is ``None``.
+        dielectrics: Optional explicit bulk dielectric regions.  Used only when
+            resolving the stack from *pdk*.
         decay_dt: Energy-decay measurement window (MEEP time units).
         decay_by: Energy-decay stop threshold (fraction).
         max_time: Hard cap on simulation time after sources.
@@ -144,10 +150,16 @@ def build_validation_simulation(
         A configured :class:`gsim.meep.Simulation` (not yet run).
     """
     from gsim import meep
-    from gsim.common.stack import get_stack
+    from gsim.common.pdk import build_layer_stack, resolve_layer_stack
 
     if stack is None:
-        stack = get_stack()
+        resolved = resolve_layer_stack(
+            component,
+            pdk=pdk,
+            wavelength_um=wavelength,
+            dielectrics=dielectrics,
+        )
+        stack = build_layer_stack(resolved, backend="meep")
 
     sim = meep.Simulation()
     sim.geometry(component=component, stack=stack)
@@ -256,9 +268,16 @@ def build_validation_simulation(
                 n_eff = brentq(
                     slab_residual, max(n_bottom, n_top) + 1e-9, n_core - 1e-9
                 )
+            # A material-name override would also change every other layer
+            # using the same token (UBC uses "si" for substrate/core).  Rename
+            # only the core level and override that private token.
+            effective_material = f"{core.material}__core_2d"
+            stack = stack.model_copy(deep=True)
+            stack.layers["core"].material = effective_material
+            sim.geometry.stack = stack
             sim.materials = {
                 **sim.materials,
-                core.material: Material(refractive_index=n_eff),
+                effective_material: Material(refractive_index=n_eff),
             }
         # ``solver(...)`` validates mode/cut together; assigning fields
         # individually would trip the mode/cut invariant.
@@ -681,6 +700,7 @@ class ValidationCase:
     num_freqs: int = VALIDATION_NUM_FREQS
     span: float = VALIDATION_SPAN_UM
     notes: str = ""
+    target: Any = None
 
 
 def _ref_straight(wavelengths: np.ndarray) -> Reference:
@@ -755,38 +775,123 @@ def _measured(
     return _reference
 
 
-def build_cases() -> list[ValidationCase]:
-    """Return the six open-PDK validation cases."""
-    import ubcpdk
+def _ref_cspdk_coupler(wavelengths: np.ndarray) -> Reference:
+    from tests.pdk_validation import _cspdk
 
+    lut = _cspdk.load_lut(model=_cspdk.DIRECTIONAL_COUPLER_STRIP)
+    kappa = np.asarray(
+        _cspdk.interpolate_kappa(
+            lut,
+            wavelength=wavelengths,
+            gap=COUPLER_GAP_UM,
+            radius=25.0,
+            length_x=COUPLER_LENGTH_UM,
+            v_offset=20.0,
+        )
+    )
+    tau = np.sqrt(np.clip(1.0 - kappa**2, 0.0, None))
+    return Reference(
+        wavelengths,
+        {"S41": tau, "S31": 1j * kappa},
+        label="Cornerstone directional-coupler LUT (matched gap/length)",
+    )
+
+
+def _ref_cspdk_ring_coupling(wavelengths: np.ndarray) -> Reference:
+    from tests.pdk_validation import _cspdk
+
+    lut = _cspdk.load_lut(model=_cspdk.RACETRACK_STRIP)
+    kappa = np.asarray(
+        _cspdk.interpolate_kappa(
+            lut,
+            wavelength=wavelengths,
+            gap=RING_GAP_UM,
+            radius=RING_RADIUS_UM,
+            length_x=RING_LENGTH_X_UM,
+        )
+    )
+    tau = np.sqrt(np.clip(1.0 - kappa**2, 0.0, None))
+    return Reference(
+        wavelengths,
+        {"S41": tau, "S31": 1j * kappa},
+        label="Cornerstone racetrack LUT (matched gap/radius/length_x)",
+    )
+
+
+def _ref_siepic_coupler(wavelengths: np.ndarray) -> Reference:
+    """Measured SiEPIC half-ring coupler, on generic-PDK geometry."""
     from tests.pdk_validation import _fetch
 
-    return [
+    path = _fetch.fetch_siepic_coupler(
+        gap_nm=100, radius_um=10, width_nm=500, thickness_nm=220
+    )
+    blocks = _fetch.load_siepic_coupler(path)
+
+    def complex_s(receive: int, source: int) -> np.ndarray:
+        values = blocks[(receive, source)]
+        ref_wl_um = 299792458.0 / values[:, 0] * 1e6
+        order = np.argsort(ref_wl_um)
+        ref_wl_um = ref_wl_um[order]
+        magnitude = values[order, 1]
+        phase = values[order, 2]
+        complex_values = magnitude * np.exp(1j * phase)
+        return np.interp(wavelengths, ref_wl_um, complex_values.real) + 1j * np.interp(
+            wavelengths, ref_wl_um, complex_values.imag
+        )
+
+    return Reference(
+        wavelengths,
+        {
+            "S31": complex_s(3, 1),
+            "S41": complex_s(4, 1),
+        },
+        label="measured SiEPIC half-ring coupler (source port 1)",
+    )
+
+
+def build_cases() -> list[ValidationCase]:
+    """Return the open-PDK validation cases for every available target."""
+    from tests.pdk_validation import _fetch
+    from tests.pdk_validation._pdks import available_targets
+
+    targets = available_targets()
+    ubc = targets.get("ubc")
+    if ubc is None:
+        raise RuntimeError("The UBC validation target requires `ubcpdk`.")
+
+    cases = [
         ValidationCase(
             name="straight",
-            make_component=lambda: ubcpdk.cells.straight(length=STRAIGHT_LENGTH_UM),
+            make_component=lambda: ubc.cells.straight(length=STRAIGHT_LENGTH_UM),
             reference=_ref_straight,
+            target=ubc,
             notes="Absolute |S21| vs SAX (loss included); group index from phase.",
         ),
         ValidationCase(
             name="coupler",
-            make_component=lambda: ubcpdk.cells.coupler(
+            make_component=lambda: ubc.cells.coupler(
                 gap=COUPLER_GAP_UM, length=COUPLER_LENGTH_UM
             ),
             reference=_ref_coupler,
+            target=ubc,
             notes="Bar/cross vs the SAX LUT at the same gap and length.",
         ),
         ValidationCase(
             name="ring_coupling",
-            make_component=lambda: ubcpdk.cells.coupler_ring(
+            make_component=lambda: ubc.cells.coupler_ring(
                 length_x=RING_LENGTH_X_UM, gap=RING_GAP_UM, radius=RING_RADIUS_UM
             ),
             reference=_ref_ring_coupling,
-            notes="Racetrack coupling region vs the LUT at the same geometry.",
+            dimension="2d",
+            target=ubc,
+            notes=(
+                "Racetrack coupling region vs the LUT at the same geometry. "
+                "2-D effective-index plane for a tractable full-spectrum run."
+            ),
         ),
         ValidationCase(
             name="mzi",
-            make_component=lambda: ubcpdk.cells.mzi(delta_length=MZI_DELTA_LENGTH_UM),
+            make_component=lambda: ubc.cells.mzi(delta_length=MZI_DELTA_LENGTH_UM),
             reference=_measured(
                 _fetch.UBC_MZI_MAT,
                 "measured UBC MZI3 (dL = 214.215 um), port 0",
@@ -794,6 +899,7 @@ def build_cases() -> list[ValidationCase]:
                 sim_ports=("S31", "S41"),
             ),
             dimension="2d",
+            target=ubc,
             notes=(
                 "Matched to UBC MZI3: dL = 214.215 um (measured FSR ~2.6 nm). "
                 "The measurement is one 2x2 output (port 0); both simulated "
@@ -802,7 +908,7 @@ def build_cases() -> list[ValidationCase]:
         ),
         ValidationCase(
             name="ring",
-            make_component=lambda: ubcpdk.cells.ring_double(
+            make_component=lambda: ubc.cells.ring_double(
                 gap=RING_GAP_UM, radius=RING_RADIUS_UM
             ),
             reference=_measured(
@@ -811,6 +917,8 @@ def build_cases() -> list[ValidationCase]:
                 port=0,
                 sim_ports=("S21",),
             ),
+            dimension="2d",
+            target=ubc,
             notes=(
                 "Matched to the measured double-bus (add-drop) ring; port 0 is "
                 "the through spectrum (dips). Column 1 is a smooth reference, "
@@ -832,12 +940,68 @@ def build_cases() -> list[ValidationCase]:
                 port=1,
                 sim_ports=("S11",),
             ),
+            target=ubc,
             notes=(
                 "Matched to Set1 #10: sinusoidal DBR, dw = 120 nm, 200 periods. "
                 "The measurement is reflection (UBC reads port 1); compare |S11|."
             ),
         ),
     ]
+
+    cspdk = targets.get("cspdk")
+    if cspdk is not None:
+        cases.extend(
+            [
+                ValidationCase(
+                    name="cspdk_coupler",
+                    make_component=lambda: cspdk.cells.coupler(
+                        gap=COUPLER_GAP_UM, length=COUPLER_LENGTH_UM
+                    ),
+                    reference=_ref_cspdk_coupler,
+                    target=cspdk,
+                    notes=(
+                        "Cornerstone Si220 geometry vs the Cornerstone LUT at "
+                        "the same gap/length."
+                    ),
+                ),
+                ValidationCase(
+                    name="cspdk_ring_coupling",
+                    make_component=lambda: cspdk.cells.coupler_ring(
+                        length_x=RING_LENGTH_X_UM,
+                        gap=RING_GAP_UM,
+                        radius=RING_RADIUS_UM,
+                    ),
+                    reference=_ref_cspdk_ring_coupling,
+                    dimension="2d",
+                    target=cspdk,
+                    notes=(
+                        "Cornerstone racetrack coupling region vs its LUT. "
+                        "2-D effective-index plane for a tractable run."
+                    ),
+                ),
+            ]
+        )
+
+    generic = targets.get("generic")
+    if generic is not None:
+        cases.append(
+            ValidationCase(
+                name="siepic_coupler",
+                make_component=lambda: generic.cells.coupler_ring(
+                    gap=0.1, radius=10.0, length_x=0.0
+                ),
+                reference=_ref_siepic_coupler,
+                dimension="2d",
+                target=generic,
+                notes=(
+                    "Measured SiEPIC half-ring coupler; geometry is built with "
+                    "the generic photonic PDK (220 nm Si), not the SiEPIC "
+                    "KLayout PDK."
+                ),
+            )
+        )
+
+    return cases
 
 
 def get_case(name: str) -> ValidationCase:
@@ -858,8 +1022,8 @@ def high_resolution_overrides() -> dict[str, dict[str, Any]]:
     allows.  The tiers are chosen from the measured per-cell cost:
 
     * the small 3-D devices (straight, coupler, Bragg) run at ``res=30``;
-    * the wide coupling/ring cases (ring_coupling, ring) run at ``res=25`` so
-      the 3-D grid (tens of millions of cells) stays tractable;
+    * the 100 nm-gap coupling/ring cases run at ``res=40`` so four grid cells
+      span the gap;
     * the large MZI stays on the 2-D effective-index plane, where the cost
       grows with ``resolution^2``, and is pushed to ``res=40``.
 
@@ -875,10 +1039,13 @@ def high_resolution_overrides() -> dict[str, dict[str, Any]]:
     resolutions = {
         "straight": HIGH_RESOLUTION_RESOLUTION,
         "coupler": HIGH_RESOLUTION_RESOLUTION,
-        "ring_coupling": 25,
+        "ring_coupling": 40,
         "mzi": 40,
-        "ring": 25,
+        "ring": 40,
         "bragg": HIGH_RESOLUTION_RESOLUTION,
+        "cspdk_coupler": HIGH_RESOLUTION_RESOLUTION,
+        "cspdk_ring_coupling": 40,
+        "siepic_coupler": 40,
     }
     overrides = {
         name: {"resolution": resolution, **common}
@@ -886,6 +1053,39 @@ def high_resolution_overrides() -> dict[str, dict[str, Any]]:
     }
     overrides["bragg"]["subpixel"] = False
     return overrides
+
+
+CASE_CRITICAL_FEATURES_UM: dict[str, dict[str, float]] = {
+    "straight": {"waveguide_width": 0.5, "core_thickness": 0.22},
+    "coupler": {"gap": 0.2, "waveguide_width": 0.5, "core_thickness": 0.22},
+    "ring_coupling": {"gap": 0.1, "waveguide_width": 0.5, "core_thickness": 0.22},
+    "mzi": {"waveguide_width": 0.5, "core_thickness": 0.22},
+    "ring": {"gap": 0.1, "waveguide_width": 0.5, "core_thickness": 0.22},
+    "bragg": {"grating_period": 0.318, "minimum_width": 0.44},
+    "cspdk_coupler": {"gap": 0.2, "waveguide_width": 0.45, "core_thickness": 0.22},
+    "cspdk_ring_coupling": {
+        "gap": 0.1,
+        "waveguide_width": 0.45,
+        "core_thickness": 0.22,
+    },
+    "siepic_coupler": {"gap": 0.1, "waveguide_width": 0.5, "core_thickness": 0.22},
+}
+
+
+def case_feature_report(
+    name: str,
+    *,
+    resolution: int,
+    required_cells: float = 4.0,
+) -> dict[str, Any]:
+    """Return the grid-resolution report for one validation case."""
+    from gsim.common.pdk.diagnostics import feature_resolution
+
+    return feature_resolution(
+        CASE_CRITICAL_FEATURES_UM[name],
+        resolution=resolution,
+        required_cells=required_cells,
+    )
 
 
 def fast_overrides() -> dict[str, dict[str, Any]]:
@@ -1160,6 +1360,8 @@ def load_outcome(case: ValidationCase | str, run_dir: str | Path) -> ValidationO
     )
     num_freqs = int((config.get("fdtd") or {}).get("num_freqs", case.num_freqs))
 
+    if case.target is not None:
+        case.target.activate()
     component = case.make_component()
     distances = monitor_distances(component, source_port=case.source_port)
     port_names = [port.name for port in component.ports]
@@ -1243,7 +1445,11 @@ def run_case(
     effective_resolution = resolution if resolution is not None else case.resolution
     effective_num_freqs = num_freqs if num_freqs is not None else case.num_freqs
 
+    if case.target is not None:
+        case.target.activate()
     component = case.make_component()
+    pdk = getattr(case.target, "pdk", None)
+    dielectrics = getattr(case.target, "dielectrics", None)
     sim = build_validation_simulation(
         component,
         source_port=case.source_port,
@@ -1252,6 +1458,8 @@ def run_case(
         span=case.span,
         dimension=dimension or case.dimension,
         stack=stack,
+        pdk=pdk,
+        dielectrics=dielectrics,
         **({"decay_by": decay_by} if decay_by is not None else {}),
         **({"max_time": max_time} if max_time is not None else {}),
         **({"wall_time": wall_time} if wall_time is not None else {}),
@@ -1337,6 +1545,7 @@ def run_all(
 
 
 __all__ = [
+    "CASE_CRITICAL_FEATURES_UM",
     "COUPLER_GAP_UM",
     "COUPLER_LENGTH_UM",
     "DBR_DELTA_WIDTH_UM",
@@ -1368,6 +1577,7 @@ __all__ = [
     "agreement_db",
     "build_cases",
     "build_validation_simulation",
+    "case_feature_report",
     "compare",
     "dbr_two_port",
     "deembed_s_params",

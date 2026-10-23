@@ -38,7 +38,17 @@ import numpy as np
 
 from tests.pdk_validation import _validation as V  # noqa: N812
 
-ALL_CASES = ("straight", "coupler", "ring_coupling", "mzi", "ring", "bragg")
+ALL_CASES = (
+    "straight",
+    "coupler",
+    "ring_coupling",
+    "mzi",
+    "ring",
+    "bragg",
+    "cspdk_coupler",
+    "cspdk_ring_coupling",
+    "siepic_coupler",
+)
 
 
 def _complex_lists(values: Any) -> list[list[float]]:
@@ -111,17 +121,21 @@ def _activate_pdk() -> None:
         pass
 
 
-def _run_one(args: tuple[str, dict, str | None, str | None, str | None]) -> dict:
+def _run_one(args: tuple[str, dict, str | None, str | None, int | None]) -> dict:
     """Run one case in a worker process and return its JSON record."""
-    name, override, output_root, python_executable, _dummy = args
+    name, override, output_root, python_executable, num_processes = args
     _activate_pdk()
+    case = V.get_case(name)
+    dimension = override.get("dimension") or case.dimension
     output_dir = None
     if output_root:
-        output_dir = str(Path(output_root) / name)
+        output_dir = str(Path(output_root) / f"{dimension}_{name}")
     outcome = V.run_case(
         name,
         output_dir=output_dir,
         python_executable=python_executable,
+        num_processes=num_processes,
+        dimension=dimension,
         resolution=override.get("resolution"),
         num_freqs=override.get("num_freqs"),
         decay_by=override.get("decay_by"),
@@ -169,6 +183,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=1,
         help="Number of cases to run concurrently.",
     )
+    parser.add_argument(
+        "--processes",
+        type=int,
+        default=None,
+        help="MPI processes per case (default: single process).",
+    )
     return parser.parse_args(argv)
 
 
@@ -200,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     jobs = []
     for name in args.cases:
         override = {**overrides.get(name, {}), **global_override}
-        jobs.append((name, override, str(output_root), python, None))
+        jobs.append((name, override, str(output_root), python, args.processes))
 
     results: dict[str, dict | str] = {}
     if args.jobs > 1:

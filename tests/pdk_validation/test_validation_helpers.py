@@ -308,6 +308,9 @@ def test_high_resolution_overrides_are_accuracy_first():
         "mzi",
         "ring",
         "bragg",
+        "cspdk_coupler",
+        "cspdk_ring_coupling",
+        "siepic_coupler",
     }
     for settings in overrides.values():
         assert settings["resolution"] > validation.VALIDATION_RESOLUTION
@@ -317,6 +320,19 @@ def test_high_resolution_overrides_are_accuracy_first():
     assert overrides["mzi"]["resolution"] >= 40
     # The DBR cannot use subpixel averaging (10 nm end-caps hang init_sim).
     assert overrides["bragg"]["subpixel"] is False
+
+
+def test_high_resolution_presets_resolve_critical_features():
+    overrides = validation.high_resolution_overrides()
+    for name, settings in overrides.items():
+        report = validation.case_feature_report(name, resolution=settings["resolution"])
+        assert report["resolved"] is True, name
+
+
+def test_ring_gap_preset_needs_four_cells():
+    report = validation.case_feature_report("ring", resolution=25)
+    assert report["resolved"] is False
+    assert report["suggested_resolution"] == pytest.approx(40.0)
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +354,26 @@ def test_build_validation_simulation_defaults():
     assert sim.source.wavelength_span == pytest.approx(validation.VALIDATION_SPAN_UM)
     assert sim.monitors == ["o1", "o2"]
     assert sim.source.port == "o1"
+
+
+def test_2d_effective_index_overrides_only_the_core():
+    pytest.importorskip("ubcpdk")
+    from tests.pdk_validation._pdks import ubc_target
+
+    target = ubc_target()
+    case = validation.get_case("straight")
+    component = case.make_component()
+    sim = validation.build_validation_simulation(
+        component, dimension="2d", pdk=target.pdk
+    )
+
+    core = sim.geometry.stack.layers["core"]
+    substrate = sim.geometry.stack.layers["substrate"]
+    assert core.material.endswith("__core_2d")
+    assert substrate.material == "si"
+    assert sim.geometry.stack.layers["box"].material == "sio2"
+    assert core.material in sim.materials
+    assert "si" not in sim.materials
 
 
 def test_build_validation_simulation_2d_plane():
@@ -386,3 +422,41 @@ def test_case_registry(name):
 def test_mzi_case_uses_2d_for_size():
     pytest.importorskip("ubcpdk")
     assert validation.get_case("mzi").dimension == "2d"
+
+
+def test_available_cases_use_their_target_pdk():
+    from tests.pdk_validation._pdks import available_targets
+
+    targets = available_targets()
+    if "ubc" not in targets:
+        pytest.skip("ubcpdk unavailable")
+
+    cases = {case.name: case for case in validation.build_cases()}
+    assert cases["straight"].target.key == "ubc"
+    if "cspdk" in targets:
+        assert cases["cspdk_coupler"].target.key == "cspdk"
+        assert cases["cspdk_ring_coupling"].target.key == "cspdk"
+        assert cases["cspdk_coupler"].target.pdk.name.startswith("cspdk.si220")
+    assert cases["siepic_coupler"].target.key == "generic"
+    assert cases["siepic_coupler"].target.pdk.name == "generic"
+
+
+def test_siepic_case_uses_generic_pdk_geometry():
+    from tests.pdk_validation._pdks import available_targets
+
+    targets = available_targets()
+    if "ubc" not in targets:
+        pytest.skip("ubcpdk unavailable")
+    case = validation.get_case("siepic_coupler")
+    target = targets["generic"]
+    case.target.activate()
+    component = case.make_component()
+
+    assert component.layers
+    assert all(tuple(layer) == (1, 0) for layer in component.layers)
+    assert target.dielectrics
+    assert {region["name"] for region in target.dielectrics} == {
+        "substrate",
+        "box",
+        "clad",
+    }
