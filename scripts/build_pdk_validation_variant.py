@@ -36,27 +36,37 @@ MEEP_FALLBACK = Path("/tmp/opencode/pdk_meep_results")  # noqa: S108
 DEFAULT_OUT = Path("/tmp/opencode/pdk-validation-variant")  # noqa: S108
 
 CASES = [
-    ("straight", "Straight waveguide", "L = 20 µm"),
-    ("coupler", "Directional coupler", "gap = 0.2 µm, L = 10 µm"),
-    ("ring_coupling", "Ring coupling area", "gap = 0.1 µm, r = 10 µm"),
-    ("mzi", "MZI", "dL = 10 µm"),
-    ("ring", "Ring resonator", "r = 10 µm, gap = 0.1 µm"),
-    ("bragg", "Bragg grating", "n = 20 periods"),
+    ("straight", "Straight waveguide (UBC)", "L = 20 µm"),
+    ("coupler", "Directional coupler (UBC)", "gap = 0.2 µm, L = 10 µm"),
+    ("ring_coupling", "Ring coupling area (UBC)", "gap = 0.1 µm, r = 10 µm"),
+    ("mzi", "MZI (UBC)", "dL = 214.215 µm"),
+    ("ring", "Ring resonator (UBC)", "r = 10 µm, gap = 0.1 µm"),
+    ("bragg", "Bragg grating (UBC)", "200 sinusoidal periods"),
+    ("cspdk_coupler", "Directional coupler (Cornerstone)", "gap = 0.2 µm, L = 10 µm"),
+    (
+        "cspdk_ring_coupling",
+        "Ring coupling area (Cornerstone)",
+        "gap = 0.1 µm, r = 10 µm",
+    ),
+    (
+        "siepic_coupler",
+        "SiEPIC measured coupler (generic PDK)",
+        "gap = 0.1 µm, r = 10 µm",
+    ),
 ]
 
-PLOTS = {
-    "straight": "straight_three_way.png",
-    "coupler": "coupler_2d_vs_reference.png",
-    "ring_coupling": "ring_coupling_2d_vs_reference.png",
-}
+PLOTS: dict[str, str] = {}
 
 STATUS = {
-    "straight": ("Complete", "2-D res 30 + 3-D res 20"),
-    "coupler": ("2-D complete", "3-D not recorded"),
-    "ring_coupling": ("2-D complete", "3-D not recorded"),
-    "mzi": ("2-D complete", "recorded for this render"),
-    "ring": ("2-D complete", "recorded for this render"),
-    "bragg": ("Complete", "2-D res 30 + 3-D res 30"),
+    "straight": ("Recorded", "authoritative UBC stack"),
+    "coupler": ("Recorded", "authoritative UBC stack"),
+    "ring_coupling": ("Recorded", "authoritative UBC stack; 2-D"),
+    "mzi": ("Recorded", "authoritative UBC stack; 2-D"),
+    "ring": ("Recorded", "authoritative UBC stack; 2-D"),
+    "bragg": ("Recorded", "authoritative UBC stack"),
+    "cspdk_coupler": ("Recorded", "authoritative Cornerstone stack"),
+    "cspdk_ring_coupling": ("Recorded", "authoritative Cornerstone stack; 2-D"),
+    "siepic_coupler": ("Recorded", "generic photonic PDK; measured data"),
 }
 
 
@@ -65,11 +75,17 @@ def resolve_gds(name: str) -> Path | None:
     stored = GDS_STORE / f"{name}.gds"
     if stored.is_file():
         return stored
+    run_root = RUNS / "runs"
+    candidates = sorted(run_root.glob(f"*_{name}/layout.gds"))
+    candidates += sorted(run_root.glob(f"{name}/layout.gds"))
     fallback = MEEP_FALLBACK / name / "layout.gds"
     if fallback.is_file():
-        GDS_STORE.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(fallback, stored)
-        return stored
+        candidates.append(fallback)
+    for candidate in candidates:
+        if candidate.is_file():
+            GDS_STORE.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(candidate, stored)
+            return stored
     return None
 
 
@@ -223,7 +239,7 @@ def build(
             notebook_links += ' · <a href="notebook.ipynb">executed .ipynb</a>'
         notebook_section = f"""
         <div class="notice ok">
-          <strong>Executed notebook is published.</strong> All six cases are shown with
+          <strong>Executed notebook is published.</strong> Every available validation case is shown with
           their recorded runs, reference overlays and the compute/size table.
           {notebook_links}
         </div>"""
@@ -324,7 +340,7 @@ def build(
 <header class="page">
   <p><a href="../">&larr; all variants</a></p>
   <h1>PDK validation — notebook &amp; layouts</h1>
-  <p class="muted">Executed notebook plus GDS geometry for each of the six cases, from branch <code>pdk-validation</code>.</p>
+  <p class="muted">Executed notebook plus GDS geometry for each validation case, from branch <code>pdk-validation</code>.</p>
   {notebook_section}
 </header>
 <main>
@@ -340,7 +356,7 @@ def build(
     (out / "index.html").write_text(html, encoding="utf8")
     (out / "README.md").write_text(
         "# PDK validation notebook & layouts\n\n"
-        "Executed validation notebook, GDS layouts for all six cases, recorded Meep\n"
+        "Executed validation notebook, GDS layouts for all validation cases, recorded Meep\n"
         "runs and reference comparisons. Rebuild with\n"
         "`scripts/build_pdk_validation_variant.py`.\n",
         encoding="utf8",
