@@ -32,10 +32,10 @@
 <header class="page">
   <p><a href="../">&larr; all variants</a></p>
   <h1>PDK validation — notebook &amp; layouts</h1>
-  <p class="muted">Executed notebook plus GDS geometry for each of the six cases, from branch <code>pdk-validation</code>.</p>
+  <p class="muted">Executed notebook plus GDS geometry for each validation case, from branch <code>pdk-validation</code>.</p>
   
         <div class="notice ok">
-          <strong>Executed notebook is published.</strong> All six cases are shown with
+          <strong>Executed notebook is published.</strong> Every available validation case is shown with
           their recorded runs, reference overlays and the compute/size table.
           <a href="notebook.html">rendered HTML</a> · <a href="notebook.ipynb">executed .ipynb</a>
         </div>
@@ -45,91 +45,134 @@
             <article class="card">
               <header class="card-head">
                 <div>
-                  <h2>Straight waveguide</h2>
+                  <h2>Straight waveguide (UBC)</h2>
                   <p class="muted small">L = 20 µm · 23.00 x 0.50 µm</p>
                 </div>
-                <span class="badge ok">Complete</span>
+                <span class="badge ok">Recorded</span>
               </header>
-              <a href="gds/straight.gds"><img class="layout" src="gds/straight.png" alt="Straight waveguide layout"></a>
-              <p class="small"><a href="gds/straight.gds">download GDS</a> · 2-D res 30 + 3-D res 20</p>
-              <a href="plots/straight_three_way.png"><img class="plot" src="plots/straight_three_way.png" alt="Straight waveguide comparison"></a>
-              <p class="small">runs: <a class="chip" href="runs/runs/3d_straight/s_parameters.csv">3d_straight</a><a class="chip" href="runs/runs/2d_straight/s_parameters.csv">2d_straight</a></p>
+              <a href="gds/straight.gds"><img class="layout" src="gds/straight.png" alt="Straight waveguide (UBC) layout"></a>
+              <p class="small"><a href="gds/straight.gds">download GDS</a> · authoritative UBC stack</p>
+              <a href="plots/straight_data.png"><img class="plot" src="plots/straight_data.png" alt="Straight waveguide (UBC) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              <p class="small">runs: <a class="chip" href="runs/runs/2d_straight/s_parameters.csv">2d_straight</a></p>
             </article>
             
             <article class="card">
               <header class="card-head">
                 <div>
-                  <h2>Directional coupler</h2>
+                  <h2>Directional coupler (UBC)</h2>
                   <p class="muted small">gap = 0.2 µm, L = 10 µm · 33.00 x 4.50 µm</p>
                 </div>
-                <span class="badge ok">2-D complete</span>
+                <span class="badge ok">Recorded</span>
               </header>
-              <a href="gds/coupler.gds"><img class="layout" src="gds/coupler.png" alt="Directional coupler layout"></a>
-              <p class="small"><a href="gds/coupler.gds">download GDS</a> · 3-D not recorded</p>
-              <a href="plots/coupler_2d_vs_reference.png"><img class="plot" src="plots/coupler_2d_vs_reference.png" alt="Directional coupler comparison"></a>
+              <a href="gds/coupler.gds"><img class="layout" src="gds/coupler.png" alt="Directional coupler (UBC) layout"></a>
+              <p class="small"><a href="gds/coupler.gds">download GDS</a> · authoritative UBC stack</p>
+              <a href="plots/coupler_data.png"><img class="plot" src="plots/coupler_data.png" alt="Directional coupler (UBC) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
               <p class="small">runs: <a class="chip" href="runs/runs/2d_coupler/s_parameters.csv">2d_coupler</a></p>
             </article>
             
             <article class="card">
               <header class="card-head">
                 <div>
-                  <h2>Ring coupling area</h2>
+                  <h2>Ring coupling area (UBC)</h2>
                   <p class="muted small">gap = 0.1 µm, r = 10 µm · 28.50 x 13.10 µm</p>
                 </div>
-                <span class="badge ok">2-D complete</span>
+                <span class="badge ok">Recorded</span>
               </header>
-              <a href="gds/ring_coupling.gds"><img class="layout" src="gds/ring_coupling.png" alt="Ring coupling area layout"></a>
-              <p class="small"><a href="gds/ring_coupling.gds">download GDS</a> · 3-D not recorded</p>
-              <a href="plots/ring_coupling_2d_vs_reference.png"><img class="plot" src="plots/ring_coupling_2d_vs_reference.png" alt="Ring coupling area comparison"></a>
+              <a href="gds/ring_coupling.gds"><img class="layout" src="gds/ring_coupling.png" alt="Ring coupling area (UBC) layout"></a>
+              <p class="small"><a href="gds/ring_coupling.gds">download GDS</a> · authoritative UBC stack; 2-D</p>
+              <a href="plots/ring_coupling_data.png"><img class="plot" src="plots/ring_coupling_data.png" alt="Ring coupling area (UBC) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
               <p class="small">runs: <a class="chip" href="runs/runs/2d_ring_coupling/s_parameters.csv">2d_ring_coupling</a></p>
             </article>
             
             <article class="card">
               <header class="card-head">
                 <div>
-                  <h2>MZI</h2>
-                  <p class="muted small">dL = 10 µm · 112.10 x 53.50 µm</p>
+                  <h2>MZI (UBC)</h2>
+                  <p class="muted small">dL = 214.215 µm · 112.10 x 53.50 µm</p>
                 </div>
-                <span class="badge ok">2-D complete</span>
+                <span class="badge ok">Recorded</span>
               </header>
-              <a href="gds/mzi.gds"><img class="layout" src="gds/mzi.png" alt="MZI layout"></a>
-              <p class="small"><a href="gds/mzi.gds">download GDS</a> · recorded for this render</p>
-              <a href="plots/mzi_data.png"><img class="plot" src="plots/mzi_data.png" alt="MZI Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              <a href="gds/mzi.gds"><img class="layout" src="gds/mzi.png" alt="MZI (UBC) layout"></a>
+              <p class="small"><a href="gds/mzi.gds">download GDS</a> · authoritative UBC stack; 2-D</p>
+              <a href="plots/mzi_data.png"><img class="plot" src="plots/mzi_data.png" alt="MZI (UBC) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
               <p class="small">runs: <a class="chip" href="runs/runs/2d_mzi/s_parameters.csv">2d_mzi</a></p>
             </article>
             
             <article class="card">
               <header class="card-head">
                 <div>
-                  <h2>Ring resonator</h2>
+                  <h2>Ring resonator (UBC)</h2>
                   <p class="muted small">r = 10 µm, gap = 0.1 µm · 28.50 x 21.70 µm</p>
                 </div>
-                <span class="badge ok">2-D complete</span>
+                <span class="badge ok">Recorded</span>
               </header>
-              <a href="gds/ring.gds"><img class="layout" src="gds/ring.png" alt="Ring resonator layout"></a>
-              <p class="small"><a href="gds/ring.gds">download GDS</a> · recorded for this render</p>
-              <a href="plots/ring_data.png"><img class="plot" src="plots/ring_data.png" alt="Ring resonator Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              <a href="gds/ring.gds"><img class="layout" src="gds/ring.png" alt="Ring resonator (UBC) layout"></a>
+              <p class="small"><a href="gds/ring.gds">download GDS</a> · authoritative UBC stack; 2-D</p>
+              <a href="plots/ring_data.png"><img class="plot" src="plots/ring_data.png" alt="Ring resonator (UBC) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
               <p class="small">runs: <a class="chip" href="runs/runs/2d_ring/s_parameters.csv">2d_ring</a></p>
             </article>
             
             <article class="card">
               <header class="card-head">
                 <div>
-                  <h2>Bragg grating</h2>
-                  <p class="muted small">n = 20 periods · 9.38 x 0.60 µm</p>
+                  <h2>Bragg grating (UBC)</h2>
+                  <p class="muted small">200 sinusoidal periods · 9.38 x 0.60 µm</p>
                 </div>
-                <span class="badge ok">Complete</span>
+                <span class="badge ok">Recorded</span>
               </header>
-              <a href="gds/bragg.gds"><img class="layout" src="gds/bragg.png" alt="Bragg grating layout"></a>
-              <p class="small"><a href="gds/bragg.gds">download GDS</a> · 2-D res 30 + 3-D res 30</p>
-              <a href="plots/bragg_data.png"><img class="plot" src="plots/bragg_data.png" alt="Bragg grating Meep vs reference"></a><p class="muted small">Meep vs reference</p>
-              <p class="small">runs: <a class="chip" href="runs/runs/3d_bragg/s_parameters.csv">3d_bragg</a><a class="chip" href="runs/runs/2d_bragg/s_parameters.csv">2d_bragg</a></p>
+              <a href="gds/bragg.gds"><img class="layout" src="gds/bragg.png" alt="Bragg grating (UBC) layout"></a>
+              <p class="small"><a href="gds/bragg.gds">download GDS</a> · authoritative UBC stack</p>
+              <a href="plots/bragg_data.png"><img class="plot" src="plots/bragg_data.png" alt="Bragg grating (UBC) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              <p class="small">runs: <a class="chip" href="runs/runs/2d_bragg/s_parameters.csv">2d_bragg</a></p>
+            </article>
+            
+            <article class="card">
+              <header class="card-head">
+                <div>
+                  <h2>Directional coupler (Cornerstone)</h2>
+                  <p class="muted small">gap = 0.2 µm, L = 10 µm · 33.00 x 4.45 µm</p>
+                </div>
+                <span class="badge ok">Recorded</span>
+              </header>
+              <a href="gds/cspdk_coupler.gds"><img class="layout" src="gds/cspdk_coupler.png" alt="Directional coupler (Cornerstone) layout"></a>
+              <p class="small"><a href="gds/cspdk_coupler.gds">download GDS</a> · authoritative Cornerstone stack</p>
+              <a href="plots/cspdk_coupler_data.png"><img class="plot" src="plots/cspdk_coupler_data.png" alt="Directional coupler (Cornerstone) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              <p class="small">runs: <a class="chip" href="runs/runs/2d_cspdk_coupler/s_parameters.csv">2d_cspdk_coupler</a></p>
+            </article>
+            
+            <article class="card">
+              <header class="card-head">
+                <div>
+                  <h2>Ring coupling area (Cornerstone)</h2>
+                  <p class="muted small">gap = 0.1 µm, r = 10 µm · 27.45 x 12.50 µm</p>
+                </div>
+                <span class="badge ok">Recorded</span>
+              </header>
+              <a href="gds/cspdk_ring_coupling.gds"><img class="layout" src="gds/cspdk_ring_coupling.png" alt="Ring coupling area (Cornerstone) layout"></a>
+              <p class="small"><a href="gds/cspdk_ring_coupling.gds">download GDS</a> · authoritative Cornerstone stack; 2-D</p>
+              <a href="plots/cspdk_ring_coupling_data.png"><img class="plot" src="plots/cspdk_ring_coupling_data.png" alt="Ring coupling area (Cornerstone) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              <p class="small">runs: <a class="chip" href="runs/runs/2d_cspdk_ring_coupling/s_parameters.csv">2d_cspdk_ring_coupling</a></p>
+            </article>
+            
+            <article class="card">
+              <header class="card-head">
+                <div>
+                  <h2>SiEPIC measured coupler (generic PDK)</h2>
+                  <p class="muted small">gap = 0.1 µm, r = 10 µm · 29.00 x 12.35 µm</p>
+                </div>
+                <span class="badge ok">Recorded</span>
+              </header>
+              <a href="gds/siepic_coupler.gds"><img class="layout" src="gds/siepic_coupler.png" alt="SiEPIC measured coupler (generic PDK) layout"></a>
+              <p class="small"><a href="gds/siepic_coupler.gds">download GDS</a> · generic photonic PDK; measured data</p>
+              <a href="plots/siepic_coupler_data.png"><img class="plot" src="plots/siepic_coupler_data.png" alt="SiEPIC measured coupler (generic PDK) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              <p class="small">runs: <a class="chip" href="runs/runs/2d_siepic_coupler/s_parameters.csv">2d_siepic_coupler</a></p>
             </article>
             
 </main>
 <footer class="page small muted" style="max-width:1100px;margin:0 auto;padding:0 24px 40px">
-  Raw S-parameters under <a href="runs/runs/">runs/</a>; corrected metrics in
-  <a href="runs/corrected_summary.json">corrected_summary.json</a>.
+  Raw S-parameters under <a href="runs/runs/">runs/</a>; metrics in
+  <a href="runs/results_metrics.json">results_metrics.json</a> and
+  <a href="runs/summary.json">summary.json</a>.
 </footer>
 </body>
 </html>

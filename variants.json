@@ -1,18 +1,18 @@
 {
   "variants": [
     {
+      "id": "pdk-validation",
+      "title": "PDK validation \u2014 notebook & layouts",
+      "description": "Fresh UBC, Cornerstone and generic-PDK SiEPIC comparisons with authoritative stack provenance",
+      "url": "pdk-validation/",
+      "updated": "2026-10-23T19:45Z"
+    },
+    {
       "id": "IHP-validation",
       "title": "IHP L2n0 \u2014 30 GHz validation",
       "description": "Palace/gsim vs IHP measured S-parameters for the SG13G2 octagonal 2 nH inductor",
       "url": "IHP-validation/",
       "updated": "2026-10-23T17:09Z"
-    },
-    {
-      "id": "pdk-validation",
-      "title": "PDK validation \u2014 notebook & layouts",
-      "description": "Corrected comparisons: MZI dL=214 um, double-bus ring, sinusoidal DBR reflection",
-      "url": "pdk-validation/",
-      "updated": "2026-10-21T17:01Z"
     }
   ]
 }
