@@ -45,6 +45,7 @@ def _ubc_active() -> Iterator[Any]:
         previous = gf.get_active_pdk()
     except ValueError:
         previous = None
+    gf.clear_cache()
     ubcpdk.PDK.activate()
     try:
         yield ubcpdk
@@ -60,6 +61,7 @@ def _cspdk_active() -> Iterator[Any]:
         previous = gf.get_active_pdk()
     except ValueError:
         previous = None
+    gf.clear_cache()
     pdk.activate()
     try:
         yield pdk
