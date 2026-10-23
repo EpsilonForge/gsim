@@ -52,3 +52,15 @@ def test_lq_extraction_is_finite_for_recorded_run() -> None:
 
 def math_is_finite(value: float) -> bool:
     return bool(np.isfinite(value))
+
+
+@pytest.mark.parametrize("label", ["die_x2y7", "die_x5y8"])
+def test_measured_low_frequency_inductance_is_nominal_2nh(label: str) -> None:
+    import skrf as rf
+
+    network = rf.Network(str(ihp_l2n0.MEASURED[label]))
+    point = network.interpolate(rf.Frequency(1, 1, 1, unit="GHz"))
+    s = point.s[0]  # ty: ignore[unresolved-attribute]
+    z = 2.0 * ihp_l2n0.Z0_OHM * (1.0 - s[1, 0]) / s[1, 0]
+    inductance_nh = z.imag / (2 * np.pi * 1e9) * 1e9
+    assert 1.8 < inductance_nh < 2.1
