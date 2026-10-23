@@ -4,11 +4,19 @@
   "y_cut": null,
   "fiber_source": null,
   "gds_filename": "layout.gds",
-  "component_bbox": [-14.75, -0.75, 10.75, 10.6],
+  "component_bbox": [
+    -14.75,
+    -0.75,
+    10.75,
+    10.6
+  ],
   "layer_stack": [
     {
       "layer_name": "substrate",
-      "gds_layer": [65535, 0],
+      "gds_layer": [
+        65535,
+        0
+      ],
       "zmin": -13.0,
       "zmax": -3.0,
       "material": "si",
@@ -17,7 +25,10 @@
     },
     {
       "layer_name": "box",
-      "gds_layer": [65534, 0],
+      "gds_layer": [
+        65534,
+        0
+      ],
       "zmin": -3.0,
       "zmax": 0.0,
       "material": "sio2",
@@ -26,7 +37,10 @@
     },
     {
       "layer_name": "clad",
-      "gds_layer": [65533, 0],
+      "gds_layer": [
+        65533,
+        0
+      ],
       "zmin": 0.0,
       "zmax": 1.8000000000000003,
       "material": "sio2",
@@ -35,7 +49,10 @@
     },
     {
       "layer_name": "core",
-      "gds_layer": [65532, 0],
+      "gds_layer": [
+        65532,
+        0
+      ],
       "zmin": 0.0,
       "zmax": 0.22,
       "material": "si__core_2d",
@@ -44,7 +61,10 @@
     },
     {
       "layer_name": "core2",
-      "gds_layer": [65531, 0],
+      "gds_layer": [
+        65531,
+        0
+      ],
       "zmin": 0.0,
       "zmax": 0.22,
       "material": "si",
@@ -53,7 +73,10 @@
     },
     {
       "layer_name": "heater",
-      "gds_layer": [65530, 0],
+      "gds_layer": [
+        65530,
+        0
+      ],
       "zmin": 1.1,
       "zmax": 1.85,
       "material": "TiN",
@@ -62,7 +85,10 @@
     },
     {
       "layer_name": "metal2",
-      "gds_layer": [65529, 0],
+      "gds_layer": [
+        65529,
+        0
+      ],
       "zmin": 1.8000000000000003,
       "zmax": 2.5000000000000004,
       "material": "Aluminum",
@@ -93,7 +119,11 @@
   "ports": [
     {
       "name": "o1",
-      "center": [-14.0, 0.0, 0.0],
+      "center": [
+        -14.0,
+        0.0,
+        0.0
+      ],
       "orientation": 180.0,
       "width": 0.5,
       "normal_axis": 0,
@@ -102,7 +132,11 @@
     },
     {
       "name": "o2",
-      "center": [-14.0, 10.6, 0.0],
+      "center": [
+        -14.0,
+        10.6,
+        0.0
+      ],
       "orientation": 90.0,
       "width": 0.5,
       "normal_axis": 1,
@@ -111,7 +145,11 @@
     },
     {
       "name": "o3",
-      "center": [10.0, 10.6, 0.0],
+      "center": [
+        10.0,
+        10.6,
+        0.0
+      ],
       "orientation": 90.0,
       "width": 0.5,
       "normal_axis": 1,
@@ -120,7 +158,11 @@
     },
     {
       "name": "o4",
-      "center": [10.0, 0.0, 0.0],
+      "center": [
+        10.0,
+        0.0,
+        0.0
+      ],
       "orientation": 0.0,
       "width": 0.5,
       "normal_axis": 0,
@@ -132,7 +174,9 @@
   "materials": {
     "si": {
       "epsilon_diag": [
-        12.080400443726248, 12.080400443726248, 12.080400443726248
+        12.080400443726248,
+        12.080400443726248,
+        12.080400443726248
       ],
       "epsilon_offdiag": null,
       "mu_diag": null,
@@ -142,7 +186,11 @@
       "valid_freq_range": null
     },
     "si__core_2d": {
-      "epsilon_diag": [8.10811388871268, 8.10811388871268, 8.10811388871268],
+      "epsilon_diag": [
+        8.10811388871268,
+        8.10811388871268,
+        8.10811388871268
+      ],
       "epsilon_offdiag": null,
       "mu_diag": null,
       "D_conductivity": null,
@@ -152,7 +200,9 @@
     },
     "sio2": {
       "epsilon_diag": [
-        2.0852042200370025, 2.0852042200370025, 2.0852042200370025
+        2.0852042200370025,
+        2.0852042200370025,
+        2.0852042200370025
       ],
       "epsilon_offdiag": null,
       "mu_diag": null,
@@ -162,11 +212,11 @@
       "valid_freq_range": null
     }
   },
-  "background_material": "si",
+  "background_material": "sio2",
   "fdtd": {
     "wavelength": 1.55,
     "bandwidth": 0.1,
-    "num_freqs": 51,
+    "num_freqs": 101,
     "fcen": 0.6451612903225806,
     "df": 0.04166666666666663
   },
@@ -177,13 +227,13 @@
   },
   "stopping": {
     "mode": "energy_decay",
-    "run_after_sources": 100.0,
+    "run_after_sources": 1000.0,
     "decay_dt": 50.0,
     "decay_component": "Ey",
-    "decay_by": 0.01,
+    "decay_by": 0.0001,
     "decay_monitor_port": null,
     "dft_min_run_time": 100.0,
-    "wall_time_max": 60.0
+    "wall_time_max": 300.0
   },
   "resolution": {
     "pixels_per_um": 40
@@ -230,11 +280,20 @@
     "pdk_name": "ubcpdk",
     "overlay": "UBC",
     "wavelength_um": 1.55,
-    "drawn_z_range": [0.0, 0.22],
-    "undrawn_z_range": [-13.0, 2.5000000000000004],
+    "drawn_z_range": [
+      0.0,
+      0.22
+    ],
+    "undrawn_z_range": [
+      -13.0,
+      2.5000000000000004
+    ],
     "layers": {
       "substrate": {
-        "gds_layer": [999, 0],
+        "gds_layer": [
+          999,
+          0
+        ],
         "material": "si",
         "zmin": -13.0,
         "zmax": -3.0,
@@ -245,7 +304,10 @@
         "drawn": false
       },
       "box": {
-        "gds_layer": [999, 0],
+        "gds_layer": [
+          999,
+          0
+        ],
         "material": "sio2",
         "zmin": -3.0,
         "zmax": 0.0,
@@ -256,7 +318,10 @@
         "drawn": false
       },
       "clad": {
-        "gds_layer": [999, 0],
+        "gds_layer": [
+          999,
+          0
+        ],
         "material": "sio2",
         "zmin": 0.0,
         "zmax": 1.8000000000000003,
@@ -267,7 +332,10 @@
         "drawn": false
       },
       "core": {
-        "gds_layer": [1, 0],
+        "gds_layer": [
+          1,
+          0
+        ],
         "material": "si",
         "zmin": 0.0,
         "zmax": 0.22,
@@ -278,7 +346,10 @@
         "drawn": true
       },
       "core2": {
-        "gds_layer": [31, 0],
+        "gds_layer": [
+          31,
+          0
+        ],
         "material": "si",
         "zmin": 0.0,
         "zmax": 0.22,
@@ -289,7 +360,10 @@
         "drawn": false
       },
       "heater": {
-        "gds_layer": [11, 0],
+        "gds_layer": [
+          11,
+          0
+        ],
         "material": "TiN",
         "zmin": 1.1,
         "zmax": 1.85,
@@ -300,7 +374,10 @@
         "drawn": false
       },
       "metal2": {
-        "gds_layer": [12, 0],
+        "gds_layer": [
+          12,
+          0
+        ],
         "material": "Aluminum",
         "zmin": 1.8000000000000003,
         "zmax": 2.5000000000000004,
@@ -341,7 +418,9 @@
   "material_provenance": {
     "si": {
       "epsilon_diag": [
-        12.080400443726248, 12.080400443726248, 12.080400443726248
+        12.080400443726248,
+        12.080400443726248,
+        12.080400443726248
       ],
       "epsilon_offdiag": null,
       "mu_diag": null,
@@ -351,7 +430,11 @@
       "valid_freq_range": null
     },
     "si__core_2d": {
-      "epsilon_diag": [8.10811388871268, 8.10811388871268, 8.10811388871268],
+      "epsilon_diag": [
+        8.10811388871268,
+        8.10811388871268,
+        8.10811388871268
+      ],
       "epsilon_offdiag": null,
       "mu_diag": null,
       "D_conductivity": null,
@@ -361,7 +444,9 @@
     },
     "sio2": {
       "epsilon_diag": [
-        2.0852042200370025, 2.0852042200370025, 2.0852042200370025
+        2.0852042200370025,
+        2.0852042200370025,
+        2.0852042200370025
       ],
       "epsilon_offdiag": null,
       "mu_diag": null,

@@ -7,8 +7,8 @@ runs FDTD, and extracts S-parameters via mode decomposition.
 Cloud dependencies: meep, gdsfactory, numpy, scipy, shapely
 """
 
-import cmath
 import csv
+import cmath
 import json
 import logging
 import math
@@ -21,10 +21,8 @@ import numpy as np
 
 try:
     import matplotlib
-
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
@@ -37,7 +35,6 @@ logger = logging.getLogger("meep_runner")
 # Config loading
 # ---------------------------------------------------------------------------
 
-
 def load_config(path):
     """Load simulation config from JSON file."""
     with open(path) as f:
@@ -47,7 +44,6 @@ def load_config(path):
 # ---------------------------------------------------------------------------
 # Materials
 # ---------------------------------------------------------------------------
-
 
 def build_materials(config):
     """Build MEEP material objects from config."""
@@ -68,11 +64,9 @@ def build_materials(config):
 # Geometry: GDS + layer_stack -> mp.Prism objects
 # ---------------------------------------------------------------------------
 
-
 def load_gds_component(gds_filename):
     """Load GDS file as a gdsfactory Component."""
     import gdsfactory as gf
-
     gf.gpdk.PDK.activate()
     return gf.import_gds(gds_filename)
 
@@ -129,18 +123,18 @@ def extract_layer_polygons(component, gds_layer, simplify_tol=0.0):
             else:
                 all_objects.append(v)
     elif raw is not None:
-        all_objects = list(raw) if hasattr(raw, "__iter__") else [raw]
+        all_objects = list(raw) if hasattr(raw, '__iter__') else [raw]
 
-    dbu = getattr(getattr(component, "kcl", None), "dbu", 0.001)
+    dbu = getattr(getattr(component, 'kcl', None), 'dbu', 0.001)
 
     shapely_polygons = []
     for obj in all_objects:
         try:
             # KLayout PolygonWithProperties — convert via each_point_hull
-            if hasattr(obj, "each_point_hull"):
+            if hasattr(obj, 'each_point_hull'):
                 coords = _klayout_poly_to_coords(obj, dbu)
             # Numpy array — legacy path
-            elif hasattr(obj, "shape") and len(obj) >= 3:
+            elif hasattr(obj, 'shape') and len(obj) >= 3:
                 coords = [(float(p[0]), float(p[1])) for p in obj]
             else:
                 continue
@@ -222,16 +216,14 @@ def extract_xz_rectangles_runner(component, layer_stack, y_cut, eps=1e-9):
         for x0, x1 in intervals:
             if x1 - x0 <= eps:
                 continue
-            rects.append(
-                {
-                    "x0": x0,
-                    "x1": x1,
-                    "zmin": layer_entry["zmin"],
-                    "zmax": layer_entry["zmax"],
-                    "layer_name": layer_entry["layer_name"],
-                    "material": layer_entry["material"],
-                }
-            )
+            rects.append({
+                "x0": x0,
+                "x1": x1,
+                "zmin": layer_entry["zmin"],
+                "zmax": layer_entry["zmax"],
+                "layer_name": layer_entry["layer_name"],
+                "material": layer_entry["material"],
+            })
     return rects
 
 
@@ -326,7 +318,9 @@ def _build_geometry_xz(config, materials, component):
     if y_cut is None:
         y_cut = 0.0
 
-    rects = extract_xz_rectangles_runner(component, config["layer_stack"], y_cut)
+    rects = extract_xz_rectangles_runner(
+        component, config["layer_stack"], y_cut
+    )
 
     geometry = []
     for r in rects:
@@ -396,12 +390,8 @@ def build_symmetries(config):
 
 # Map string component names to MEEP field components
 _COMPONENT_MAP = {
-    "Ex": mp.Ex,
-    "Ey": mp.Ey,
-    "Ez": mp.Ez,
-    "Hx": mp.Hx,
-    "Hy": mp.Hy,
-    "Hz": mp.Hz,
+    "Ex": mp.Ex, "Ey": mp.Ey, "Ez": mp.Ez,
+    "Hx": mp.Hx, "Hy": mp.Hy, "Hz": mp.Hz,
 }
 
 
@@ -413,34 +403,28 @@ def _make_or_condition(*fns):
     that returns True when ANY condition fires — the intended behaviour
     for "decay check OR time-cap safety net".
     """
-
     def _check(sim_obj):
         return any(fn(sim_obj) for fn in fns)
-
     return _check
 
 
 def _make_time_cap(cap):
     """Return a callable that fires once *cap* sim-time units have elapsed."""
     _t0 = [None]
-
     def _check(sim_obj):
         if _t0[0] is None:
             _t0[0] = sim_obj.meep_time()
         return (sim_obj.meep_time() - _t0[0]) >= cap
-
     return _check
 
 
 def _make_wall_time_cap(wall_seconds):
     """Return a callable that fires once *wall_seconds* of real time have elapsed."""
     _deadline = [None]
-
     def _check(sim_obj):
         if _deadline[0] is None:
             _deadline[0] = time.time() + wall_seconds
         return time.time() >= _deadline[0]
-
     return _check
 
 
@@ -515,9 +499,7 @@ def build_geometry(config, materials):
             continue
 
         polygons = extract_layer_polygons(
-            component,
-            gds_layer,
-            simplify_tol=simplify_tol,
+            component, gds_layer, simplify_tol=simplify_tol,
         )
 
         for polygon in polygons:
@@ -557,7 +539,6 @@ def build_geometry(config, materials):
 # ---------------------------------------------------------------------------
 # Sources and monitors
 # ---------------------------------------------------------------------------
-
 
 def get_port_z_span(config, port=None):
     """Get z-span for waveguide port mode monitors.
@@ -659,9 +640,7 @@ def _estimate_source_x_size(config):
             "Fiber x=%.2f is outside or at the cell interior edge "
             "(interior [%.2f, %.2f]); using minimum source size. "
             "Expand domain.x_bounds/margin_x or move the fiber.",
-            fx,
-            interior_left,
-            interior_right,
+            fx, interior_left, interior_right,
         )
         return 2.0
 
@@ -671,9 +650,7 @@ def _estimate_source_x_size(config):
             "Fiber source line capped at %.2f um (target %.2f = 6*waist); "
             "cell is too narrow on one side of fiber x=%.2f. "
             "Expand domain.x_bounds/margin_x so the Gaussian envelope fits.",
-            2.0 * max_half,
-            target,
-            fx,
+            2.0 * max_half, target, fx,
         )
         return 2.0 * max_half
     return target
@@ -816,9 +793,7 @@ def build_monitors(config, sim):
         size[2] = z_span
 
         flux = sim.add_mode_monitor(
-            fcen,
-            df,
-            nfreq,
+            fcen, df, nfreq,
             mp.ModeRegion(center=center, size=mp.Vector3(*size)),
         )
         monitors[port["name"]] = flux
@@ -829,9 +804,7 @@ def build_monitors(config, sim):
         src_x_size = _estimate_source_x_size(config)
         z_monitor = fiber["z"] - FIBER_FLUX_OFFSET
         fiber_flux = sim.add_flux(
-            fcen,
-            df,
-            nfreq,
+            fcen, df, nfreq,
             mp.FluxRegion(
                 center=mp.Vector3(fiber["x"], 0.0, z_monitor),
                 size=mp.Vector3(src_x_size, 0, 0),
@@ -845,7 +818,6 @@ def build_monitors(config, sim):
 # ---------------------------------------------------------------------------
 # S-parameter extraction
 # ---------------------------------------------------------------------------
-
 
 def _port_kpoint(port):
     """Return positive-axis kpoint vector for eigenmode decomposition.
@@ -921,17 +893,12 @@ def extract_s_params(config, sim, monitors, fiber_flux=None):
         info = {"band": 1}
         try:
             kdom = ob.kdom
-            kdom_list = [
-                [float(kdom[i].x), float(kdom[i].y), float(kdom[i].z)]
-                for i in range(len(kdom))
-            ]
+            kdom_list = [[float(kdom[i].x), float(kdom[i].y), float(kdom[i].z)]
+                         for i in range(len(kdom))]
             info["kdom"] = kdom_list
-            info["n_eff"] = [
-                float(np.linalg.norm(kdom_list[i])) / float(freqs[i])
-                if float(freqs[i]) > 0
-                else 0.0
-                for i in range(min(len(kdom_list), len(freqs)))
-            ]
+            info["n_eff"] = [float(np.linalg.norm(kdom_list[i])) / float(freqs[i])
+                             if float(freqs[i]) > 0 else 0.0
+                             for i in range(min(len(kdom_list), len(freqs)))]
         except Exception:
             info["kdom"] = []
             info["n_eff"] = []
@@ -956,16 +923,13 @@ def extract_s_params(config, sim, monitors, fiber_flux=None):
     src_dir = ports[source_port]["direction"]
     src_kp = _port_kpoint(ports[source_port])
     src_ob = sim.get_eigenmode_coefficients(
-        monitors[source_port],
-        [1],
-        eig_parity=eig_parity,
+        monitors[source_port], [1], eig_parity=eig_parity,
         kpoint_func=lambda f, n, kp=src_kp: kp,
     )
     incident_coeffs = src_ob.alpha[0, :, _incoming_idx(src_dir)]
 
     debug_data["eigenmode_info"][source_port] = _collect_eigenmode_debug(
-        source_port, src_ob, freqs
-    )
+        source_port, src_ob, freqs)
     debug_data["incident_coefficients"] = {
         "port": source_port,
         "magnitudes": [float(abs(c)) for c in incident_coeffs],
@@ -982,25 +946,26 @@ def extract_s_params(config, sim, monitors, fiber_flux=None):
             if port_j != source_port:
                 continue
 
-            s_name = f"S{i + 1}{j + 1}"
+            s_name = f"S{i+1}{j+1}"
 
             port_kp = _port_kpoint(ports[port_i])
             ob = sim.get_eigenmode_coefficients(
-                monitors[port_i],
-                [1],
-                eig_parity=eig_parity,
+                monitors[port_i], [1], eig_parity=eig_parity,
                 kpoint_func=lambda f, n, kp=port_kp: kp,
             )
 
             # Collect debug info (skip source port — already collected)
             if port_i != source_port:
                 debug_data["eigenmode_info"][port_i] = _collect_eigenmode_debug(
-                    port_i, ob, freqs
-                )
+                    port_i, ob, freqs)
                 nf = len(freqs)
                 debug_data["raw_coefficients"][port_i] = {
-                    "forward_mag": [float(abs(ob.alpha[0, k, 0])) for k in range(nf)],
-                    "backward_mag": [float(abs(ob.alpha[0, k, 1])) for k in range(nf)],
+                    "forward_mag": [
+                        float(abs(ob.alpha[0, k, 0])) for k in range(nf)
+                    ],
+                    "backward_mag": [
+                        float(abs(ob.alpha[0, k, 1])) for k in range(nf)
+                    ],
                 }
 
             # Outgoing direction: reflected at source port, transmitted at output ports
@@ -1069,13 +1034,13 @@ def _extract_s_params_fiber(config, sim, monitors, fiber_flux):
         port = ports[port_i]
         port_kp = _port_kpoint(port)
         ob = sim.get_eigenmode_coefficients(
-            monitors[port_i],
-            [1],
-            eig_parity=eig_parity,
+            monitors[port_i], [1], eig_parity=eig_parity,
             kpoint_func=lambda f, n, kp=port_kp: kp,
         )
 
-        debug_data["eigenmode_info"][port_i] = _collect_eigenmode_debug_basic(ob, freqs)
+        debug_data["eigenmode_info"][port_i] = _collect_eigenmode_debug_basic(
+            ob, freqs
+        )
         nf = len(freqs)
         debug_data["raw_coefficients"][port_i] = {
             "forward_mag": [float(abs(ob.alpha[0, k, 0])) for k in range(nf)],
@@ -1084,7 +1049,7 @@ def _extract_s_params_fiber(config, sim, monitors, fiber_flux):
 
         outgoing_idx = 1 if port["direction"] == "+" else 0
         alpha_out = ob.alpha[0, :, outgoing_idx]
-        s_params[f"S{i + 1}0"] = alpha_out / sqrt_p_fiber
+        s_params[f"S{i+1}0"] = alpha_out / sqrt_p_fiber
 
     # Coupling efficiency per frequency: sum |S|² (fraction of launched power
     # reaching each port mode).
@@ -1108,8 +1073,7 @@ def _collect_eigenmode_debug_basic(ob, freqs):
         info["kdom"] = kdom_list
         info["n_eff"] = [
             float(np.linalg.norm(kdom_list[i])) / float(freqs[i])
-            if float(freqs[i]) > 0
-            else 0.0
+            if float(freqs[i]) > 0 else 0.0
             for i in range(min(len(kdom_list), len(freqs)))
         ]
     except Exception:
@@ -1154,9 +1118,8 @@ def save_results(config, s_params, output_path="s_parameters.csv"):
     logger.info("S-parameters saved to %s", output_path)
 
 
-def save_debug_log(
-    config, s_params, debug_data, wall_seconds=0.0, output_path="meep_debug.json"
-):
+def save_debug_log(config, s_params, debug_data, wall_seconds=0.0,
+                   output_path="meep_debug.json"):
     """Save eigenmode diagnostics as JSON for post-run analysis.  Only rank 0 writes."""
     if not mp.am_master():
         return
@@ -1197,7 +1160,6 @@ def save_debug_log(
 # ---------------------------------------------------------------------------
 # Diagnostics
 # ---------------------------------------------------------------------------
-
 
 def _core_z_center(config):
     """Z-center of the highest-permittivity (core) layer.
@@ -1444,8 +1406,7 @@ def render_animation_frames(eps_data, extent, axes=("x", "y")):
 
     logger.info(
         "Rendering %d frames (Ey global max = %.4g) ...",
-        len(npz_files),
-        global_max,
+        len(npz_files), global_max,
     )
 
     from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -1459,22 +1420,14 @@ def render_animation_frames(eps_data, extent, axes=("x", "y")):
         fig, ax = plt.subplots(1, 1, figsize=(5, 4))
         # Epsilon background (grayscale)
         ax.imshow(
-            eps_data.T,
-            origin="lower",
-            extent=extent,
-            cmap="binary",
-            interpolation="none",
+            eps_data.T, origin="lower", extent=extent,
+            cmap="binary", interpolation="none",
         )
         # Field overlay with fixed colorbar
         im = ax.imshow(
-            field.T,
-            origin="lower",
-            extent=extent,
-            cmap="RdBu",
-            interpolation="spline36",
-            alpha=0.8,
-            vmin=-global_max,
-            vmax=global_max,
+            field.T, origin="lower", extent=extent,
+            cmap="RdBu", interpolation="spline36", alpha=0.8,
+            vmin=-global_max, vmax=global_max,
         )
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="4%", pad=0.06)
@@ -1511,16 +1464,11 @@ def compile_animation_mp4(fps=15):
     try:
         subprocess.run(
             [
-                "ffmpeg",
-                "-y",
-                "-framerate",
-                str(fps),
-                "-i",
-                "frames/meep_frame_%04d.png",
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
+                "ffmpeg", "-y",
+                "-framerate", str(fps),
+                "-i", "frames/meep_frame_%04d.png",
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
                 "meep_animation.mp4",
             ],
             check=True,
@@ -1564,7 +1512,6 @@ def save_epsilon_raw(sim, config, cell_center):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-
 
 def resolve_xy_cell(domain, bbox_low, bbox_high, axis):
     """Return ``(cell_span, center)`` for one X/Y axis.
@@ -1620,8 +1567,7 @@ def main():
     geometry, component = build_geometry(config, materials)
     logger.info(
         "Created %d prisms from %d layers",
-        len(geometry),
-        len(config["layer_stack"]),
+        len(geometry), len(config['layer_stack']),
     )
 
     # Background slabs first, then patterned prisms (later objects take precedence)
@@ -1684,18 +1630,11 @@ def main():
 
     logger.info(
         "Cell size: %.2f x %.2f x %.2f um (%s)",
-        cell_x,
-        cell_y,
-        cell_z,
-        "3D" if is_3d else "2D",
+        cell_x, cell_y, cell_z, "3D" if is_3d else "2D",
     )
     logger.info(
         "PML: %.2f um, margin xy=(%.2f,%.2f)/(%.2f,%.2f)",
-        dpml,
-        mx_lo,
-        mx_hi,
-        my_lo,
-        my_hi,
+        dpml, mx_lo, mx_hi, my_lo, my_hi,
     )
     logger.info("Resolution: %s pixels/um", resolution)
 
@@ -1715,11 +1654,9 @@ def main():
     # mode (geometry validation, no FDTD/S-params).
     cfg_symmetries = config["symmetries"]
     if cfg_symmetries and not preview_only:
-        logger.info(
-            "Symmetries present in config but IGNORED for S-parameter "
-            "extraction (causes incorrect eigenmode normalization). "
-            "Symmetries are only used in preview-only mode."
-        )
+        logger.info("Symmetries present in config but IGNORED for S-parameter "
+                     "extraction (causes incorrect eigenmode normalization). "
+                     "Symmetries are only used in preview-only mode.")
     use_symmetries = build_symmetries(config) if preview_only else []
 
     if is_xz:
@@ -1779,11 +1716,8 @@ def main():
 
     if preview_only:
         logger.info("MEEP_PREVIEW_ONLY=1 — skipping simulation run.")
-        save_debug_log(
-            config,
-            {},
-            {"_meep_time": 0, "_timesteps": 0, "_cell_size": [cell_x, cell_y, cell_z]},
-        )
+        save_debug_log(config, {}, {"_meep_time": 0, "_timesteps": 0,
+                                    "_cell_size": [cell_x, cell_y, cell_z]})
         logger.info("Preview complete.")
         sys.exit(0)
 
@@ -1799,7 +1733,6 @@ def main():
     if verbose_interval > 0:
         _wall_start = time.time()
         _cell_vol = [None]
-
         def _verbose_print(sim_obj):
             elapsed = time.time() - _wall_start
             if _cell_vol[0] is None:
@@ -1810,11 +1743,8 @@ def main():
             energy = sim_obj.field_energy_in_box(box=_cell_vol[0])
             logger.info(
                 "t=%.2f | wall=%.1fs | energy=%.6e",
-                sim_obj.meep_time(),
-                elapsed,
-                energy,
+                sim_obj.meep_time(), elapsed, energy,
             )
-
         step_funcs.append(mp.at_every(verbose_interval, _verbose_print))
 
     # Animation field capture step function (raw data, no plotting yet)
@@ -1862,10 +1792,9 @@ def main():
         decay_by = stopping["decay_by"]
         min_time = stopping["dft_min_run_time"]
         logger.info(
-            "Running simulation (dft_decay mode: tol=%s, min=%.1f, max=%.1f)...",
-            decay_by,
-            min_time,
-            run_after,
+            "Running simulation (dft_decay mode: tol=%s, "
+            "min=%.1f, max=%.1f)...",
+            decay_by, min_time, run_after,
         )
         dft_fn = mp.stop_when_dft_decayed(
             tol=decay_by,
@@ -1880,10 +1809,9 @@ def main():
         dt = stopping["decay_dt"]
         decay_by = stopping["decay_by"]
         logger.info(
-            "Running simulation (energy_decay mode: dt=%s, decay_by=%s, cap=%.1f)...",
-            dt,
-            decay_by,
-            run_after,
+            "Running simulation (energy_decay mode: dt=%s, "
+            "decay_by=%s, cap=%.1f)...",
+            dt, decay_by, run_after,
         )
         energy_fn = mp.stop_when_energy_decayed(dt=dt, decay_by=decay_by)
         parts = [energy_fn, _make_time_cap(run_after)]
@@ -1896,14 +1824,8 @@ def main():
         comp = _COMPONENT_MAP.get(comp_name, mp.Ey)
         decay_by = stopping["decay_by"]
         monitor_pt = resolve_decay_monitor_point(config)
-        logger.info(
-            "Running simulation (field_decay mode: component=%s, dt=%s, "
-            "decay_by=%s, cap=%.1f)...",
-            comp_name,
-            dt,
-            decay_by,
-            run_after,
-        )
+        logger.info("Running simulation (field_decay mode: component=%s, dt=%s, "
+                     "decay_by=%s, cap=%.1f)...", comp_name, dt, decay_by, run_after)
 
         decay_fn = mp.stop_when_fields_decayed(dt, comp, monitor_pt, decay_by)
         parts = [decay_fn, _make_time_cap(run_after)]
@@ -1927,8 +1849,7 @@ def main():
             "Wall-clock limit likely triggered (%.1fs elapsed, limit %.0fs). "
             "Results may be incomplete — consider increasing wall_time_max or "
             "using a coarser resolution.",
-            wall_seconds,
-            wall_time_max,
+            wall_seconds, wall_time_max,
         )
 
     if diag_fields:
@@ -1942,17 +1863,13 @@ def main():
             _sz = _anim_plane.size
             if _anim_axes == ("x", "z"):
                 _extent = [
-                    _ctr.x - _sz.x / 2,
-                    _ctr.x + _sz.x / 2,
-                    _ctr.z - _sz.z / 2,
-                    _ctr.z + _sz.z / 2,
+                    _ctr.x - _sz.x / 2, _ctr.x + _sz.x / 2,
+                    _ctr.z - _sz.z / 2, _ctr.z + _sz.z / 2,
                 ]
             else:
                 _extent = [
-                    _ctr.x - _sz.x / 2,
-                    _ctr.x + _sz.x / 2,
-                    _ctr.y - _sz.y / 2,
-                    _ctr.y + _sz.y / 2,
+                    _ctr.x - _sz.x / 2, _ctr.x + _sz.x / 2,
+                    _ctr.y - _sz.y / 2, _ctr.y + _sz.y / 2,
                 ]
             render_animation_frames(eps_data, _extent, axes=_anim_axes)
             compile_animation_mp4()

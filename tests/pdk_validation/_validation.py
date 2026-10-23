@@ -279,9 +279,13 @@ def build_validation_simulation(
                 **sim.materials,
                 effective_material: Material(refractive_index=n_eff),
             }
+        # Pin the effective-index cut to the core centre.  ``z_cut="auto"``
+        # can select the high-index substrate for PDKs that share a WAFER
+        # layer across substrate/BOX/cladding, making the 2-D core anti-guided.
+        cut_z = core.zmin + 0.5 * core.thickness if core is not None else "auto"
         # ``solver(...)`` validates mode/cut together; assigning fields
         # individually would trip the mode/cut invariant.
-        sim.solver(mode="2d", z_cut="auto")
+        sim.solver(mode="2d", z_cut=cut_z)
 
     sim.solver.stop_when_energy_decayed(dt=decay_dt, decay_by=decay_by)
     sim.solver.max_time = max_time
