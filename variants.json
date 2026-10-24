@@ -2,10 +2,10 @@
   "variants": [
     {
       "id": "IHP-validation",
-      "title": "IHP L2n0 \u2014 corrected experiment campaign",
-      "description": "Best series L 1.921 nH at 1 GHz; differential comparison and negative findings documented",
+      "title": "IHP L2n0 \u2014 experiment campaign",
+      "description": "Series 1.921 nH vs measured 1.91-1.93 nH; differential and 30 GHz negative results disclosed",
       "url": "IHP-validation/",
-      "updated": "2026-10-24T06:42Z"
+      "updated": "2026-10-24T07:04Z"
     },
     {
       "id": "pdk-validation",
