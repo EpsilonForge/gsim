@@ -36,7 +36,7 @@ def test_component_and_stack_have_the_benchmark_ports_and_layers() -> None:
     stack = ihp_l2n0.build_benchmark_stack(component)
     assert "subgnd" in stack.layers
     assert stack.layers["subgnd"].layer_type == "conductor"
-    assert {"substrate", "epi", "ild", "tm2_shell"} <= {
+    assert {"substrate", "epi", "ild"} <= {
         dielectric["name"] for dielectric in stack.dielectrics
     }
 
@@ -99,7 +99,7 @@ def test_best_variant_low_frequency_is_within_10_percent() -> None:
     run = ihp_l2n0.load_recorded_run(ihp_l2n0.RUN_ROOT / "l2n0_best")
     l_palace, _, _ = ihp_l2n0.lq_at(run.sparams, 0)
     measured = [1.9115, 1.9319]
-    assert l_palace == pytest.approx(2.085, abs=0.01)
+    assert l_palace == pytest.approx(1.921, abs=0.01)
     assert all(abs(l_palace - m) <= 0.10 * m for m in measured)
 
 
@@ -120,8 +120,8 @@ def test_experiment_matrix_is_recorded() -> None:
         "shell",
         "ground0",
         "pec",
-        "shell_ground0",
+        "ground0_pec",
         "mesh1.5",
         "gap",
     } <= set(matrix)
-    assert matrix["shell_ground0"]["ok"] is True
+    assert matrix["ground0_pec"]["ok"] is True

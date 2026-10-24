@@ -71,7 +71,12 @@ def load_benchmark_component(*, ground_pad_um: float = 50.0) -> Any:
     return component
 
 
-def build_benchmark_stack(component: Any, *, shell_variant: bool = False) -> Any:
+def build_benchmark_stack(
+    component: Any,
+    *,
+    shell_variant: bool = False,
+    substrate_thickness_um: float = 280.0,
+) -> Any:
     """Build the authoritative IHP stack plus the benchmark SUBGND/EPI levels."""
     import ihp
 
@@ -101,28 +106,31 @@ def build_benchmark_stack(component: Any, *, shell_variant: bool = False) -> Any
         {
             "name": "substrate",
             "material": "si",
-            "zmin": 0.0 - STACK_SHIFT_UM,
-            "zmax": 180.0 - STACK_SHIFT_UM,
+            "zmin": 183.75 - STACK_SHIFT_UM - substrate_thickness_um,
+            "zmax": 183.75 - STACK_SHIFT_UM,
         },
         {
             "name": "epi",
             "material": "si",
-            "zmin": 180.0 - STACK_SHIFT_UM,
-            "zmax": 183.75 - STACK_SHIFT_UM,
+            "zmin": 183.75 - STACK_SHIFT_UM,
+            "zmax": 183.75 - STACK_SHIFT_UM + 3.75,
         },
         {
             "name": "ild",
             "material": "sio2",
-            "zmin": 183.75 - STACK_SHIFT_UM,
-            "zmax": passivation_layer.zmin,
-        },
-        {
-            "name": "tm2_shell",
-            "material": "sio2" if shell_variant else passivation_layer.material,
-            "zmin": passivation_layer.zmin,
-            "zmax": passivation_layer.zmax,
+            "zmin": -0.2,
+            "zmax": passivation_layer.zmin if shell_variant else 14.03,
         },
     ]
+    if shell_variant:
+        stack.dielectrics.append(
+            {
+                "name": "tm2_shell",
+                "material": "sio2",
+                "zmin": passivation_layer.zmin,
+                "zmax": passivation_layer.zmax,
+            }
+        )
     return stack
 
 
@@ -135,12 +143,17 @@ def make_simulation(
     pec_boundary: bool = False,
     port_variant: str = "two_port",
     frequency_hz: float = TARGET_FREQ_HZ,
+    substrate_thickness_um: float = 280.0,
 ) -> Any:
     """Build a Palace simulation variant for the benchmark."""
     from gsim.palace import DrivenSim
 
     component = load_benchmark_component(ground_pad_um=ground_pad_um)
-    stack = build_benchmark_stack(component, shell_variant=shell_variant)
+    stack = build_benchmark_stack(
+        component,
+        shell_variant=shell_variant,
+        substrate_thickness_um=substrate_thickness_um,
+    )
     sim = DrivenSim()
     sim.set_output_dir(output_dir)
     sim.set_geometry(component)
@@ -185,6 +198,7 @@ def run_benchmark(
     refined_mesh_size: float = 5.0,
     max_mesh_size: float = 70.0,
     planar_conductors: bool = False,
+    substrate_thickness_um: float = 280.0,
 ) -> BenchmarkRun:
     """Mesh, run Palace, and load the benchmark S-parameters."""
     from gsim.palace.results import load_sparams
@@ -199,6 +213,7 @@ def run_benchmark(
         pec_boundary=pec_boundary,
         port_variant=port_variant,
         frequency_hz=frequency_hz,
+        substrate_thickness_um=substrate_thickness_um,
     )
     sim.mesh(
         preset="coarse",

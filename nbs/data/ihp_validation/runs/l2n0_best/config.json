@@ -140,13 +140,6 @@
                 "R": 50.0
             }
         ],
-        "WavePort": [],
-        "Absorbing": {
-            "Attributes": [
-                16,
-                17
-            ],
-            "Order": 2
-        }
+        "WavePort": []
     }
 }

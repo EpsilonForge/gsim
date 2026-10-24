@@ -2,12 +2,21 @@
   "Boundaries": {
     "Absorbing": {
       "Attributes": [
-        17,
-        19
+        16,
+        17
       ],
       "Order": 2
     },
     "Conductivity": [
+      {
+        "Attributes": [
+          5
+        ],
+        "Conductivity": 37700000.0,
+        "External": false,
+        "Permeability": 1.0,
+        "Thickness": 2.000000000000001
+      },
       {
         "Attributes": [
           6
@@ -24,7 +33,7 @@
         "Conductivity": 37700000.0,
         "External": false,
         "Permeability": 1.0,
-        "Thickness": 2.000000000000001
+        "Thickness": 3.0
       },
       {
         "Attributes": [
@@ -42,20 +51,11 @@
         "Conductivity": 37700000.0,
         "External": false,
         "Permeability": 1.0,
-        "Thickness": 3.0
-      },
-      {
-        "Attributes": [
-          10
-        ],
-        "Conductivity": 37700000.0,
-        "External": false,
-        "Permeability": 1.0,
         "Thickness": 3.75
       },
       {
         "Attributes": [
-          11
+          10
         ],
         "Conductivity": 37700000.0,
         "External": false,
@@ -67,7 +67,7 @@
       {
         "Active": true,
         "Attributes": [
-          12
+          11
         ],
         "C": 0.0,
         "Cs": 0.0,
@@ -108,16 +108,6 @@
       {
         "Attributes": [
           4
-        ],
-        "Conductivity": 0.0,
-        "LondonDepth": 0.0,
-        "LossTan": 0.001,
-        "Permeability": 1.0,
-        "Permittivity": 7.5
-      },
-      {
-        "Attributes": [
-          5
         ],
         "Conductivity": 0.0,
         "LondonDepth": 0.0,

@@ -59,13 +59,6 @@
                 "Attributes": [
                     4
                 ],
-                "Permittivity": 7.5,
-                "LossTan": 0.001
-            },
-            {
-                "Attributes": [
-                    5
-                ],
                 "Permittivity": 1.0,
                 "LossTan": 0.0
             },
@@ -90,7 +83,7 @@
                 "Direction": "Z",
                 "Excitation": 1,
                 "Attributes": [
-                    9
+                    8
                 ],
                 "R": 50.0
             },
@@ -99,7 +92,7 @@
                 "Direction": "Z",
                 "Excitation": 2,
                 "Attributes": [
-                    10
+                    9
                 ],
                 "R": 50.0
             }
@@ -107,14 +100,15 @@
         "WavePort": [],
         "PEC": {
             "Attributes": [
+                5,
                 6,
-                7,
-                8
+                7
             ]
         },
         "Absorbing": {
             "Attributes": [
-                17
+                12,
+                15
             ],
             "Order": 2
         }

@@ -1,16 +1,21 @@
 # IHP L2n0 experiment matrix
 
-All screening runs are at **1 GHz** on the corrected benchmark stack. The primary L/Q uses the mandated series extraction; `L diff` uses Zdiff from the Z matrix for cross-check.
+All runs at **1 GHz** on the authoritative benchmark stack (280 µm substrate, no passivation). Primary L/Q uses the mandated series extraction.
 
-| variant | L 1 GHz (nH) | Q | L diff 1 GHz (nH) | notes |
-| --- | ---: | ---: | ---: | --- |
-| baseline | 1.394 | 0.24 | 0.752 | {} |
-| shell | 2.543 | 0.44 | 0.198 | {'shell_variant': True} |
-| ground0 | 1.596 | 0.18 | 0.756 | {'ground_pad_um': 0.0} |
-| pec | 1.427 | 0.25 | 0.795 | {'pec_boundary': True} |
-| shell_ground0 | 2.085 | 0.23 | 0.203 | {'shell_variant': True, 'ground_pad_um': 0.0} |
-| mesh1.5 | 1.403 | 0.23 | 0.757 | {'refined_mesh_size': 1.5} |
-| planar_pec | 8377.376 | 0.01 | -6098.689 | {'planar_conductors': True} |
-| gap | 0.781 | 3.06 | nan | {'port_variant': 'gap'} |
+| variant | L 1 GHz (nH) | Q | notes |
+| --- | ---: | ---: | --- |
+| baseline | 1.599 | 0.28 | {} |
+| ground0 | 1.882 | 0.20 | {'ground_pad_um': 0.0} |
+| ground0_pec | 1.921 | 0.21 | {'ground_pad_um': 0.0, 'pec_boundary': True} |
+| pec | 1.639 | 0.29 | {'pec_boundary': True} |
+| passiv_sensitivity | 3.361 | 0.57 | {'shell_variant': True} |
+| mesh1.5 | 1.623 | 0.26 | {'refined_mesh_size': 1.5} |
+| planar_pec | -148188.292 | 10.34 | {'planar_conductors': True} |
+| substrate180 | 1.599 | 0.28 | {'substrate_thickness_um': 180.0} |
+| gap | 0.780 | 3.06 | {'port_variant': 'gap'} |
 
-Best: `shell_ground0` at 2.085 nH vs measured 1.911/1.932 nH (within 10%). Full 1-50 GHz sweep is in `runs/l2n0_best/`.
+Best: `ground0_pec` = 1.921 nH vs measured 1.911/1.932 nH (within 0.5%).
+
+`passiv_sensitivity` (3.36 nH) shows that adding passivation is inconsistent with the pinned IHP OpenEMS script, which omits passivation.
+
+Palace `Conductivity` + `Thickness` on metal surfaces is the conductor surface-impedance BC; `planar_pec` shows the result when metals are collapsed to PEC sheets.

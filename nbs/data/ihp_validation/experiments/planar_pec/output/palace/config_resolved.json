@@ -2,7 +2,8 @@
   "Boundaries": {
     "Absorbing": {
       "Attributes": [
-        17
+        12,
+        15
       ],
       "Order": 2
     },
@@ -11,7 +12,7 @@
       {
         "Active": true,
         "Attributes": [
-          9
+          8
         ],
         "C": 0.0,
         "Cs": 0.0,
@@ -27,7 +28,7 @@
       {
         "Active": true,
         "Attributes": [
-          10
+          9
         ],
         "C": 0.0,
         "Cs": 0.0,
@@ -43,9 +44,9 @@
     ],
     "PEC": {
       "Attributes": [
+        5,
         6,
-        7,
-        8
+        7
       ]
     },
     "WavePort": []
@@ -75,16 +76,6 @@
       {
         "Attributes": [
           4
-        ],
-        "Conductivity": 0.0,
-        "LondonDepth": 0.0,
-        "LossTan": 0.001,
-        "Permeability": 1.0,
-        "Permittivity": 7.5
-      },
-      {
-        "Attributes": [
-          5
         ],
         "Conductivity": 0.0,
         "LondonDepth": 0.0,

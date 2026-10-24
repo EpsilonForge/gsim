@@ -1,12 +1,5 @@
 {
   "Boundaries": {
-    "Absorbing": {
-      "Attributes": [
-        16,
-        17
-      ],
-      "Order": 2
-    },
     "Conductivity": [
       {
         "Attributes": [

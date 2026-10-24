@@ -59,13 +59,6 @@
                 "Attributes": [
                     4
                 ],
-                "Permittivity": 7.5,
-                "LossTan": 0.001
-            },
-            {
-                "Attributes": [
-                    5
-                ],
                 "Permittivity": 1.0,
                 "LossTan": 0.0
             },
@@ -86,6 +79,13 @@
         "Conductivity": [
             {
                 "Attributes": [
+                    5
+                ],
+                "Conductivity": 37700000.0,
+                "Thickness": 2.000000000000001
+            },
+            {
+                "Attributes": [
                     6
                 ],
                 "Conductivity": 37700000.0,
@@ -96,7 +96,7 @@
                     7
                 ],
                 "Conductivity": 37700000.0,
-                "Thickness": 2.000000000000001
+                "Thickness": 3.0
             },
             {
                 "Attributes": [
@@ -110,18 +110,11 @@
                     9
                 ],
                 "Conductivity": 37700000.0,
-                "Thickness": 3.0
-            },
-            {
-                "Attributes": [
-                    10
-                ],
-                "Conductivity": 37700000.0,
                 "Thickness": 3.75
             },
             {
                 "Attributes": [
-                    11
+                    10
                 ],
                 "Conductivity": 37700000.0,
                 "Thickness": 3.75
@@ -133,7 +126,7 @@
                 "Direction": "X",
                 "Excitation": 1,
                 "Attributes": [
-                    12
+                    11
                 ],
                 "R": 50.0
             }
@@ -141,8 +134,8 @@
         "WavePort": [],
         "Absorbing": {
             "Attributes": [
-                17,
-                19
+                16,
+                17
             ],
             "Order": 2
         }
