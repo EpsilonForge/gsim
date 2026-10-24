@@ -2,10 +2,10 @@
   "variants": [
     {
       "id": "IHP-validation",
-      "title": "IHP L2n0 \u2014 corrected benchmark campaign",
-      "description": "280um/no-passivation stack, OpenEMS-like ground and best 1.921 nH at 1 GHz",
+      "title": "IHP L2n0 \u2014 corrected experiment campaign",
+      "description": "Best series L 1.921 nH at 1 GHz; differential comparison and negative findings documented",
       "url": "IHP-validation/",
-      "updated": "2026-10-24T06:18Z"
+      "updated": "2026-10-24T06:42Z"
     },
     {
       "id": "pdk-validation",
