@@ -2,10 +2,10 @@
   "variants": [
     {
       "id": "IHP-validation",
-      "title": "IHP L2n0 \u2014 inductance extraction",
-      "description": "Palace vs measured L/Q extraction with corrected OpenEMS settings and SRF distinction",
+      "title": "IHP L2n0 \u2014 experiment campaign",
+      "description": "Best variant: SiO2 shell + minimal ground, 2.099 nH at 1 GHz vs measured 1.91-1.93 nH",
       "url": "IHP-validation/",
-      "updated": "2026-10-24T03:24Z"
+      "updated": "2026-10-24T04:23Z"
     },
     {
       "id": "pdk-validation",
