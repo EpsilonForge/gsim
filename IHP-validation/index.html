@@ -47,10 +47,10 @@ AdaptiveTol 0.02, so the model is not converged.</p></div>
 280 µm substrate, TopMetal2 winding, TopMetal1 feeds/underpass, and a minimal
 ground pad with PEC boundaries for the best variant. The 5 µm refined / 70 µm
 maximum mesh and Palace Conductivity+Thickness surface-impedance BCs
-(σ=3.77e7 S/m; δ≈2.6 µm at 1 GHz) model finite conductors. OpenEMS was not
+(sigma=3.77e7 S/m; delta ~2.6 um at 1 GHz) model finite conductors. OpenEMS was not
 available; pinned measured S-parameters are the approved fallback.</p>
 <p>The IHP OpenEMS reference uses SG13_L2n0_2port_groundpolygon_mesh1.5um.py
-with TopMetal1 edge ports, a central Metal1→TopMetal1 PEC pillar, Metal1 ground
+with TopMetal1 edge ports, a central Metal1->TopMetal1 PEC pillar, Metal1 ground
 box, 1.5 µm refined cells, lambda_air/(sqrt(eps_max)*20) maximum cells, PEC
 boundaries and 0-30 GHz/401 points. The `openems_ground` variant approximates
 this with a Metal1 rectangle and vertical via ports; it omits the central pillar.</p>
