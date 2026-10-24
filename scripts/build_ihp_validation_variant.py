@@ -35,7 +35,7 @@ def _measured(label: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 def render_comparison(out: Path) -> dict[str, float]:
     """Render L/Q comparison and return metrics at 1 and 30 GHz."""
-    run = ihp_l2n0.load_recorded_run(ihp_l2n0.RUN_ROOT / "l2n0_sweep")
+    run = ihp_l2n0.load_recorded_run(ihp_l2n0.RUN_ROOT / "l2n0_best")
     f_palace = np.asarray(run.sparams.freq, dtype=float)
     l_palace, q_palace = [], []
     for i in range(len(f_palace)):

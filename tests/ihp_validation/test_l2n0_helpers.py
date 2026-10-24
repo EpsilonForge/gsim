@@ -93,3 +93,35 @@ def test_measured_lq_is_finite_at_1_and_30_ghz() -> None:
             assert np.isfinite(q)
             assert np.isfinite(z.real)
             assert np.isfinite(z.imag)
+
+
+def test_best_variant_low_frequency_is_within_10_percent() -> None:
+    run = ihp_l2n0.load_recorded_run(ihp_l2n0.RUN_ROOT / "l2n0_best")
+    l_palace, _, _ = ihp_l2n0.lq_at(run.sparams, 0)
+    measured = [1.9115, 1.9319]
+    assert l_palace == pytest.approx(2.099, abs=0.01)
+    assert all(abs(l_palace - m) <= 0.10 * m for m in measured)
+
+
+def test_experiment_matrix_is_recorded() -> None:
+    import json
+
+    path = (
+        ihp_l2n0.REPO
+        / "nbs"
+        / "data"
+        / "ihp_validation"
+        / "experiments"
+        / "results.json"
+    )
+    matrix = json.loads(path.read_text())
+    assert {
+        "baseline",
+        "shell",
+        "ground0",
+        "pec",
+        "shell_ground0",
+        "mesh1.5",
+        "gap",
+    } <= set(matrix)
+    assert matrix["shell_ground0"]["ok"] is True

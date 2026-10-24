@@ -42,16 +42,17 @@ class BenchmarkRun:
     frequencies_ghz: np.ndarray
 
 
-def load_benchmark_component() -> Any:
+def load_benchmark_component(*, ground_pad_um: float = 50.0) -> Any:
     """Import the IHP benchmark GDS and add the two reference-plane ports."""
     import gdsfactory as gf
     import ihp
 
     ihp.PDK.activate()
+    gf.clear_cache()
     component = gf.import_gds(LAYOUT)
     # SUBGND is an explicit reference plane, not a process layer in the GDS.
     bbox = component.dbbox()
-    pad = 50.0
+    pad = float(ground_pad_um)
     component.add_polygon(
         [
             (bbox.left - pad, bbox.bottom - pad),
@@ -70,7 +71,7 @@ def load_benchmark_component() -> Any:
     return component
 
 
-def build_benchmark_stack(component: Any) -> Any:
+def build_benchmark_stack(component: Any, *, shell_variant: bool = False) -> Any:
     """Build the authoritative IHP stack plus the benchmark SUBGND/EPI levels."""
     import ihp
 
@@ -116,7 +117,7 @@ def build_benchmark_stack(component: Any) -> Any:
         },
         {
             "name": "passivation",
-            "material": "sin",
+            "material": "sio2" if shell_variant else "sin",
             "zmin": 196.48 - STACK_SHIFT_UM,
             "zmax": 196.88 - STACK_SHIFT_UM,
         },
@@ -124,25 +125,43 @@ def build_benchmark_stack(component: Any) -> Any:
     return stack
 
 
-def make_simulation(output_dir: str | Path, *, sweep: bool = False) -> Any:
-    """Build the 2-port Palace simulation for the benchmark."""
+def make_simulation(
+    output_dir: str | Path,
+    *,
+    sweep: bool = False,
+    shell_variant: bool = False,
+    ground_pad_um: float = 50.0,
+    pec_boundary: bool = False,
+    port_variant: str = "two_port",
+) -> Any:
+    """Build a Palace simulation variant for the benchmark."""
     from gsim.palace import DrivenSim
 
-    component = load_benchmark_component()
-    stack = build_benchmark_stack(component)
+    component = load_benchmark_component(ground_pad_um=ground_pad_um)
+    stack = build_benchmark_stack(component, shell_variant=shell_variant)
     sim = DrivenSim()
     sim.set_output_dir(output_dir)
     sim.set_geometry(component)
     sim.set_stack(stack)
+    sim.absorbing_boundary = not pec_boundary
     sim.set_airbox(margin_x=150.0, margin_y=150.0, z_above=50.0, z_below=10.0)
-    for name in ("P1", "P2"):
-        sim.add_port(
-            name,
-            from_layer="subgnd",
-            to_layer="topmetal1",
-            geometry="interlayer",
-            impedance=Z0_OHM,
+    if port_variant == "two_port":
+        for name in ("P1", "P2"):
+            sim.add_port(
+                name,
+                from_layer="subgnd",
+                to_layer="topmetal1",
+                geometry="interlayer",
+                impedance=Z0_OHM,
+            )
+    elif port_variant == "gap":
+        # Exploratory differential gap across the two TopMetal1 feed ends.
+        component.add_port(
+            "Pdiff", center=(0.0, 0.0), width=68.4, orientation=0.0, layer=(126, 0)
         )
+        sim.add_port("Pdiff", layer="topmetal1", geometry="gap", impedance=Z0_OHM)
+    else:
+        raise ValueError(f"unknown port_variant {port_variant!r}")
     if sweep:
         sim.set_driven(fmin=1e9, fmax=50e9, num_points=11, reference_impedance=Z0_OHM)
     else:
@@ -156,17 +175,30 @@ def run_benchmark(
     sweep: bool = False,
     palace_executable: str | Path | None = None,
     num_processes: int = 8,
+    shell_variant: bool = False,
+    ground_pad_um: float = 50.0,
+    pec_boundary: bool = False,
+    port_variant: str = "two_port",
+    refined_mesh_size: float = 5.0,
+    max_mesh_size: float = 70.0,
 ) -> BenchmarkRun:
     """Mesh, run Palace, and load the benchmark S-parameters."""
     from gsim.palace.results import load_sparams
 
     output = Path(output_dir or (RUN_ROOT / "l2n0_30ghz"))
     output.mkdir(parents=True, exist_ok=True)
-    sim = make_simulation(output, sweep=sweep)
+    sim = make_simulation(
+        output,
+        sweep=sweep,
+        shell_variant=shell_variant,
+        ground_pad_um=ground_pad_um,
+        pec_boundary=pec_boundary,
+        port_variant=port_variant,
+    )
     sim.mesh(
         preset="coarse",
-        refined_mesh_size=5.0,
-        max_mesh_size=70.0,
+        refined_mesh_size=refined_mesh_size,
+        max_mesh_size=max_mesh_size,
         margin=150.0,
         z_above=50.0,
         z_below=10.0,

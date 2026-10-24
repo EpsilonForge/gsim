@@ -1,0 +1,64 @@
+{
+  "baseline": {
+    "ok": true,
+    "L_nH": 0.7997983436776211,
+    "Q": -0.8611544120196746,
+    "ports": ["P1", "P2"],
+    "kwargs": {}
+  },
+  "shell": {
+    "ok": true,
+    "L_nH": 2.5473106448844165,
+    "Q": 5.077639826198683,
+    "ports": ["P1", "P2"],
+    "kwargs": {
+      "shell_variant": true
+    }
+  },
+  "ground0": {
+    "ok": true,
+    "L_nH": 0.8499017452579603,
+    "Q": -0.876033739126808,
+    "ports": ["P1", "P2"],
+    "kwargs": {
+      "ground_pad_um": 0.0
+    }
+  },
+  "pec": {
+    "ok": true,
+    "L_nH": 0.8038912302047363,
+    "Q": -0.8171795278626277,
+    "ports": ["P1", "P2"],
+    "kwargs": {
+      "pec_boundary": true
+    }
+  },
+  "shell_ground0": {
+    "ok": true,
+    "L_nH": 2.098922964418953,
+    "Q": 26.709483176737297,
+    "ports": ["P1", "P2"],
+    "kwargs": {
+      "shell_variant": true,
+      "ground_pad_um": 0.0
+    }
+  },
+  "mesh1.5": {
+    "ok": true,
+    "L_nH": 0.8025448815890637,
+    "Q": -0.9091885650766326,
+    "ports": ["P1", "P2"],
+    "kwargs": {
+      "refined_mesh_size": 1.5
+    }
+  },
+  "gap": {
+    "ok": true,
+    "L_nH": 2.6097467116120154,
+    "Q": 4.450268723762514,
+    "ports": ["Pdiff"],
+    "kwargs": {
+      "port_variant": "gap"
+    }
+  }
+}
