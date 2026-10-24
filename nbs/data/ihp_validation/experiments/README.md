@@ -15,3 +15,5 @@ passivation shell (SiO2) plus a minimal SUBGND pad. It gives 2.099 nH at 1 GHz v
 | gap           |        2.610 |    4.45 | exploratory single gap port across terminals        |
 
 Full 1-50 GHz sweep of the best variant is in `runs/l2n0_best/`.
+
+Palace's `Impedance` boundary config is for dielectric-dielectric interfaces. For metals, finite thickness is represented by the conductor shell/volume with bulk conductivity; this is the explicit volume fallback allowed by the experiment plan.
