@@ -96,6 +96,7 @@ def build_benchmark_stack(component: Any, *, shell_variant: bool = False) -> Any
         if properties is not None:
             stack.materials.setdefault(name, properties.to_dict())
 
+    passivation_layer = stack.layers["passiv"]  # codespell:ignore passiv
     stack.dielectrics = [
         {
             "name": "substrate",
@@ -113,13 +114,13 @@ def build_benchmark_stack(component: Any, *, shell_variant: bool = False) -> Any
             "name": "ild",
             "material": "sio2",
             "zmin": 183.75 - STACK_SHIFT_UM,
-            "zmax": 196.48 - STACK_SHIFT_UM,
+            "zmax": passivation_layer.zmin,
         },
         {
-            "name": "passivation",
-            "material": "sio2" if shell_variant else "sin",
-            "zmin": 196.48 - STACK_SHIFT_UM,
-            "zmax": 196.88 - STACK_SHIFT_UM,
+            "name": "tm2_shell",
+            "material": "sio2" if shell_variant else passivation_layer.material,
+            "zmin": passivation_layer.zmin,
+            "zmax": passivation_layer.zmax,
         },
     ]
     return stack
@@ -133,6 +134,7 @@ def make_simulation(
     ground_pad_um: float = 50.0,
     pec_boundary: bool = False,
     port_variant: str = "two_port",
+    frequency_hz: float = TARGET_FREQ_HZ,
 ) -> Any:
     """Build a Palace simulation variant for the benchmark."""
     from gsim.palace import DrivenSim
@@ -165,7 +167,7 @@ def make_simulation(
     if sweep:
         sim.set_driven(fmin=1e9, fmax=50e9, num_points=11, reference_impedance=Z0_OHM)
     else:
-        sim.set_driven(f=TARGET_FREQ_HZ, num_points=1, reference_impedance=Z0_OHM)
+        sim.set_driven(f=frequency_hz, num_points=1, reference_impedance=Z0_OHM)
     return sim
 
 
@@ -179,8 +181,10 @@ def run_benchmark(
     ground_pad_um: float = 50.0,
     pec_boundary: bool = False,
     port_variant: str = "two_port",
+    frequency_hz: float = TARGET_FREQ_HZ,
     refined_mesh_size: float = 5.0,
     max_mesh_size: float = 70.0,
+    planar_conductors: bool = False,
 ) -> BenchmarkRun:
     """Mesh, run Palace, and load the benchmark S-parameters."""
     from gsim.palace.results import load_sparams
@@ -194,6 +198,7 @@ def run_benchmark(
         ground_pad_um=ground_pad_um,
         pec_boundary=pec_boundary,
         port_variant=port_variant,
+        frequency_hz=frequency_hz,
     )
     sim.mesh(
         preset="coarse",
@@ -202,7 +207,7 @@ def run_benchmark(
         margin=150.0,
         z_above=50.0,
         z_below=10.0,
-        planar_conductors=False,
+        planar_conductors=planar_conductors,
         verbose=False,
     )
     sim.write_config()
@@ -243,6 +248,29 @@ def s_matrix(sparams: Any, index: int = 0) -> np.ndarray:
             for i in range(2)
         ]
     )
+
+
+def s_to_z(s: np.ndarray, *, z0: float = Z0_OHM) -> np.ndarray:
+    """Convert a 2x2 S matrix to a Z matrix."""
+    return z0 * (np.eye(2) + s) @ np.linalg.inv(np.eye(2) - s)
+
+
+def differential_impedance_from_s(s: np.ndarray, *, z0: float = Z0_OHM) -> complex:
+    """Return differential impedance from a 2x2 S matrix."""
+    z = s_to_z(s, z0=z0)
+    return complex(z[0, 0] - z[0, 1] - z[1, 0] + z[1, 1])
+
+
+def one_port_impedance_from_s(s11: complex, *, z0: float = Z0_OHM) -> complex:
+    """Return terminal impedance from a one-port S11."""
+    return z0 * (1 + s11) / (1 - s11)
+
+
+def lq_from_impedance(z: complex, f_hz: float) -> tuple[float, float]:
+    """Return (L_nH, Q) from a series impedance."""
+    l_nh = z.imag / (2.0 * np.pi * f_hz) * 1e9
+    q = z.imag / z.real if z.real != 0 else float("nan")
+    return l_nh, q
 
 
 def lq_from_s_matrix(

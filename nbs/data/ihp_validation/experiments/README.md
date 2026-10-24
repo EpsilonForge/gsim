@@ -1,19 +1,16 @@
 # IHP L2n0 experiment matrix
 
-Screening runs at 1 GHz (same extraction for all variants). The best variant is `shell_ground0`: conformal-top
-passivation shell (SiO2) plus a minimal SUBGND pad. It gives 2.099 nH at 1 GHz versus measured 1.911/1.932 nH (within
-10%).
+All screening runs are at **1 GHz** on the corrected benchmark stack. The primary L/Q uses the mandated series extraction; `L diff` uses Zdiff from the Z matrix for cross-check.
 
-| variant       | L 1 GHz (nH) | Q 1 GHz | notes                                               |
-| ------------- | -----------: | ------: | --------------------------------------------------- |
-| baseline      |        1.346 |  -0.861 | coarse 5/70 mesh, sin passivation, 50 um ground pad |
-| shell         |        2.547 |    5.08 | passivation shell material changed to SiO2          |
-| ground0       |        0.850 |  -0.876 | minimal SUBGND pad                                  |
-| pec           |        0.804 |  -0.817 | PEC outer boundary                                  |
-| shell_ground0 |        2.099 |   26.71 | best low-frequency result                           |
-| mesh1.5       |        0.803 |  -0.909 | finer 1.5 um mesh                                   |
-| gap           |        2.610 |    4.45 | exploratory single gap port across terminals        |
+| variant | L 1 GHz (nH) | Q | L diff 1 GHz (nH) | notes |
+| --- | ---: | ---: | ---: | --- |
+| baseline | 1.394 | 0.24 | 0.752 | {} |
+| shell | 2.543 | 0.44 | 0.198 | {'shell_variant': True} |
+| ground0 | 1.596 | 0.18 | 0.756 | {'ground_pad_um': 0.0} |
+| pec | 1.427 | 0.25 | 0.795 | {'pec_boundary': True} |
+| shell_ground0 | 2.085 | 0.23 | 0.203 | {'shell_variant': True, 'ground_pad_um': 0.0} |
+| mesh1.5 | 1.403 | 0.23 | 0.757 | {'refined_mesh_size': 1.5} |
+| planar_pec | 8377.376 | 0.01 | -6098.689 | {'planar_conductors': True} |
+| gap | 0.781 | 3.06 | nan | {'port_variant': 'gap'} |
 
-Full 1-50 GHz sweep of the best variant is in `runs/l2n0_best/`.
-
-Palace's `Impedance` boundary config is for dielectric-dielectric interfaces. For metals, finite thickness is represented by the conductor shell/volume with bulk conductivity; this is the explicit volume fallback allowed by the experiment plan.
+Best: `shell_ground0` at 2.085 nH vs measured 1.911/1.932 nH (within 10%). Full 1-50 GHz sweep is in `runs/l2n0_best/`.

@@ -2,42 +2,54 @@
   "Boundaries": {
     "Conductivity": [
       {
-        "Attributes": [6],
+        "Attributes": [
+          6
+        ],
         "Conductivity": 37700000.0,
         "External": false,
         "Permeability": 1.0,
         "Thickness": 2.000000000000001
       },
       {
-        "Attributes": [7],
+        "Attributes": [
+          7
+        ],
         "Conductivity": 37700000.0,
         "External": false,
         "Permeability": 1.0,
         "Thickness": 2.000000000000001
       },
       {
-        "Attributes": [8],
+        "Attributes": [
+          8
+        ],
         "Conductivity": 37700000.0,
         "External": false,
         "Permeability": 1.0,
         "Thickness": 3.0
       },
       {
-        "Attributes": [9],
+        "Attributes": [
+          9
+        ],
         "Conductivity": 37700000.0,
         "External": false,
         "Permeability": 1.0,
         "Thickness": 3.0
       },
       {
-        "Attributes": [10],
+        "Attributes": [
+          10
+        ],
         "Conductivity": 37700000.0,
         "External": false,
         "Permeability": 1.0,
         "Thickness": 3.75
       },
       {
-        "Attributes": [11],
+        "Attributes": [
+          11
+        ],
         "Conductivity": 37700000.0,
         "External": false,
         "Permeability": 1.0,
@@ -47,7 +59,9 @@
     "LumpedPort": [
       {
         "Active": true,
-        "Attributes": [12],
+        "Attributes": [
+          12
+        ],
         "C": 0.0,
         "Cs": 0.0,
         "Direction": "Z",
@@ -61,7 +75,9 @@
       },
       {
         "Active": true,
-        "Attributes": [13],
+        "Attributes": [
+          13
+        ],
         "C": 0.0,
         "Cs": 0.0,
         "Direction": "Z",
@@ -79,7 +95,9 @@
   "Domains": {
     "Materials": [
       {
-        "Attributes": [2],
+        "Attributes": [
+          2
+        ],
         "Conductivity": 2.0,
         "LondonDepth": 0.0,
         "LossTan": 0.0,
@@ -87,7 +105,9 @@
         "Permittivity": 11.9
       },
       {
-        "Attributes": [3],
+        "Attributes": [
+          3
+        ],
         "Conductivity": 0.0,
         "LondonDepth": 0.0,
         "LossTan": 0.0,
@@ -95,7 +115,9 @@
         "Permittivity": 4.1
       },
       {
-        "Attributes": [4],
+        "Attributes": [
+          4
+        ],
         "Conductivity": 0.0,
         "LondonDepth": 0.0,
         "LossTan": 0.001,
@@ -103,7 +125,9 @@
         "Permittivity": 7.5
       },
       {
-        "Attributes": [5],
+        "Attributes": [
+          5
+        ],
         "Conductivity": 0.0,
         "LondonDepth": 0.0,
         "LossTan": 0.0,
@@ -111,7 +135,9 @@
         "Permittivity": 1.0
       },
       {
-        "Attributes": [1],
+        "Attributes": [
+          1
+        ],
         "Conductivity": 18200000.0,
         "LondonDepth": 0.0,
         "LossTan": 0.0,
@@ -130,7 +156,7 @@
     "CrackDisplacementFactor": 1e-12,
     "CrackInternalBoundaryElements": true,
     "ExportPrerefinedMesh": false,
-    "L0": 1e-6,
+    "L0": 1e-06,
     "MakeHexahedral": false,
     "MakeSimplex": false,
     "Mesh": "palace.msh",
@@ -173,7 +199,9 @@
       "Restart": 1,
       "Samples": [
         {
-          "Freq": [30.0],
+          "Freq": [
+            1.0
+          ],
           "SaveStep": 0,
           "Type": "Point"
         }
@@ -191,7 +219,7 @@
       "DropSmallEntries": false,
       "EstimatorMG": false,
       "EstimatorMaxIts": 10000,
-      "EstimatorTol": 1e-6,
+      "EstimatorTol": 1e-06,
       "GSOrthogonalization": "MGS",
       "InitialGuess": false,
       "KSPType": "GMRES",
@@ -216,7 +244,7 @@
       "STRUMPACKCompressionType": "None",
       "STRUMPACKLossyPrecision": 16,
       "SuperLU3DCommunicator": false,
-      "Tol": 1e-6,
+      "Tol": 1e-06,
       "Type": "MUMPS"
     },
     "Order": 2,
