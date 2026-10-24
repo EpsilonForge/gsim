@@ -2,10 +2,10 @@
   "variants": [
     {
       "id": "IHP-validation",
-      "title": "IHP L2n0 \u2014 corrected benchmark stack",
-      "description": "280um substrate, no passivation, minimal ground + PEC: 1.921 nH at 1 GHz vs measured 1.91-1.93 nH",
+      "title": "IHP L2n0 \u2014 corrected benchmark campaign",
+      "description": "280um/no-passivation stack, OpenEMS-like ground and best 1.921 nH at 1 GHz",
       "url": "IHP-validation/",
-      "updated": "2026-10-24T05:45Z"
+      "updated": "2026-10-24T06:18Z"
     },
     {
       "id": "pdk-validation",
