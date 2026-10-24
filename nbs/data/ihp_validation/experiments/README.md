@@ -7,6 +7,7 @@ All runs at **1 GHz** on the authoritative benchmark stack (280 µm substrate, n
 | baseline | 1.599 | 0.28 | {} |
 | ground0 | 1.882 | 0.20 | {'ground_pad_um': 0.0} |
 | ground0_pec | 1.921 | 0.21 | {'ground_pad_um': 0.0, 'pec_boundary': True} |
+| openems_ground | 1.654 | 0.24 | {'openems_ground': True} |
 | pec | 1.639 | 0.29 | {'pec_boundary': True} |
 | passiv_sensitivity | 3.361 | 0.57 | {'shell_variant': True} |
 | mesh1.5 | 1.623 | 0.26 | {'refined_mesh_size': 1.5} |
@@ -16,6 +17,6 @@ All runs at **1 GHz** on the authoritative benchmark stack (280 µm substrate, n
 
 Best: `ground0_pec` = 1.921 nH vs measured 1.911/1.932 nH (within 0.5%).
 
-`passiv_sensitivity` (3.36 nH) shows that adding passivation is inconsistent with the pinned IHP OpenEMS script, which omits passivation.
+`openems_ground` approximates the IHP Metal1 reference plane with Metal1→TopMetal1 ports (1.654 nH); the exact ground pillar is still simplified.
 
-Palace `Conductivity` + `Thickness` on metal surfaces is the conductor surface-impedance BC; `planar_pec` shows the result when metals are collapsed to PEC sheets.
+`passiv_sensitivity` (3.36 nH) shows adding passivation moves away from the pinned IHP script, which omits passivation.

@@ -124,6 +124,7 @@ def test_experiment_matrix_is_recorded() -> None:
         "mesh1.5",
         "planar_pec",
         "substrate180",
+        "openems_ground",
         "gap",
     } <= set(matrix)
     assert matrix["ground0_pec"]["ok"] is True

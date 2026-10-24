@@ -42,7 +42,9 @@ class BenchmarkRun:
     frequencies_ghz: np.ndarray
 
 
-def load_benchmark_component(*, ground_pad_um: float = 50.0) -> Any:
+def load_benchmark_component(
+    *, ground_pad_um: float = 50.0, openems_ground: bool = False
+) -> Any:
     """Import the IHP benchmark GDS and add the two reference-plane ports."""
     import gdsfactory as gf
     import ihp
@@ -53,15 +55,21 @@ def load_benchmark_component(*, ground_pad_um: float = 50.0) -> Any:
     # SUBGND is an explicit reference plane, not a process layer in the GDS.
     bbox = component.dbbox()
     pad = float(ground_pad_um)
-    component.add_polygon(
-        [
-            (bbox.left - pad, bbox.bottom - pad),
-            (bbox.right + pad, bbox.bottom - pad),
-            (bbox.right + pad, bbox.top + pad),
-            (bbox.left - pad, bbox.top + pad),
-        ],
-        layer=(250, 0),
-    )
+    if openems_ground:
+        component.add_polygon(
+            [(-240.0, -140.0), (240.0, -140.0), (240.0, 10.0), (-240.0, 10.0)],
+            layer=(8, 0),
+        )
+    else:
+        component.add_polygon(
+            [
+                (bbox.left - pad, bbox.bottom - pad),
+                (bbox.right + pad, bbox.bottom - pad),
+                (bbox.right + pad, bbox.top + pad),
+                (bbox.left - pad, bbox.top + pad),
+            ],
+            layer=(250, 0),
+        )
     component.add_port(
         "P1", center=(-34.2, 0.0), width=12.0, orientation=180.0, layer=(126, 0)
     )
@@ -144,11 +152,14 @@ def make_simulation(
     port_variant: str = "two_port",
     frequency_hz: float = TARGET_FREQ_HZ,
     substrate_thickness_um: float = 280.0,
+    openems_ground: bool = False,
 ) -> Any:
     """Build a Palace simulation variant for the benchmark."""
     from gsim.palace import DrivenSim
 
-    component = load_benchmark_component(ground_pad_um=ground_pad_um)
+    component = load_benchmark_component(
+        ground_pad_um=ground_pad_um, openems_ground=openems_ground
+    )
     stack = build_benchmark_stack(
         component,
         shell_variant=shell_variant,
@@ -164,7 +175,7 @@ def make_simulation(
         for name in ("P1", "P2"):
             sim.add_port(
                 name,
-                from_layer="subgnd",
+                from_layer="metal1" if openems_ground else "subgnd",
                 to_layer="topmetal1",
                 geometry="interlayer",
                 impedance=Z0_OHM,
@@ -199,6 +210,7 @@ def run_benchmark(
     max_mesh_size: float = 70.0,
     planar_conductors: bool = False,
     substrate_thickness_um: float = 280.0,
+    openems_ground: bool = False,
 ) -> BenchmarkRun:
     """Mesh, run Palace, and load the benchmark S-parameters."""
     from gsim.palace.results import load_sparams
@@ -214,6 +226,7 @@ def run_benchmark(
         port_variant=port_variant,
         frequency_hz=frequency_hz,
         substrate_thickness_um=substrate_thickness_um,
+        openems_ground=openems_ground,
     )
     sim.mesh(
         preset="coarse",

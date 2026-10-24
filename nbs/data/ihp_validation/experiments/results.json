@@ -113,5 +113,18 @@
     "kwargs": {
       "port_variant": "gap"
     }
+  },
+  "openems_ground": {
+    "ok": true,
+    "frequency_ghz": 1.0,
+    "L_nH": 1.6543361670026526,
+    "Q": 0.24134775277672998,
+    "ports": [
+      "P1",
+      "P2"
+    ],
+    "kwargs": {
+      "openems_ground": true
+    }
   }
 }
