@@ -117,11 +117,13 @@ def test_experiment_matrix_is_recorded() -> None:
     matrix = json.loads(path.read_text())
     assert {
         "baseline",
-        "shell",
+        "passiv_sensitivity",
         "ground0",
         "pec",
         "ground0_pec",
         "mesh1.5",
+        "planar_pec",
+        "substrate180",
         "gap",
     } <= set(matrix)
     assert matrix["ground0_pec"]["ok"] is True
