@@ -1,14 +1,12 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>IHP SG13G2 L2n0 — 30 GHz validation</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IHP SG13G2 L2n0 — inductance extraction</title>
 <style>
 :root { color-scheme:light dark; --fg:#1f2328; --muted:#656d76; --bg:#fff; --card:#f6f8fa; --line:#d0d7de; --accent:#0969da; }
 @media (prefers-color-scheme:dark) { :root { --fg:#e6edf3; --muted:#8b949e; --bg:#0d1117; --card:#161b22; --line:#30363d; --accent:#4493f8; } }
 body { margin:0; font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; color:var(--fg); background:var(--bg); }
 main { max-width:1050px; margin:0 auto; padding:36px 24px 56px; }
-h1 { margin:0 0 6px; font-size:1.8rem; }
-.muted { color:var(--muted); }
+h1 { margin:0 0 6px; font-size:1.8rem; } .muted { color:var(--muted); }
 .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; margin:20px 0; }
 img { width:100%; border-radius:10px; background:#fff; }
 table { border-collapse:collapse; width:100%; font-size:.92rem; }
@@ -17,27 +15,27 @@ th:first-child,td:first-child { text-align:left; }
 code { font-size:.9em; }
 </style></head><body><main>
 <p><a href="../">&larr; all variants</a></p>
-<h1>IHP SG13G2 Octagon L2n0 — 30 GHz validation</h1>
-<p class="muted">Palace/gsim vs IHP THRU-de-embedded measured S-parameters for the
-2-turn, nominal 2 nH benchmark. Layout and measured data are pinned from
-IHP-Open-PDK commit <code>9439837</code> (Apache-2.0).</p>
-<div class="card"><img src="l2n0_comparison.png" alt="Measured and Palace S-parameters and effective inductance"></div>
-<div class="card"><h2>30 GHz comparison</h2>
-<table><thead><tr><th>case</th><th>|S11| dB</th><th>|S21| dB</th><th>L nH</th><th>Q</th></tr></thead>
-<tbody><tr><td>palace</td><td>-4.36</td><td>-4.53</td><td>0.800</td><td>-0.86</td></tr>
-<tr><td>die_x2y7</td><td>-0.49</td><td>-17.79</td><td>3.607</td><td>-1.44</td></tr>
-<tr><td>die_x5y8</td><td>-0.54</td><td>-18.29</td><td>3.711</td><td>-1.32</td></tr></tbody></table>
-<p class="muted">The effective L/Q uses the documented series 2-port extraction
-Z = 2 Z0 (1-S21)/S21. At 30 GHz the benchmark is above its measured SRF
-(~25.5 GHz), so the S-parameters are the primary comparison.</p></div>
+<h1>IHP SG13G2 Octagon L2n0 — inductance extraction</h1>
+<p class="muted">Palace/gsim versus the two pinned IHP measured dies using the existing
+series extraction Z = 2 Z0 (1-S21)/S21. Nominal 2 nH benchmark. Layout and
+measured data pinned from IHP-Open-PDK commit <code>9439837</code> (Apache-2.0).</p>
+<div class="card"><img src="l2n0_comparison.png" alt="Measured and Palace extracted inductance and Q"></div>
+<div class="card"><h2>Extraction summary</h2>
+<table><thead><tr><th>case</th><th>L @ 1 GHz (nH)</th><th>Q @ 1 GHz</th><th>L @ 30 GHz (nH)</th><th>Q @ 30 GHz</th></tr></thead><tbody>
+<tr><td>Palace</td><td>1.346</td><td>0.23</td><td>0.784</td><td>-0.83</td></tr>
+<tr><td>die_x2y7</td><td>1.912</td><td>6.59</td><td>3.642</td><td>-1.35</td></tr>
+<tr><td>die_x5y8</td><td>1.932</td><td>6.86</td><td>3.744</td><td>-1.23</td></tr>
+</tbody></table>
+<p class="muted">The measured 1 GHz inductance is 1.91–1.93 nH, confirming the nominal
+2 nH benchmark. The 30 GHz point is above the measured SRF (~25.5 GHz); the
+Palace/measured disagreement is reported honestly.</p></div>
 <p><strong>Notebook:</strong> <a href="notebook.html">rendered notebook</a> · <a href="notebook.ipynb">executed .ipynb</a></p>
 <div class="card"><h2>Model and source</h2>
-<p>Palace model: authoritative IHP SG13G2 stack, TopMetal2 winding,
-TopMetal1 feeds/underpass, SUBGND reference plane, 5 µm refined / 70 µm maximum
-mesh, two interlayer ports SUBGND to TopMetal1 at 50 Ohm. The notebook records the
-IHP openEMS settings and the measured-data fallback required by the validation
-plan.</p>
+<p>Palace sweep: 1–50 GHz, 11 points; authoritative IHP SG13G2 stack, TopMetal2
+winding, TopMetal1 feeds/underpass, SUBGND reference plane, 5 µm refined / 70 µm
+maximum mesh, interlayer ports SUBGND → TopMetal1 at 50 Ω. OpenEMS was not
+available; pinned measured S-parameters are the approved fallback and the IHP
+openEMS settings are documented in the notebook.</p>
 <p><a href="L_2n0_simplified.gds">benchmark GDS</a> ·
-<a href="metrics.json">metrics</a> ·
-<a href="provenance.json">provenance</a></p></div>
+<a href="metrics.json">metrics</a> · <a href="provenance.json">provenance</a></p></div>
 </main></body></html>

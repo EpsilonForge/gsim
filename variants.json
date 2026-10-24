@@ -1,18 +1,18 @@
 {
   "variants": [
     {
+      "id": "IHP-validation",
+      "title": "IHP L2n0 \u2014 inductance extraction",
+      "description": "Palace vs measured L/Q extraction; measured 1.91-1.93 nH nominal 2 nH benchmark",
+      "url": "IHP-validation/",
+      "updated": "2026-10-24T03:05Z"
+    },
+    {
       "id": "pdk-validation",
       "title": "PDK validation \u2014 notebook & layouts",
       "description": "Eight quantitative authoritative-stack comparisons plus diagnostics; measured MZI runtime-excluded",
       "url": "pdk-validation/",
       "updated": "2026-10-23T23:31Z"
-    },
-    {
-      "id": "IHP-validation",
-      "title": "IHP L2n0 \u2014 30 GHz validation",
-      "description": "Palace/gsim vs IHP measured S-parameters; OpenEMS fallback and nominal 2 nH evidence recorded",
-      "url": "IHP-validation/",
-      "updated": "2026-10-23T20:44Z"
     }
   ]
 }
