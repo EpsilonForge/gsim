@@ -64,3 +64,16 @@ def test_measured_low_frequency_inductance_is_nominal_2nh(label: str) -> None:
     z = 2.0 * ihp_l2n0.Z0_OHM * (1.0 - s[1, 0]) / s[1, 0]
     inductance_nh = z.imag / (2 * np.pi * 1e9) * 1e9
     assert 1.8 < inductance_nh < 2.1
+
+
+def test_recorded_sweep_extracts_finite_lq_at_1_and_30_ghz() -> None:
+    run = ihp_l2n0.load_recorded_run(ihp_l2n0.RUN_ROOT / "l2n0_sweep")
+    freqs = np.asarray(run.sparams.freq, dtype=float)
+    assert freqs.size == 11
+    for target in (1.0, 30.0):
+        index = int(np.argmin(np.abs(freqs - target)))
+        inductance, q, impedance = ihp_l2n0.lq_at(run.sparams, index)
+        assert np.isfinite(inductance)
+        assert np.isfinite(q)
+        assert np.isfinite(impedance.real)
+        assert np.isfinite(impedance.imag)
