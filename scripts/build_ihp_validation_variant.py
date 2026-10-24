@@ -81,6 +81,19 @@ def render_comparison(out: Path) -> dict[str, float]:
         rows[f"{label}_q_1ghz"] = at(f, q, 1.0)
         rows[f"{label}_l_30ghz_nh"] = at(f, l, 30.0)
         rows[f"{label}_q_30ghz"] = at(f, q, 30.0)
+    exact = (
+        REPO
+        / "nbs"
+        / "data"
+        / "ihp_validation"
+        / "experiments"
+        / "verification"
+        / "verification.json"
+    )
+    if exact.is_file():
+        point = json.loads(exact.read_text())["best"]["30"]
+        rows["palace_l_30ghz_nh"] = float(point["L_nH"])
+        rows["palace_q_30ghz"] = float(point["Q"])
     return rows
 
 
