@@ -128,3 +128,14 @@ def test_experiment_matrix_is_recorded() -> None:
         "gap",
     } <= set(matrix)
     assert matrix["ground0_pec"]["ok"] is True
+
+
+def test_committed_config_uses_conductor_thickness_bc() -> None:
+    import json
+
+    config = json.loads((ihp_l2n0.RUN_ROOT / "l2n0_best" / "config.json").read_text())
+    conductivity = config["Boundaries"]["Conductivity"]
+    assert conductivity
+    assert all(
+        "Thickness" in entry and "Conductivity" in entry for entry in conductivity
+    )
