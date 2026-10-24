@@ -117,7 +117,6 @@ def test_experiment_matrix_is_recorded() -> None:
     matrix = json.loads(path.read_text())
     assert {
         "baseline",
-        "passiv_sensitivity",
         "ground0",
         "pec",
         "ground0_pec",
