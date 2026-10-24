@@ -149,9 +149,18 @@ def test_shell_variant_is_explicitly_modelled() -> None:
     tm2 = stack.layers["topmetal2"]
     assert shell.material == "sin"
     assert (shell.zmin, shell.zmax) == (tm2.zmin, tm2.zmax)
+    import gdsfactory as gf
+
     polygons = component.get_polygons(layers=[(999, 0)])
     assert polygons
-    assert sum(poly.area() for poly in next(iter(polygons.values()))) > 0
+    shell_region = gf.kdb.Region(next(iter(polygons.values())))
+    tm2_region = gf.kdb.Region(
+        next(iter(component.get_polygons(layers=[(134, 0)]).values()))
+    )
+    assert len(shell_region & tm2_region) == 0
+    assert shell_region.area() > 0.05 * tm2_region.area()
+    assert len(shell_region.sized(-600)) == 0
+    assert stack.layers["passiv"].zmin >= tm2.zmax  # codespell:ignore passiv
 
 
 def test_verification_frequencies_are_recorded() -> None:
