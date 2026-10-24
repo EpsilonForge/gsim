@@ -29,22 +29,6 @@
     "Q_diff": 0.08212724990779526,
     "pass": true
   },
-  "passiv_sensitivity": {
-    "ok": true,
-    "frequency_ghz": 1.0,
-    "L_nH": 3.3608346990401246,
-    "Q": 0.5701485254717273,
-    "ports": [
-      "P1",
-      "P2"
-    ],
-    "kwargs": {
-      "shell_variant": true
-    },
-    "L_diff_nH": 0.19793381217678288,
-    "Q_diff": 0.03448678899630687,
-    "pass": true
-  },
   "pec": {
     "ok": true,
     "frequency_ghz": 1.0,
