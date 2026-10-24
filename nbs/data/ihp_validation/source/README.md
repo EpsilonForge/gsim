@@ -8,4 +8,4 @@ Pinned from the IHP Open PDK at commit `943983786b04351feb20e33e8d3d76c0e0d87cce
 - `die_x5y8.s2p` — measured, THRU-de-embedded GSGSG data on die x5y8.
 
 Reference planes are the TopMetal1 feed ends at y = 0. The IHP openEMS model uses TopMetal2 windings, TopMetal1
-feeds/underpass, a 180 um substrate, 5 um refined mesh cells, 70 um maximum cells, and ports from SUBGND to TopMetal1.
+feeds/underpass, a 180 um substrate, IHP OpenEMS refined_cellsize=1.5 um, max_cellsize=lambda_air/(sqrt(eps_max)*20), and ports from SUBGND to TopMetal1.

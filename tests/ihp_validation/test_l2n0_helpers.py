@@ -77,3 +77,19 @@ def test_recorded_sweep_extracts_finite_lq_at_1_and_30_ghz() -> None:
         assert np.isfinite(q)
         assert np.isfinite(impedance.real)
         assert np.isfinite(impedance.imag)
+
+
+def test_measured_lq_is_finite_at_1_and_30_ghz() -> None:
+    import skrf as rf
+
+    for label in ("die_x2y7", "die_x5y8"):
+        network = rf.Network(str(ihp_l2n0.MEASURED[label]))
+        z0 = float(np.real(np.asarray(network.z0).reshape(-1)[0]))
+        for target in (1.0, 30.0):
+            point = network.interpolate(rf.Frequency(target, target, 1, unit="GHz"))
+            s_point = point.s[0]  # ty: ignore[unresolved-attribute]
+            l, q, z = ihp_l2n0.lq_from_s_matrix(s_point, target * 1e9, z0=z0)
+            assert np.isfinite(l)
+            assert np.isfinite(q)
+            assert np.isfinite(z.real)
+            assert np.isfinite(z.imag)

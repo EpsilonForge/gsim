@@ -134,15 +134,17 @@ measured data pinned from IHP-Open-PDK commit <code>9439837</code> (Apache-2.0).
 <tr><td>die_x5y8</td><td>{rows["die_x5y8_l_1ghz_nh"]:.3f}</td><td>{rows["die_x5y8_q_1ghz"]:.2f}</td><td>{rows["die_x5y8_l_30ghz_nh"]:.3f}</td><td>{rows["die_x5y8_q_30ghz"]:.2f}</td></tr>
 </tbody></table>
 <p class="muted">The measured 1 GHz inductance is 1.91-1.93 nH, confirming the nominal
-2 nH benchmark. The 30 GHz point is above the measured SRF (~25.5 GHz); the
-Palace/measured disagreement is reported honestly.</p></div>
+2 nH benchmark. The IHP guide differential 1-port SRF is ~25.5 GHz; the 2-port series extraction
+has a different L zero-crossing (~35.5 GHz). The 30 GHz Palace/measured
+disagreement is reported honestly.</p></div>
 {notebook_section}
 <div class="card"><h2>Model and source</h2>
 <p>Palace sweep: 1-50 GHz, 11 points; authoritative IHP SG13G2 stack, TopMetal2
 winding, TopMetal1 feeds/underpass, SUBGND reference plane, 5 µm refined / 70 µm
-maximum mesh, interlayer ports SUBGND to TopMetal1 at 50 Ohm. OpenEMS was not
-available; pinned measured S-parameters are the approved fallback and the IHP
-openEMS settings are documented in the notebook.</p>
+maximum Palace mesh, interlayer ports SUBGND to TopMetal1 at 50 Ohm. OpenEMS was not available; pinned measured S-parameters are the approved
+fallback. The IHP OpenEMS reference uses SG13_L2n0_2port_groundpolygon_mesh1.5um.py
+with 1.5 µm refined cells, lambda_air/(sqrt(eps_max)*20) maximum cells, PEC
+boundaries and 0-30 GHz/401 points.</p>
 <p><a href="L_2n0_simplified.gds">benchmark GDS</a> ·
 <a href="metrics.json">metrics</a> · <a href="provenance.json">provenance</a></p></div>
 </main></body></html>

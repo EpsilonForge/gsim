@@ -213,6 +213,16 @@ def s_matrix(sparams: Any, index: int = 0) -> np.ndarray:
     )
 
 
+def lq_from_s_matrix(
+    s: np.ndarray, f_hz: float, *, z0: float = Z0_OHM
+) -> tuple[float, float, complex]:
+    """Return ``(L_nH, Q, Z_series)`` from a 2x2 S matrix."""
+    z = 2.0 * z0 * (1.0 - s[1, 0]) / s[1, 0]
+    inductance_nh = z.imag / (2.0 * np.pi * f_hz) * 1e9
+    q = z.imag / z.real if z.real != 0 else float("nan")
+    return inductance_nh, q, z
+
+
 def series_impedance(sparams: Any, index: int = 0, *, z0: float = Z0_OHM) -> complex:
     """Return the series impedance from S21 for a 2-port series element."""
     s = s_matrix(sparams, index)
@@ -221,11 +231,7 @@ def series_impedance(sparams: Any, index: int = 0, *, z0: float = Z0_OHM) -> com
 
 def lq_at(sparams: Any, index: int = 0) -> tuple[float, float, complex]:
     """Return ``(L_nH, Q, Z_series)`` at the selected recorded frequency."""
-    z = series_impedance(sparams, index)
-    f_hz = float(sparams.freq[index]) * 1e9
-    inductance_nh = z.imag / (2.0 * np.pi * f_hz) * 1e9
-    q = z.imag / z.real if z.real != 0 else float("nan")
-    return inductance_nh, q, z
+    return lq_from_s_matrix(s_matrix(sparams, index), float(sparams.freq[index]) * 1e9)
 
 
 __all__ = [
