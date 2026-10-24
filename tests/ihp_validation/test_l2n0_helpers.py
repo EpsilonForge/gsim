@@ -117,6 +117,7 @@ def test_experiment_matrix_is_recorded() -> None:
     matrix = json.loads(path.read_text())
     assert {
         "baseline",
+        "shell_conformal",
         "ground0",
         "pec",
         "ground0_pec",
@@ -138,3 +139,28 @@ def test_committed_config_uses_conductor_thickness_bc() -> None:
     assert all(
         "Thickness" in entry and "Conductivity" in entry for entry in conductivity
     )
+
+
+def test_shell_variant_is_explicitly_modelled() -> None:
+    pytest.importorskip("ihp")
+    component = ihp_l2n0.load_benchmark_component()
+    stack = ihp_l2n0.build_benchmark_stack(component, shell_variant=True)
+    shell = stack.layers["tm2_shell"]
+    tm2 = stack.layers["topmetal2"]
+    assert shell.material == "sin"
+    assert (shell.zmin, shell.zmax) == (tm2.zmin, tm2.zmax)
+    polygons = component.get_polygons(layers=[(999, 0)])
+    assert polygons
+    assert sum(poly.area() for poly in next(iter(polygons.values()))) > 0
+
+
+def test_verification_frequencies_are_recorded() -> None:
+    import json
+
+    root = ihp_l2n0.REPO / "nbs" / "data" / "ihp_validation" / "experiments"
+    verify = json.loads((root / "verification" / "verification.json").read_text())
+    assert set(verify) == {"baseline", "best"}
+    for row in verify.values():
+        assert set(row) == {"5", "9", "30"}
+        for point in row.values():
+            assert point["L_nH"] > 0

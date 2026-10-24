@@ -93,6 +93,39 @@ def build(
     out.mkdir(parents=True)
     rows = render_comparison(out)
     (out / "metrics.json").write_text(json.dumps(rows, indent=2) + "\n")
+    experiments = REPO / "nbs" / "data" / "ihp_validation" / "experiments"
+    matrix = json.loads((experiments / "results.json").read_text())
+    verify = json.loads(
+        (experiments / "verification" / "verification.json").read_text()
+    )
+    campaign = "".join(
+        f"<tr><td>{name}</td><td>{matrix[name]['L_nH']:.3f}</td>"
+        f"<td>{matrix[name]['Q']:.2f}</td><td>{matrix[name]['L_diff_nH']:.3f}</td></tr>"
+        for name in (
+            "baseline",
+            "shell_conformal",
+            "ground0_pec",
+            "openems_ground",
+            "gap",
+        )
+    )
+
+    def point(name: str, frequency: str) -> tuple[float, float]:
+        if frequency == "1":
+            row = matrix["ground0_pec" if name == "best" else name]
+        else:
+            row = verify[name][frequency]
+        return float(row["L_nH"]), float(row["Q"])
+
+    verification = "".join(
+        f"<tr><td>{name}</td>"
+        + "".join(
+            f"<td>{point(name, f)[0]:.3f}</td><td>{point(name, f)[1]:.2f}</td>"
+            for f in ("1", "5", "9", "30")
+        )
+        + "</tr>"
+        for name in ("baseline", "best")
+    )
     for name in ("L_2n0_simplified.gds", "README.md", "provenance.json"):
         source = ihp_l2n0.SOURCE / name
         if source.is_file():
@@ -138,13 +171,29 @@ measured data pinned from IHP-Open-PDK commit <code>9439837</code> (Apache-2.0).
 has a different L zero-crossing (~35.5 GHz). The 30 GHz Palace/measured
 disagreement is reported honestly.</p></div>
 {notebook_section}
+<div class="card"><h2>Campaign matrix (1 GHz)</h2>
+<table><thead><tr><th>variant</th><th>L nH</th><th>Q</th><th>L diff nH</th></tr></thead><tbody>{campaign}</tbody></table>
+<p class="muted">Best series result: ground0_pec 1.921 nH vs measured 1.911/1.932 nH.
+The differential comparison is negative: ground0_pec 0.802 nH and gap 0.780 nH
+vs measured differential 1.674/1.672 nH. The 1.921 nH headline is therefore a
+series-extraction result, not a full validation. `shell_conformal` adds a 0.6 µm
+SiN sidewall shell around TopMetal2 and gives 1.6277 nH.</p>
+<table><thead><tr><th>model</th><th>1 GHz L</th><th>1 GHz Q</th><th>5 GHz L</th><th>5 GHz Q</th><th>9 GHz L</th><th>9 GHz Q</th><th>30 GHz L</th><th>30 GHz Q</th></tr></thead><tbody>{verification}</tbody></table>
+<p class="muted">30 GHz remains far below measured ~3.61/3.71 nH; Q is also low
+(0.21 best at 1 GHz vs measured ~6.6). The mesh error Norm is ~0.18 against
+AdaptiveTol 0.02, so the model is not converged.</p></div>
 <div class="card"><h2>Model and source</h2>
-<p>Palace sweep: 1-50 GHz, 11 points; authoritative IHP SG13G2 stack, TopMetal2
-winding, TopMetal1 feeds/underpass, SUBGND reference plane, 5 µm refined / 70 µm
-maximum Palace mesh, interlayer ports SUBGND to TopMetal1 at 50 Ohm. OpenEMS was not available; pinned measured S-parameters are the approved
-fallback. The IHP OpenEMS reference uses SG13_L2n0_2port_groundpolygon_mesh1.5um.py
-with 1.5 µm refined cells, lambda_air/(sqrt(eps_max)*20) maximum cells, PEC
-boundaries and 0-30 GHz/401 points.</p>
+<p>Palace sweep: 1-50 GHz, 11 points; authoritative IHP SG13G2 stack with a
+280 µm substrate, TopMetal2 winding, TopMetal1 feeds/underpass, and a minimal
+ground pad with PEC boundaries for the best variant. The 5 µm refined / 70 µm
+maximum mesh and Palace Conductivity+Thickness surface-impedance BCs
+(sigma=3.77e7 S/m; delta ~2.6 um at 1 GHz) model finite conductors. OpenEMS was not
+available; pinned measured S-parameters are the approved fallback.</p>
+<p>The IHP OpenEMS reference uses SG13_L2n0_2port_groundpolygon_mesh1.5um.py
+with TopMetal1 edge ports, a central Metal1->TopMetal1 PEC pillar, Metal1 ground
+box, 1.5 µm refined cells, lambda_air/(sqrt(eps_max)*20) maximum cells, PEC
+boundaries and 0-30 GHz/401 points. The `openems_ground` variant approximates
+this with a Metal1 rectangle and vertical via ports; it omits the central pillar.</p>
 <p><a href="L_2n0_simplified.gds">benchmark GDS</a> ·
 <a href="metrics.json">metrics</a> · <a href="provenance.json">provenance</a></p></div>
 </main></body></html>

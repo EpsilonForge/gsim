@@ -79,6 +79,16 @@ def load_benchmark_component(
     return component
 
 
+def _add_conformal_tm2_shell(component: Any, *, sidewall_um: float = 0.6) -> None:
+    """Add a sidewall dielectric ring around every TopMetal2 polygon."""
+    import gdsfactory as gf
+
+    polygons = component.get_polygons(layers=[(134, 0)])
+    region = gf.kdb.Region(next(iter(polygons.values())))
+    ring = region.sized(int(sidewall_um * 1000)) - region
+    component.add_polygon(ring, layer=(999, 0))
+
+
 def build_benchmark_stack(
     component: Any,
     *,
@@ -131,13 +141,19 @@ def build_benchmark_stack(
         },
     ]
     if shell_variant:
-        stack.dielectrics.append(
-            {
-                "name": "tm2_shell",
-                "material": "sio2",
-                "zmin": passivation_layer.zmin,
-                "zmax": passivation_layer.zmax,
-            }
+        _add_conformal_tm2_shell(component)
+        topmetal2 = stack.layers["topmetal2"]
+        stack.layers["tm2_shell"] = Layer(
+            name="tm2_shell",
+            gds_layer=(999, 0),
+            zmin=topmetal2.zmin,
+            zmax=topmetal2.zmax,
+            thickness=topmetal2.thickness,
+            material="sin",
+            layer_type="dielectric",
+            mesh_order=topmetal2.mesh_order - 1
+            if topmetal2.mesh_order is not None
+            else None,
         )
     return stack
 

@@ -140,5 +140,22 @@
     "L_diff_nH": 0.7321414464927576,
     "Q_diff": 0.10725449624756205,
     "pass": true
+  },
+  "shell_conformal": {
+    "ok": true,
+    "frequency_ghz": 1.0,
+    "L_nH": 1.6276542317036578,
+    "Q": 0.2639988847274653,
+    "L_diff_nH": 0.7540145916614779,
+    "Q_diff": 0.12234581317327423,
+    "pass": true,
+    "ports": [
+      "P1",
+      "P2"
+    ],
+    "kwargs": {
+      "shell_variant": true,
+      "refined_mesh_size": 1.5
+    }
   }
 }
