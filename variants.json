@@ -2,10 +2,10 @@
   "variants": [
     {
       "id": "IHP-validation",
-      "title": "IHP L2n0 \u2014 experiment campaign",
-      "description": "Corrected 1 GHz matrix: shell+minimal ground 2.085 nH vs measured 1.91-1.93 nH",
+      "title": "IHP L2n0 \u2014 corrected benchmark stack",
+      "description": "280um substrate, no passivation, minimal ground + PEC: 1.921 nH at 1 GHz vs measured 1.91-1.93 nH",
       "url": "IHP-validation/",
-      "updated": "2026-10-24T05:08Z"
+      "updated": "2026-10-24T05:45Z"
     },
     {
       "id": "pdk-validation",
