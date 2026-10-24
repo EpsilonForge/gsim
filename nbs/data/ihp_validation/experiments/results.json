@@ -8,7 +8,10 @@
       "P1",
       "P2"
     ],
-    "kwargs": {}
+    "kwargs": {},
+    "L_diff_nH": 0.7493181647811784,
+    "Q_diff": 0.13225066855234044,
+    "pass": true
   },
   "ground0": {
     "ok": true,
@@ -21,7 +24,10 @@
     ],
     "kwargs": {
       "ground_pad_um": 0.0
-    }
+    },
+    "L_diff_nH": 0.7536303988486982,
+    "Q_diff": 0.08212724990779526,
+    "pass": true
   },
   "passiv_sensitivity": {
     "ok": true,
@@ -34,7 +40,10 @@
     ],
     "kwargs": {
       "shell_variant": true
-    }
+    },
+    "L_diff_nH": 0.19793381217678288,
+    "Q_diff": 0.03448678899630687,
+    "pass": true
   },
   "pec": {
     "ok": true,
@@ -47,7 +56,10 @@
     ],
     "kwargs": {
       "pec_boundary": true
-    }
+    },
+    "L_diff_nH": 0.7955572776734777,
+    "Q_diff": 0.14002222438568446,
+    "pass": true
   },
   "ground0_pec": {
     "ok": true,
@@ -61,7 +73,10 @@
     "kwargs": {
       "ground_pad_um": 0.0,
       "pec_boundary": true
-    }
+    },
+    "L_diff_nH": 0.8019574493000682,
+    "Q_diff": 0.0872341720346098,
+    "pass": true
   },
   "mesh1.5": {
     "ok": true,
@@ -74,7 +89,10 @@
     ],
     "kwargs": {
       "refined_mesh_size": 1.5
-    }
+    },
+    "L_diff_nH": 0.7538536326587584,
+    "Q_diff": 0.12231861599508839,
+    "pass": true
   },
   "planar_pec": {
     "ok": true,
@@ -87,7 +105,10 @@
     ],
     "kwargs": {
       "planar_conductors": true
-    }
+    },
+    "L_diff_nH": -2294.9819342337305,
+    "Q_diff": -5.709805173077623,
+    "pass": false
   },
   "substrate180": {
     "ok": true,
@@ -100,7 +121,10 @@
     ],
     "kwargs": {
       "substrate_thickness_um": 180.0
-    }
+    },
+    "L_diff_nH": 0.7494921818734142,
+    "Q_diff": 0.13228370828234345,
+    "pass": true
   },
   "gap": {
     "ok": true,
@@ -112,7 +136,10 @@
     ],
     "kwargs": {
       "port_variant": "gap"
-    }
+    },
+    "L_diff_nH": 0.7795860426945153,
+    "Q_diff": 3.061061437270309,
+    "pass": true
   },
   "openems_ground": {
     "ok": true,
@@ -125,6 +152,9 @@
     ],
     "kwargs": {
       "openems_ground": true
-    }
+    },
+    "L_diff_nH": 0.7321414464927576,
+    "Q_diff": 0.10725449624756205,
+    "pass": true
   }
 }
