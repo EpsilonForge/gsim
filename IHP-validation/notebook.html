@@ -7815,9 +7815,11 @@ directly validating the nominal 2 nH benchmark. The 30 GHz result is above the
 IHP guide differential 1-port SRF (~25.5 GHz). The 2-port series extraction shown here has a different L zero-crossing (~35.5 GHz), so the 30 GHz point is reported without implying a simple SRF agreement.</p>
 <p>The IHP OpenEMS runtime was unavailable; the approved fallback is the pinned
 IHP measured S-parameter data. The notebook documents the OpenEMS settings it
-mirrors (<code>SG13_L2n0_2port_groundpolygon_mesh1.5um.py</code>: TopMetal1 edge ports with a Metal1/common-ground pillar
-, 50 Ω, refined_cellsize=1.5 µm, max_cellsize=lambda_air/(sqrt(eps_max)*20)
-≈145 µm at 30 GHz/11.9, PEC boundaries, 0–30 GHz/401 points).</p>
+mirrors (<code>SG13_L2n0_2port_groundpolygon_mesh1.5um.py</code>: TopMetal1 edge ports with a Metal1/common-ground pillar,
+50 Ω, refined_cellsize=1.5 µm, max_cellsize=lambda_air/(sqrt(eps_max)*20)
+≈145 µm at 30 GHz/11.9, PEC boundaries, 0–30 GHz/401 points).
+The Palace model approximates that excitation with interlayer ports and a minimal
+reference pad; the OpenEMS-like Metal1 ground variant is a separate experiment.</p>
 </div>
 </div>
 </div>
@@ -8144,8 +8146,8 @@ shell_conformal       1.628    0.26    0.754  True
 2 nH benchmark from the extracted data itself.</li>
 <li>The best experiment (<code>ground0_pec</code>: 280 µm substrate, no passivation, minimal
 ground pad, PEC boundary) extracts <strong>1.921 nH at 1 GHz</strong>, within 10% of both measured dies.
-It falls to 0.687 nH at 30.4 GHz, below measured ~3.64/3.74 nH; this is reported as disagreement.</li>
-<li>Baseline series L at 1/5.9/10.8/30.4 GHz is 1.599/1.473/1.391/0.664 nH; best is 1.921/1.756/1.648/0.687 nH. Low-frequency Q is 0.21 vs measured 6.59/6.86, and the mesh error Norm is ~0.18 against AdaptiveTol 0.02: the model is not converged and the series-L match is not a full validation. The IHP guide's differential 1-port SRF (~25.5 GHz)
+It falls to 0.716 nH at 30 GHz, below measured ~3.61/3.71 nH; this is reported as disagreement.</li>
+<li>Baseline series L at 1/5/9/30 GHz is 1.599/1.487/1.424/0.686 nH; best is 1.921/1.775/1.692/0.716 nH. The extracted low-frequency Q is 0.21 (best) / 0.28 (baseline) vs measured ~6.6, and the mesh error Norm is ~0.18 against AdaptiveTol 0.02: the model is not converged and the series-L match is not a full validation. The IHP guide's differential 1-port SRF (~25.5 GHz)
 is distinct from this 2-port series extraction.</li>
 <li>The comparison uses the same extraction formula for measured and simulated
 data, so differences come from the EM model/ports/mesh, not from a separate
@@ -8156,11 +8158,11 @@ fitting method.</li>
 and the OpenEMS settings are documented above.</li>
 <li>Palace uses the coarse 5 µm refined mesh and Palace Conductivity+Thickness
 metal-surface impedance BCs (finite conductor thickness), not collapsed planar PEC sheets.
-For a good conductor δ=sqrt(2/(ωμσ)) and Rs=1/(σδ); the configs use σ=3.77e7 S/m and the PDK thicknesses.</li>
+For a good conductor δ=sqrt(2/(ωμσ)) and Rs=1/(σδ); the configs use σ=3.77e7 S/m and the PDK thicknesses (δ≈2.6 µm at 1 GHz, 0.47 µm at 30 GHz).</li>
 <li>The reported <code>pass</code> column only means finite, positive extracted L. It is not a pass/fail against measured data; baseline is numerically valid but ~16% low at 1 GHz. The measured fixture reference planes are
 the TopMetal1 feed ends.</li>
-<li>The pinned IHP OpenEMS script uses a 280 µm substrate and explicitly omits passivation. The passivation sensitivity (3.36 nH) is recorded in the experiment history but excluded from the final matrix because it contradicts that script.</li>
-<li>A converged full-wave model and a direct OpenEMS run remain future work.</li>
+<li>The pinned IHP OpenEMS script uses a 280 µm substrate and omits passivation. A conformal 0.6 µm SiN sidewall shell plus the existing 1.9 µm top passivation is tested (<code>shell_conformal</code>, 1.6277 nH) but does not close the mismatch. A planar shell material swap was an earlier mistaken variant and is not used.</li>
+<li>The OpenEMS reference uses a central Metal1→TopMetal1 PEC pillar and horizontal edge ports; the Palace <code>openems_ground</code> variant uses a Metal1 rectangle and vertical Metal1→TopMetal1 via ports, so it is an approximation. A converged full-wave model and a direct OpenEMS run remain future work.</li>
 </ul>
 </div>
 </div>
