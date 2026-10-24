@@ -7815,8 +7815,8 @@ directly validating the nominal 2 nH benchmark. The 30 GHz result is above the
 IHP guide differential 1-port SRF (~25.5 GHz). The 2-port series extraction shown here has a different L zero-crossing (~35.5 GHz), so the 30 GHz point is reported without implying a simple SRF agreement.</p>
 <p>The IHP OpenEMS runtime was unavailable; the approved fallback is the pinned
 IHP measured S-parameter data. The notebook documents the OpenEMS settings it
-mirrors (<code>SG13_L2n0_2port_groundpolygon_mesh1.5um.py</code>: SUBGND→TopMetal1 via
-ports, 50 Ω, refined_cellsize=1.5 µm, max_cellsize=lambda_air/(sqrt(eps_max)*20)
+mirrors (<code>SG13_L2n0_2port_groundpolygon_mesh1.5um.py</code>: TopMetal1 edge ports with a Metal1/common-ground pillar
+, 50 Ω, refined_cellsize=1.5 µm, max_cellsize=lambda_air/(sqrt(eps_max)*20)
 ≈145 µm at 30 GHz/11.9, PEC boundaries, 0–30 GHz/401 points).</p>
 </div>
 </div>
@@ -7910,23 +7910,28 @@ ports, 50 Ω, refined_cellsize=1.5 µm, max_cellsize=lambda_air/(sqrt(eps_max)*2
 <div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">nearest</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">f_ghz</span><span class="p">):</span>
-    <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="nb">abs</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">f_ghz</span><span class="p">))</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 
-
+<span class="n">experiments</span> <span class="o">=</span> <span class="n">b</span><span class="o">.</span><span class="n">REPO</span> <span class="o">/</span> <span class="s2">"nbs"</span> <span class="o">/</span> <span class="s2">"data"</span> <span class="o">/</span> <span class="s2">"ihp_validation"</span> <span class="o">/</span> <span class="s2">"experiments"</span>
+<span class="n">matrix</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">((</span><span class="n">experiments</span> <span class="o">/</span> <span class="s2">"results.json"</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">())</span>
+<span class="n">verify</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">((</span><span class="n">experiments</span> <span class="o">/</span> <span class="s2">"verification"</span> <span class="o">/</span> <span class="s2">"verification.json"</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">())</span>
 <span class="nb">print</span><span class="p">(</span>
-    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'f GHz'</span><span class="si">:</span><span class="s2">&gt;7</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'Palace L nH'</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'Palace Q'</span><span class="si">:</span><span class="s2">&gt;9</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'x2y7 L nH'</span><span class="si">:</span><span class="s2">&gt;11</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'x2y7 Q'</span><span class="si">:</span><span class="s2">&gt;8</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'x5y8 L nH'</span><span class="si">:</span><span class="s2">&gt;11</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'x5y8 Q'</span><span class="si">:</span><span class="s2">&gt;8</span><span class="si">}</span><span class="s2">"</span>
+    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'model'</span><span class="si">:</span><span class="s2">9</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'f GHz'</span><span class="si">:</span><span class="s2">&gt;6</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'L nH'</span><span class="si">:</span><span class="s2">&gt;7</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'Q'</span><span class="si">:</span><span class="s2">&gt;7</span><span class="si">}</span><span class="s2"> | </span><span class="si">{</span><span class="s1">'x2y7 L'</span><span class="si">:</span><span class="s2">&gt;7</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'x5y8 L'</span><span class="si">:</span><span class="s2">&gt;7</span><span class="si">}</span><span class="s2">"</span>
 <span class="p">)</span>
-<span class="k">for</span> <span class="n">f_ghz</span> <span class="ow">in</span> <span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">5.9</span><span class="p">,</span> <span class="mf">10.8</span><span class="p">,</span> <span class="mf">30.4</span><span class="p">):</span>
-    <span class="n">p</span> <span class="o">=</span> <span class="n">nearest</span><span class="p">(</span><span class="n">palace</span><span class="p">,</span> <span class="n">f_ghz</span><span class="p">)</span>
-    <span class="n">vals</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">measured</span><span class="p">:</span>
-        <span class="n">f</span><span class="p">,</span> <span class="n">l</span><span class="p">,</span> <span class="n">q</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">measured</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
-        <span class="n">i</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">f</span> <span class="o">-</span> <span class="n">f_ghz</span><span class="p">)))</span>
-        <span class="n">vals</span><span class="o">.</span><span class="n">extend</span><span class="p">((</span><span class="n">l</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">q</span><span class="p">[</span><span class="n">i</span><span class="p">]))</span>
-    <span class="nb">print</span><span class="p">(</span>
-        <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">f_ghz</span><span class="si">:</span><span class="s2">7.1f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">:</span><span class="s2">12.3f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">p</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="si">:</span><span class="s2">9.2f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">vals</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">:</span><span class="s2">11.3f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">vals</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">:</span><span class="s2">8.2f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">vals</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="si">:</span><span class="s2">11.3f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">vals</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="si">:</span><span class="s2">8.2f</span><span class="si">}</span><span class="s2">"</span>
-    <span class="p">)</span>
+<span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"baseline"</span><span class="p">,</span> <span class="s2">"best"</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">f_ghz</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">30</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">f_ghz</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">row</span> <span class="o">=</span> <span class="n">matrix</span><span class="p">[</span><span class="s2">"ground0_pec"</span> <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"best"</span> <span class="k">else</span> <span class="n">name</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">row</span> <span class="o">=</span> <span class="n">verify</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="nb">str</span><span class="p">(</span><span class="n">f_ghz</span><span class="p">)]</span>
+        <span class="n">vals</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">measured</span><span class="p">:</span>
+            <span class="n">f</span><span class="p">,</span> <span class="n">l</span><span class="p">,</span> <span class="n">q</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">measured</span><span class="p">[</span><span class="n">label</span><span class="p">]</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">f</span> <span class="o">-</span> <span class="n">f_ghz</span><span class="p">)))</span>
+            <span class="n">vals</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">l</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+        <span class="nb">print</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s2">9</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">f_ghz</span><span class="si">:</span><span class="s2">6d</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">row</span><span class="p">[</span><span class="s1">'L_nH'</span><span class="p">]</span><span class="si">:</span><span class="s2">7.3f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">row</span><span class="p">[</span><span class="s1">'Q'</span><span class="p">]</span><span class="si">:</span><span class="s2">7.2f</span><span class="si">}</span><span class="s2"> | </span><span class="si">{</span><span class="n">vals</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">:</span><span class="s2">7.3f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">vals</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">:</span><span class="s2">7.3f</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span>
 </pre></div>
 </div>
 </div>
@@ -7939,11 +7944,15 @@ ports, 50 Ω, refined_cellsize=1.5 µm, max_cellsize=lambda_air/(sqrt(eps_max)*2
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>  f GHz  Palace L nH  Palace Q   x2y7 L nH   x2y7 Q   x5y8 L nH   x5y8 Q
-    1.0        1.921      0.21       1.912     6.59       1.932     6.86
-    5.9        1.756      1.38       1.858   -26.13       1.872   -25.99
-   10.8        1.648      6.25       1.948    -7.52       1.964    -7.39
-   30.4        0.687     -0.54       3.642    -1.35       3.744    -1.23
+<pre>model      f GHz    L nH       Q |  x2y7 L  x5y8 L
+baseline       1   1.599    0.28 |   1.912   1.932
+baseline       5   1.487    1.57 |   1.848   1.862
+baseline       9   1.424    6.02 |   1.904   1.918
+baseline      30   0.686   -0.62 |   3.642   3.744
+best           1   1.921    0.21 |   1.912   1.932
+best           5   1.775    1.10 |   1.848   1.862
+best           9   1.692    3.12 |   1.904   1.918
+best          30   0.716   -0.57 |   3.642   3.744
 </pre>
 </div>
 </div>
@@ -8067,10 +8076,10 @@ ports, 50 Ω, refined_cellsize=1.5 µm, max_cellsize=lambda_air/(sqrt(eps_max)*2
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="Experiment-matrix">Experiment matrix<a class="anchor-link" href="#Experiment-matrix">¶</a></h2><p>Screening at <strong>1 GHz</strong> on the corrected benchmark stack identified <strong>280 µm substrate + no passivation + minimal ground + PEC boundary</strong> (<code>ground0_pec</code>) as the best series-extraction variant:
 <strong>1.921 nH</strong> vs measured <strong>1.911/1.932 nH</strong> (within 10%). The full matrix,
-including finite-metal vs planar-PEC, mesh, ground, PEC boundary, gap-port and
-combinations, is in <code>nbs/data/ihp_validation/experiments/</code>. The primary L/Q uses
+including the explicit conformal SiN sidewall shell, finite-metal vs planar-PEC, mesh, ground, PEC boundary, gap-port and combinations, is in <code>nbs/data/ihp_validation/experiments/</code>. The primary L/Q uses
 the mandated series extraction; the matrix also records a differential-Z
 cross-check.</p>
+<p>The conformal-shell check adds a 0.6 µm SiN sidewall ring around every TopMetal2 polygon (the 1.9 µm top passivation is already in the PDK stack). At 1 GHz it gives 1.6277 nH, close to the 1.6230 nH mesh1.5 run, so it does not close the mismatch. The OpenEMS-like ground uses a Metal1 rectangle and Metal1→TopMetal1 ports; the central PEC pillar and exact edge-port geometry remain approximations.</p>
 </div>
 </div>
 </div>
@@ -8117,6 +8126,7 @@ planar_pec         -148188.292   10.34 -2294.982 False
 substrate180          1.599    0.28    0.749  True
 gap                   0.780    3.06    0.780  True
 openems_ground        1.654    0.24    0.732  True
+shell_conformal       1.628    0.26    0.754  True
 </pre>
 </div>
 </div>
@@ -8132,11 +8142,10 @@ openems_ground        1.654    0.24    0.732  True
 <h2 id="Findings">Findings<a class="anchor-link" href="#Findings">¶</a></h2><ul>
 <li>The measured 1 GHz inductance is <strong>1.91–1.93 nH</strong>, confirming the nominal
 2 nH benchmark from the extracted data itself.</li>
-<li>The best experiment (<code>ground0_pec</code>: SiO2 top passivation shell + minimal
-SUBGND pad) extracts <strong>1.921 nH at 1 GHz</strong>, within 10% of both measured dies.
+<li>The best experiment (<code>ground0_pec</code>: 280 µm substrate, no passivation, minimal
+ground pad, PEC boundary) extracts <strong>1.921 nH at 1 GHz</strong>, within 10% of both measured dies.
 It falls to 0.687 nH at 30.4 GHz, below measured ~3.64/3.74 nH; this is reported as disagreement.</li>
-<li>The 30 GHz point remains a discrepancy in S-parameters and Q; this is reported
-without implying agreement. The IHP guide's differential 1-port SRF (~25.5 GHz)
+<li>Baseline series L at 1/5.9/10.8/30.4 GHz is 1.599/1.473/1.391/0.664 nH; best is 1.921/1.756/1.648/0.687 nH. Low-frequency Q is 0.21 vs measured 6.59/6.86, and the mesh error Norm is ~0.18 against AdaptiveTol 0.02: the model is not converged and the series-L match is not a full validation. The IHP guide's differential 1-port SRF (~25.5 GHz)
 is distinct from this 2-port series extraction.</li>
 <li>The comparison uses the same extraction formula for measured and simulated
 data, so differences come from the EM model/ports/mesh, not from a separate
@@ -8146,7 +8155,9 @@ fitting method.</li>
 <li>OpenEMS was unavailable; the measured S-parameters are the approved fallback,
 and the OpenEMS settings are documented above.</li>
 <li>Palace uses the coarse 5 µm refined mesh and Palace Conductivity+Thickness
-metal-surface impedance BCs (finite conductor thickness), not collapsed planar PEC sheets. The measured fixture reference planes are
+metal-surface impedance BCs (finite conductor thickness), not collapsed planar PEC sheets.
+For a good conductor δ=sqrt(2/(ωμσ)) and Rs=1/(σδ); the configs use σ=3.77e7 S/m and the PDK thicknesses.</li>
+<li>The reported <code>pass</code> column only means finite, positive extracted L. It is not a pass/fail against measured data; baseline is numerically valid but ~16% low at 1 GHz. The measured fixture reference planes are
 the TopMetal1 feed ends.</li>
 <li>The pinned IHP OpenEMS script uses a 280 µm substrate and explicitly omits passivation. The passivation sensitivity (3.36 nH) is recorded in the experiment history but excluded from the final matrix because it contradicts that script.</li>
 <li>A converged full-wave model and a direct OpenEMS run remain future work.</li>
