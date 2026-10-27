@@ -1,0 +1,38 @@
+# L2n0 Palace validation audit
+
+The primary validation observable is the measured 50 Ω complex two-port S-matrix, not the S21-only series-inductance
+formula. The recorded best `ground0_pec` sweep has 11 points from 1 to 50 GHz. Against the two pinned measured `.s2p`
+files, its S21 magnitude RMS error is 8.86/8.83 dB and its phase RMS error is 44.0/45.4 degrees. S11, S12 and S22 also
+disagree (the notebook reports all four). The model is not validated.
+
+<!-- markdownlint-disable MD013 -->
+
+| Item             | Pinned IHP OpenEMS L2n0                                                                                                                                     | Recorded Palace `ground0_pec`                                                               | Implication                                                                                                                       |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Extraction       | Differential `Z11 - Z12 - Z21 + Z22`                                                                                                                        | Headline used `2 Z0 (1-S21)/S21`                                                            | The close 1 GHz series value is not a like-for-like validation. Differential L is about 0.80 nH simulated versus 1.67 nH measured |
+| Ground and ports | Metal1 rectangle x=-240..240, y=-140..10; central PEC pillar x=-10..10, y=-10..10; two x-directed gap ports x=-22.2..-10 and 10..22.2, y=0..10 at TopMetal1 | SUBGND pad, vertical interlayer ports centred at x=±34.2, y=0; no central pillar            | Different return current and port parasitics; 1 GHz Q ≈0.21 simulated versus ≈6.6 measured                                        |
+| Boundary         | PEC outer boundary                                                                                                                                          | Disabling `absorbing_boundary` leaves the outer wall unconditioned (Palace default PMC)     | The `ground0_pec` name describes an intended setting, not a PEC wall                                                              |
+| Stack            | 280 µm substrate; epi conductivity 5 S/m; SiO2 epsilon 4.1; TopMetal2 3.03e7 S/m, TopMetal1 2.78e7 S/m; no passivation                                      | PDK-derived stack plus local overrides; epi 2 S/m, uniform aluminum conductivity 3.77e7 S/m | The models do not use identical material cards                                                                                    |
+| Mesh             | 1.5 µm refined OpenEMS cell; separately published 1 and 0.5 µm variants                                                                                     | 5 µm nominal Palace mesh in the sweep; 1.5 µm single-frequency sensitivity                  | Discretization error remains unresolved; Palace error-indicator Norm ≈0.18 versus AdaptiveTol 0.02                                |
+
+<!-- markdownlint-enable MD013 -->
+
+The new `openems_edge` variant in the benchmark helper places the two gap ports at the pinned coordinates, adds the
+central Metal1-to-TopMetal1 PEC pillar, and uses the reference Metal1 ground rectangle. It is a setup for a controlled
+comparison, **not a validated numerical result**. It retains the PDK material cards and has not been meshed or solved. A
+field/current-density check and a 1 GHz loss check are required before a full sweep.
+
+The independent
+[gds2palace IHP L6n2 v3 study](https://github.com/VolkerMuehlhaus/gds2palace_ihp_sg13g2/blob/main/more_examples/measured_vs_simulated/more_accurate_models_L6n2_v3/README.md)
+uses a **different inductor**. It documents a false agreement caused by a lossy Metal1 common ground compensating for
+underestimated via resistance, then tests ideal SUBGND, via fill-factor correction, conductor-volume loss, conformal
+passivation, and 100–800 µm boundary margins. Its own margin check needed 400 µm for the larger unshielded L6n2 coil.
+These are useful sensitivity tests for L2n0, not transferable accuracy numbers. Its reported 16-core runs used up to 109
+GB RAM, so they are not appropriate to launch unconstrained on this shared workstation.
+
+Next controlled sequence: (1) verify that the new port sheets meet the TM1 feed and central PEC pillar and that R at 1
+GHz is near the measured order of 1–2 Ω; (2) compare all four complex S entries with identical reference planes; (3)
+vary conductor model, material cards, boundary margin and mesh one at a time, recording DOF, wall time, peak RAM, Palace
+convergence and physical S-error. The source
+[IHP OpenEMS L2n0 script](https://github.com/IHP-GmbH/IHP-Open-PDK/blob/943983786b04351feb20e33e8d3d76c0e0d87cce/ihp-sg13g2/libs.tech/openems/testcase/SG13_Octagon_L2n0/OpenEMS_Python/SG13_L2n0_2port_groundpolygon_mesh1.5um.py)
+defines the target setup.

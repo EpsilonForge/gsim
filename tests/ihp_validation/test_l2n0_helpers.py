@@ -41,6 +41,23 @@ def test_component_and_stack_have_the_benchmark_ports_and_layers() -> None:
     }
 
 
+def test_openems_edge_variant_uses_gap_ports_and_ground_pillar(tmp_path) -> None:
+    pytest.importorskip("ihp")
+    sim = ihp_l2n0.make_simulation(tmp_path, port_variant="openems_edge")
+    assert [(port.name, port.geometry) for port in sim._ports] == [
+        ("P1edge", "gap"),
+        ("P2edge", "gap"),
+    ]
+    assert [
+        (block.gds_layer, block.from_layer, block.to_layer) for block in sim._pec_blocks
+    ] == [((65000, 0), "metal1", "topmetal1")]
+    ports = sim.geometry.component.ports
+    assert tuple(ports["P1edge"].center) == pytest.approx((-16.1, 5.0))
+    assert tuple(ports["P2edge"].center) == pytest.approx((16.1, 5.0))
+    assert ports["P1edge"].width == pytest.approx(12.2)
+    assert ports["P2edge"].width == pytest.approx(12.2)
+
+
 def test_lq_extraction_is_finite_for_recorded_run() -> None:
     run = ihp_l2n0.load_recorded_run(ihp_l2n0.RUN_ROOT / "l2n0_30ghz")
     inductance, q, impedance = ihp_l2n0.lq_at(run.sparams)

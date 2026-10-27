@@ -173,6 +173,8 @@ def make_simulation(
     """Build a Palace simulation variant for the benchmark."""
     from gsim.palace import DrivenSim
 
+    if port_variant == "openems_edge":
+        openems_ground = True
     component = load_benchmark_component(
         ground_pad_um=ground_pad_um, openems_ground=openems_ground
     )
@@ -181,12 +183,33 @@ def make_simulation(
         shell_variant=shell_variant,
         substrate_thickness_um=substrate_thickness_um,
     )
+    if port_variant == "openems_edge":
+        # The pinned OpenEMS model has a central PEC pillar connecting the
+        # Metal1 ground plane to TopMetal1. Its ports span the 12.2 um gaps
+        # from the two feed ends to that pillar, at y=0..10 um.
+        component.add_polygon(
+            [(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)],
+            layer=(65000, 0),
+        )
+        for name, x, orientation in (
+            ("P1edge", -16.1, 180.0),
+            ("P2edge", 16.1, 0.0),
+        ):
+            component.add_port(
+                name,
+                center=(x, 5.0),
+                width=12.2,
+                orientation=orientation,
+                layer=(126, 0),
+            )
     sim = DrivenSim()
     sim.set_output_dir(output_dir)
     sim.set_geometry(component)
     sim.set_stack(stack)
     sim.absorbing_boundary = not pec_boundary
     sim.set_airbox(margin_x=150.0, margin_y=150.0, z_above=50.0, z_below=10.0)
+    if port_variant == "openems_edge":
+        sim.add_pec(gds_layer=(65000, 0), from_layer="metal1", to_layer="topmetal1")
     if port_variant == "two_port":
         for name in ("P1", "P2"):
             sim.add_port(
@@ -202,6 +225,9 @@ def make_simulation(
             "Pdiff", center=(0.0, 0.0), width=68.4, orientation=0.0, layer=(126, 0)
         )
         sim.add_port("Pdiff", layer="topmetal1", geometry="gap", impedance=Z0_OHM)
+    elif port_variant == "openems_edge":
+        for name in ("P1edge", "P2edge"):
+            sim.add_port(name, layer="topmetal1", geometry="gap", impedance=Z0_OHM)
     else:
         raise ValueError(f"unknown port_variant {port_variant!r}")
     if sweep:
