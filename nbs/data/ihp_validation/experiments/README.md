@@ -55,3 +55,8 @@ The scripts `scripts/run_ihp_experiments.py` and
 `scripts/run_ihp_verification.py` describe how the historical runs were
 created. They require a Palace executable and should not be run as a routine
 test on a shared workstation.
+
+For each recorded case, the PR retains the input and resolved configs,
+port information, `port-S.csv`, error indicators and metadata needed to
+recompute these comparisons and inspect solver settings. Derived `domain-E`,
+`port-I`, `port-V` and Palace output-config copies were removed from the PR.
