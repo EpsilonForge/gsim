@@ -24,22 +24,23 @@ from gsim.common.benchmarks import ihp_l2n0
 
 
 def _measured(label: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return (frequency_ghz, L_nH, Q) for one measured die."""
+    """Return (frequency_ghz, differential L_nH, differential Q)."""
     network = rf.Network(str(ihp_l2n0.MEASURED[label]))
-    z0 = float(np.real(np.asarray(network.z0).reshape(-1)[0]))
-    z = 2.0 * z0 * (1.0 - network.s[:, 1, 0]) / network.s[:, 1, 0]
+    matrix = network.z
+    z = matrix[:, 0, 0] - matrix[:, 0, 1] - matrix[:, 1, 0] + matrix[:, 1, 1]
     l_nh = z.imag / (2 * np.pi * network.f) * 1e9
     q = np.divide(z.imag, z.real, out=np.full_like(z.real, np.nan), where=z.real != 0)
     return network.f / 1e9, l_nh, q
 
 
 def render_comparison(out: Path) -> dict[str, float]:
-    """Render L/Q comparison and return metrics at 1 and 30 GHz."""
+    """Render differential L/Q and return 1 GHz metrics."""
     run = ihp_l2n0.load_recorded_run(ihp_l2n0.RUN_ROOT / "l2n0_best")
     f_palace = np.asarray(run.sparams.freq, dtype=float)
     l_palace, q_palace = [], []
     for i in range(len(f_palace)):
-        l, q, _ = ihp_l2n0.lq_at(run.sparams, i)
+        z = ihp_l2n0.differential_impedance_from_s(ihp_l2n0.s_matrix(run.sparams, i))
+        l, q = ihp_l2n0.lq_from_impedance(z, f_palace[i] * 1e9)
         l_palace.append(l)
         q_palace.append(q)
     l_palace = np.asarray(l_palace)
@@ -55,12 +56,11 @@ def render_comparison(out: Path) -> dict[str, float]:
     axes[0].plot(f_palace, l_palace, "o-", color="C3", label="Palace")
     axes[1].plot(f_palace, q_palace, "o-", color="C3", label="Palace")
     for ax in axes:
-        ax.axvline(30, color="k", lw=0.8, ls=":")
         ax.grid(alpha=0.3)
-        ax.set(xlabel="frequency (GHz)")
+        ax.set(xlabel="frequency (GHz)", xlim=(0, 20))
         ax.legend(fontsize=8)
-    axes[0].set(title="Extracted series inductance", ylabel="L (nH)")
-    axes[1].set(title="Extracted quality factor", ylabel="Q")
+    axes[0].set(title="Differential inductance", ylabel="L (nH)", ylim=(0, 5))
+    axes[1].set(title="Differential quality factor", ylabel="Q", ylim=(0, 25))
     fig.tight_layout()
     fig.savefig(
         out / "l2n0_comparison.png", dpi=160, bbox_inches="tight", facecolor="white"
@@ -71,29 +71,12 @@ def render_comparison(out: Path) -> dict[str, float]:
         return float(values[int(np.argmin(np.abs(f - target)))])
 
     rows = {
-        "palace_l_1ghz_nh": at(f_palace, l_palace, 1.0),
-        "palace_q_1ghz": at(f_palace, q_palace, 1.0),
-        "palace_l_30ghz_nh": at(f_palace, l_palace, 30.0),
-        "palace_q_30ghz": at(f_palace, q_palace, 30.0),
+        "palace_diff_l_1ghz_nh": at(f_palace, l_palace, 1.0),
+        "palace_diff_q_1ghz": at(f_palace, q_palace, 1.0),
     }
     for label, (f, l, q) in measured.items():
-        rows[f"{label}_l_1ghz_nh"] = at(f, l, 1.0)
-        rows[f"{label}_q_1ghz"] = at(f, q, 1.0)
-        rows[f"{label}_l_30ghz_nh"] = at(f, l, 30.0)
-        rows[f"{label}_q_30ghz"] = at(f, q, 30.0)
-    exact = (
-        REPO
-        / "nbs"
-        / "data"
-        / "ihp_validation"
-        / "experiments"
-        / "verification"
-        / "verification.json"
-    )
-    if exact.is_file():
-        point = json.loads(exact.read_text())["best"]["30"]
-        rows["palace_l_30ghz_nh"] = float(point["L_nH"])
-        rows["palace_q_30ghz"] = float(point["Q"])
+        rows[f"{label}_diff_l_1ghz_nh"] = at(f, l, 1.0)
+        rows[f"{label}_diff_q_1ghz"] = at(f, q, 1.0)
     return rows
 
 
@@ -108,36 +91,15 @@ def build(
     (out / "metrics.json").write_text(json.dumps(rows, indent=2) + "\n")
     experiments = REPO / "nbs" / "data" / "ihp_validation" / "experiments"
     matrix = json.loads((experiments / "results.json").read_text())
-    verify = json.loads(
-        (experiments / "verification" / "verification.json").read_text()
-    )
     campaign = "".join(
-        f"<tr><td>{name}</td><td>{matrix[name]['L_nH']:.3f}</td>"
-        f"<td>{matrix[name]['Q']:.2f}</td><td>{matrix[name]['L_diff_nH']:.3f}</td></tr>"
+        f"<tr><td>{name}</td><td>{matrix[name]['L_diff_nH']:.3f}</td>"
+        f"<td>{matrix[name]['Q_diff']:.3f}</td></tr>"
         for name in (
             "baseline",
             "shell_conformal",
             "ground0_pec",
             "openems_ground",
-            "gap",
         )
-    )
-
-    def point(name: str, frequency: str) -> tuple[float, float]:
-        if frequency == "1":
-            row = matrix["ground0_pec" if name == "best" else name]
-        else:
-            row = verify[name][frequency]
-        return float(row["L_nH"]), float(row["Q"])
-
-    verification = "".join(
-        f"<tr><td>{name}</td>"
-        + "".join(
-            f"<td>{point(name, f)[0]:.3f}</td><td>{point(name, f)[1]:.2f}</td>"
-            for f in ("1", "5", "9", "30")
-        )
-        + "</tr>"
-        for name in ("baseline", "best")
     )
     for name in ("L_2n0_simplified.gds", "README.md", "provenance.json"):
         source = ihp_l2n0.SOURCE / name
@@ -170,20 +132,21 @@ code {{ font-size:.9em; }}
 <p><a href="../">&larr; all variants</a></p>
 <h1>IHP SG13G2 Octagon L2n0 — two-port validation audit</h1>
 <p class="muted">The executed notebook compares all four complex S-parameters with two pinned
-IHP measured dies. The L/Q figure below is a series-extraction diagnostic, not
-a validation result. Layout and measured data are pinned from IHP-Open-PDK
+IHP measured dies. The L/Q figure uses the differential impedance extraction
+from the pinned IHP script. Layout and measured data are pinned from IHP-Open-PDK
 commit <code>9439837</code> (Apache-2.0).</p>
 <div class="card"><img src="l2n0_comparison.png" alt="Measured and Palace extracted inductance and Q"></div>
-<div class="card"><h2>Series-extraction diagnostic</h2>
-<table><thead><tr><th>case</th><th>L @ 1 GHz (nH)</th><th>Q @ 1 GHz</th><th>L @ 30 GHz (nH)</th><th>Q @ 30 GHz</th></tr></thead><tbody>
-<tr><td>Palace</td><td>{rows["palace_l_1ghz_nh"]:.3f}</td><td>{rows["palace_q_1ghz"]:.2f}</td><td>{rows["palace_l_30ghz_nh"]:.3f}</td><td>{rows["palace_q_30ghz"]:.2f}</td></tr>
-<tr><td>die_x2y7</td><td>{rows["die_x2y7_l_1ghz_nh"]:.3f}</td><td>{rows["die_x2y7_q_1ghz"]:.2f}</td><td>{rows["die_x2y7_l_30ghz_nh"]:.3f}</td><td>{rows["die_x2y7_q_30ghz"]:.2f}</td></tr>
-<tr><td>die_x5y8</td><td>{rows["die_x5y8_l_1ghz_nh"]:.3f}</td><td>{rows["die_x5y8_q_1ghz"]:.2f}</td><td>{rows["die_x5y8_l_30ghz_nh"]:.3f}</td><td>{rows["die_x5y8_q_30ghz"]:.2f}</td></tr>
+<div class="card"><h2>Differential impedance at 1 GHz</h2>
+<table><thead><tr><th>case</th><th>L (nH)</th><th>Q</th></tr></thead><tbody>
+<tr><td>Palace</td><td>{rows["palace_diff_l_1ghz_nh"]:.3f}</td><td>{rows["palace_diff_q_1ghz"]:.2f}</td></tr>
+<tr><td>die_x2y7</td><td>{rows["die_x2y7_diff_l_1ghz_nh"]:.3f}</td><td>{rows["die_x2y7_diff_q_1ghz"]:.2f}</td></tr>
+<tr><td>die_x5y8</td><td>{rows["die_x5y8_diff_l_1ghz_nh"]:.3f}</td><td>{rows["die_x5y8_diff_q_1ghz"]:.2f}</td></tr>
 </tbody></table>
-<p class="muted">The measured 1 GHz S21-series value is 1.91-1.93 nH. This formula assumes a
-pure series element; the pinned IHP script instead uses differential Z.
-At 30 GHz the measured device is near/past resonance, so one extracted
-inductance does not characterize agreement.</p></div>
+<p class="muted">The simulated inductance is about half the measured value.
+The older S21-only series formula happened to give 1.921 nH; it assumes an
+isolated series element and is misleading for this two-port. At 30 GHz the
+measured device is near/past resonance, so a single inductance is not an
+agreement metric.</p></div>
 {notebook_section}
 <div class="card"><p><strong>Complete two-port result:</strong> L2n0 Palace S21 has
 8.83-8.86 dB RMS magnitude error and 44-45° RMS phase error across the
@@ -191,24 +154,21 @@ recorded 1-50 GHz sweep. S11, S12 and S22 also disagree. The model is not
 validated. The notebook also compares public measured L6n2 data with three
 GDS2Palace simulations of that separate device at 5, 2 and 1 µm meshes.</p></div>
 <div class="card"><h2>Campaign matrix (1 GHz)</h2>
-<table><thead><tr><th>variant</th><th>L nH</th><th>Q</th><th>L diff nH</th></tr></thead><tbody>{campaign}</tbody></table>
-<p class="muted">Best series result: ground0_pec 1.921 nH vs measured 1.911/1.932 nH.
-The differential comparison is negative: ground0_pec 0.802 nH and gap 0.780 nH
-vs measured differential 1.674/1.672 nH. The 1.921 nH headline is therefore a
-series-extraction result, not a full validation. `shell_conformal` adds a 0.6 µm
-SiN sidewall shell around TopMetal2 and gives 1.6277 nH.</p>
-<table><thead><tr><th>model</th><th>1 GHz L</th><th>1 GHz Q</th><th>5 GHz L</th><th>5 GHz Q</th><th>9 GHz L</th><th>9 GHz Q</th><th>30 GHz L</th><th>30 GHz Q</th></tr></thead><tbody>{verification}</tbody></table>
-<p class="muted">30 GHz remains far below measured ~3.61/3.71 nH; Q is also low
-(0.21 best at 1 GHz vs measured ~6.6). The mesh error Norm is ~0.18 against
-AdaptiveTol 0.02, so the model is not converged.</p></div>
+<table><thead><tr><th>variant</th><th>Differential L (nH)</th><th>Differential Q</th></tr></thead><tbody>{campaign}</tbody></table>
+<p class="muted">The variants were screened at one frequency. The `gap` case
+has one port and is excluded from this two-port table. The `planar_pec` case
+produced invalid numerical output. The 1/5/9/30 GHz files used an earlier
+passivation model and do not establish frequency convergence. The recorded
+mesh error indicator is about 0.18 against a 0.02 tolerance.</p></div>
 <div class="card"><h2>Model and source</h2>
-<p>Palace sweep: 1-50 GHz, 11 points; authoritative IHP SG13G2 stack with a
+<p>Palace sweep: 1-50 GHz, 11 points; an IHP SG13G2 stack approximation with a
 280 µm substrate, TopMetal2 winding, TopMetal1 feeds/underpass, and a minimal
 ground pad and an unconditioned (Palace-default PMC) outer wall for the
 `ground0_pec` variant. The historical name does not indicate a true PEC wall. The 5 µm refined / 70 µm
 maximum mesh and Palace Conductivity+Thickness surface-impedance BCs
-(sigma=3.77e7 S/m; delta ~2.6 um at 1 GHz) model finite conductors. OpenEMS was not
-available; pinned measured S-parameters are the approved fallback.</p>
+(sigma=3.77e7 S/m; delta ~2.6 um at 1 GHz) model finite conductors. This
+conductivity and the dielectric/passivation geometry differ from the pinned
+OpenEMS script. OpenEMS was unavailable for this campaign.</p>
 <p>The IHP OpenEMS reference uses SG13_L2n0_2port_groundpolygon_mesh1.5um.py
 with TopMetal1 edge ports, a central Metal1->TopMetal1 PEC pillar, Metal1 ground
 box, 1.5 µm refined cells, lambda_air/(sqrt(eps_max)*20) maximum cells, PEC

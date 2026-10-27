@@ -1,35 +1,57 @@
-# IHP L2n0 experiment matrix
+# IHP L2n0 exploratory experiment matrix
 
-All runs at **1 GHz** on the 280 µm-substrate stack. `L` is the S21-only series-element extraction; `L diff` is the differential-Z extraction used by the pinned IHP two-port script. `pass` means only that L is finite and positive, not that it matches measurement. The complete complex S-parameter comparison is in `nbs/ihp_l2n0_openems_validation.ipynb`.
+These are recorded **1 GHz screening runs**, not a mesh-converged validation.
+The primary L and Q columns use the differential impedance
+`Zdiff = Z11 - Z12 - Z21 + Z22`, as in the pinned IHP OpenEMS two-port script.
+The two measured dies give 1.674 and 1.672 nH by this extraction. The best
+recorded two-port value below is 0.802 nH, about a factor of two low. The
+`ground0_pec` configuration has the current-stack 1–50 GHz sweep used for full complex S comparison;
+that comparison is in [the notebook](../../../ihp_l2n0_openems_validation.ipynb).
 
-| variant | L 1GHz nH | Q | L diff nH | pass | notes |
-| --- | ---: | ---: | ---: | --- | --- |
-| baseline | 1.599 | 0.28 | 0.749 | True | {} |
-| shell_conformal | 1.628 | 0.26 | 0.754 | True | {'shell_variant': True, 'refined_mesh_size': 1.5} |
-| ground0 | 1.882 | 0.20 | 0.754 | True | {'ground_pad_um': 0.0} |
-| ground0_pec | 1.921 | 0.21 | 0.802 | True | {'ground_pad_um': 0.0, 'pec_boundary': True} |
-| openems_ground | 1.654 | 0.24 | 0.732 | True | {'openems_ground': True} |
-| pec | 1.639 | 0.29 | 0.796 | True | {'pec_boundary': True} |
-| mesh1.5 | 1.623 | 0.26 | 0.754 | True | {'refined_mesh_size': 1.5} |
-| planar_pec | -148188.292 | 10.34 | -2294.982 | False | {'planar_conductors': True} |
-| substrate180 | 1.599 | 0.28 | 0.749 | True | {'substrate_thickness_um': 180.0} |
-| gap | 0.780 | 3.06 | 0.780 | True | {'port_variant': 'gap'} |
+| Variant | Ports | Differential L at 1 GHz (nH) | Differential Q | Status |
+| --- | --- | ---: | ---: | --- |
+| baseline | P1, P2 | 0.749 | 0.132 | Exploratory |
+| shell_conformal | P1, P2 | 0.754 | 0.122 | Exploratory |
+| ground0 | P1, P2 | 0.754 | 0.082 | Exploratory |
+| ground0_pec | P1, P2 | 0.802 | 0.087 | Exploratory; outer wall is Palace-default PMC |
+| openems_ground | P1, P2 | 0.732 | 0.107 | Exploratory |
+| pec | P1, P2 | 0.796 | 0.140 | Exploratory; outer wall is Palace-default PMC |
+| mesh1.5 | P1, P2 | 0.754 | 0.122 | Exploratory |
+| substrate180 | P1, P2 | 0.749 | 0.132 | Exploratory |
+| gap | Pdiff only | 0.780 | 3.061 | One-port diagnostic; not a two-port S comparison |
+| planar_pec | P1, P2 | — | — | Invalid numerical output; excluded from comparisons |
 
-Closest S21-only series result: `ground0_pec` 1.921 nH vs measured 1.911/1.932 nH. Differential comparison: ground0_pec 0.802 nH and gap 0.780 nH vs measured differential 1.674/1.672 nH — both ~2.1x low. The full two-port response disagrees with measurement; this variant is not validated. Its outer wall is unconditioned rather than PEC, despite the historical variant name.
+The `ground0_pec` historical name records the campaign's intent. Setting
+`absorbing_boundary=False` does **not** impose a PEC wall; Palace uses its
+default PMC wall. Its apparent 1.921 nH agreement with the measured
+1.911/1.932 nH is from `2 Z0 (1-S21)/S21`, which assumes a pure series
+element. The two-port has shunt and return-path effects, so this agreement
+does not validate the inductor. At 1 GHz its Q is 0.21 by that series
+extraction versus about 6.6 measured; the full S21 comparison has about
+0.31 complex RMS error and 8.9 dB magnitude RMS error across 11 frequencies.
+The recorded mesh error indicator is about 0.18 against a 0.02 tolerance.
 
-Conformal shell: `shell_conformal` adds a 0.6 µm SiN sidewall ring around TopMetal2 (layer 999/0, same z-range as TopMetal2) plus the existing 1.9 µm top passivation; it gives 1.6277 nH at 1 GHz and does not improve the match.
+The single-frequency `planar_pec` solve exited but produced a negative
+inductance of roughly -148,188 nH by the S21 series extraction, so its
+`results.json` entry is retained only as failure provenance. Its `ok: true`
+means the process returned, while `pass: false` flags a nonphysical result;
+neither field is a validation result. The `gap` run has one port and cannot be
+directly compared to the measured two-port S-matrix.
 
-Finite conductors use Palace `Conductivity` + `Thickness` surface-impedance BCs: δ=sqrt(2/(ωμσ)), Rs=1/(σδ), σ=3.77e7 S/m, PDK thicknesses 2/3/3.75 µm. `planar_pec` is numerically invalid.
+The historical 1/5/9/30 GHz verification files used an earlier passivation
+model. The 30 GHz point is near or past a measured resonance; its extracted
+inductance is not a useful scalar agreement metric. These files remain
+exploratory provenance, not evidence of frequency or mesh convergence.
 
-OpenEMS-like ground: `openems_ground` uses a Metal1 rectangle (-240..240 × -140..10 µm) and Metal1→TopMetal1 via ports. The pinned script instead uses TopMetal1 edge ports with a central Metal1→TopMetal1 PEC pillar; the central pillar is not modeled, and this difference contributes to the remaining mismatch.
+The `shell_conformal` variant adds a 0.6 µm SiN sidewall ring around
+TopMetal2 (layer 999/0) plus the existing 1.9 µm top passivation. The
+`openems_ground` variant adds a Metal1 rectangle but retains vertical
+Metal1-to-TopMetal1 ports and omits the reference script's central pillar.
+The separate `openems_edge` setup adds edge-gap ports and pillar, but has
+only been meshed at 5 µm, without a Palace solve. The mesh under-resolves a
+2.998 µm feature; no result from that setup is included here.
 
-## Verification frequencies
-
-| model | 1 GHz L | 5 GHz L | 9 GHz L | 30 GHz L |
-| --- | ---: | ---: | ---: | ---: |
-| baseline | 1.599 | 1.487 | 1.424 | 0.686 |
-| best (ground0_pec) | 1.921 | 1.775 | 1.692 | 0.716 |
-
-At 30 GHz both models are far below measured ~3.61/3.71 nH. Low-frequency Q is 0.21–0.28 vs measured ~6.6, and the mesh error Norm is ~0.18 against AdaptiveTol 0.02; the model is not converged.
-
-Reproduce the matrix with `scripts/run_ihp_experiments.py`; reproduce the exact 1/5/9/30 GHz table with `scripts/run_ihp_verification.py`.
+The scripts `scripts/run_ihp_experiments.py` and
+`scripts/run_ihp_verification.py` describe how the historical runs were
+created. They require a Palace executable and should not be run as a routine
+test on a shared workstation.
