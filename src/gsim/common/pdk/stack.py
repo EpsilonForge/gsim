@@ -34,12 +34,17 @@ from typing import Any, Literal, cast
 
 from gsim.common.pdk.models import LayerResolutionError
 from gsim.common.pdk.overlays import StackOverlay, get_stack_overlay
-from gsim.common.pdk.resolve import _resolve_layer_stack, _resolve_pdk
+from gsim.common.pdk.resolve import (
+    _resolve_layer_stack,
+    _resolve_pdk,
+    _resolve_project_cards,
+)
 from gsim.common.stack._layer_utils import get_gds_layer_tuple
 from gsim.common.stack.materials import (
     MaterialProperties,
     get_material_properties,
 )
+from gsim.common.stack.rf_materials import constant_rf_properties
 
 LayerRole = Literal["conductor", "via", "dielectric", "substrate"]
 
@@ -49,13 +54,23 @@ CONDUCTIVITY_THRESHOLD = 1e4
 _VALID_ROLES = frozenset({"conductor", "via", "dielectric", "substrate"})
 
 
-def resolve_material_properties(material: str) -> MaterialProperties:
+def resolve_material_properties(
+    material: str, *, material_cards: Mapping[str, Any] | None = None
+) -> MaterialProperties:
     """Return PDK material properties, or raise for an unknown token.
 
-    Uses the shared material registry, which normalizes common aliases
-    (``si`` -> ``silicon``, ``sio2`` -> ``SiO2``, ``sin`` -> ``Si3N4``, ...).
-    Raises rather than returning a silent placeholder.
+    A PDK's process-specific RF MaterialCard takes precedence. The shared
+    material registry supplies generic aliases such as ``si`` and ``sio2``.
+    Unknown tokens raise rather than becoming silent placeholders.
     """
+    card = (material_cards or {}).get(material)
+    if card is not None:
+        try:
+            rf_properties = constant_rf_properties(card)
+        except ValueError as error:
+            raise LayerResolutionError(str(error)) from error
+        if rf_properties is not None:
+            return MaterialProperties.model_validate(rf_properties)
     props = get_material_properties(material)
     if props is None:
         raise LayerResolutionError(
@@ -225,6 +240,8 @@ def _layer_role_hint(layer_level: Any) -> LayerRole | None:
 
 def _resolve_dielectrics(
     explicit: Iterable[Mapping[str, Any]] | None,
+    *,
+    material_cards: Mapping[str, Any] | None = None,
 ) -> tuple[ResolvedDielectric, ...]:
     """Build explicit dielectric regions; gsim never adds its own."""
     if not explicit:
@@ -232,7 +249,7 @@ def _resolve_dielectrics(
     resolved: list[ResolvedDielectric] = []
     for entry in explicit:
         material = str(entry["material"])
-        props = resolve_material_properties(material)
+        props = resolve_material_properties(material, material_cards=material_cards)
         resolved.append(
             ResolvedDielectric(
                 name=str(entry["name"]),
@@ -294,7 +311,8 @@ def resolve_layer_stack(
             material, a material token cannot be resolved, or an override names
             an unknown layer or role.
     """
-    pdk_object, _ = _resolve_pdk(pdk)
+    pdk_object, pdk_module = _resolve_pdk(pdk)
+    material_cards = _resolve_project_cards(pdk_object, pdk_module)
     layer_stack = _resolve_layer_stack(pdk_object)
     pdk_name = str(getattr(pdk_object, "name", "unknown"))
 
@@ -324,7 +342,7 @@ def resolve_layer_stack(
                 f"LayerStack entry {key!r} has no material; the PDK stack must "
                 "declare a material for every process layer."
             )
-        props = resolve_material_properties(material)
+        props = resolve_material_properties(material, material_cards=material_cards)
         materials.setdefault(material, props.to_dict())
 
         zmin = float(layer_level.zmin or 0.0)
@@ -385,7 +403,9 @@ def resolve_layer_stack(
             "domain will fall back to the full declared stack."
         )
 
-    resolved_dielectrics = _resolve_dielectrics(list(merged_dielectrics.values()))
+    resolved_dielectrics = _resolve_dielectrics(
+        list(merged_dielectrics.values()), material_cards=material_cards
+    )
     # Palace (and other backends) look material properties up by the material
     # token written on each dielectric region.  A caller can legitimately use a
     # token that no process layer uses verbatim (IHP names silicon ``si`` while
