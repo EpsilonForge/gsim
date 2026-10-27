@@ -95,7 +95,7 @@ def build_benchmark_stack(
     shell_variant: bool = False,
     substrate_thickness_um: float = 280.0,
 ) -> Any:
-    """Build the recorded IHP-derived stack with benchmark SUBGND/EPI levels."""
+    """Build the recorded IHP-derived stack with no blanket passivation."""
     import ihp
 
     from gsim.common.pdk import build_layer_stack, resolve_layer_stack

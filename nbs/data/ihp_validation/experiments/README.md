@@ -43,9 +43,13 @@ model. The 30 GHz point is near or past a measured resonance; its extracted
 inductance is not a useful scalar agreement metric. These files remain
 exploratory provenance, not evidence of frequency or mesh convergence.
 
-The `shell_conformal` variant adds a 0.6 µm SiN sidewall ring around
-TopMetal2 (layer 999/0) plus the existing 1.9 µm top passivation. The
-`openems_ground` variant adds a Metal1 rectangle but retains vertical
+The current 1 GHz screening stack uses PDK layer heights and materials but
+replaces its dielectric regions with a 280 µm substrate, 3.75 µm epi, and
+SiO2 ending at the PDK passivation bottom (14.03 µm). The default 1.9 µm
+blanket SiN passivation is absent. The `shell_conformal` variant adds only a
+0.6 µm SiN sidewall ring around TopMetal2 (layer 999/0).
+
+The `openems_ground` variant adds a Metal1 rectangle but retains vertical
 Metal1-to-TopMetal1 ports and omits the reference script's central pillar.
 The separate `openems_edge` setup adds edge-gap ports and pillar, but has
 only been meshed at 5 µm, without a Palace solve. The mesh under-resolves a
