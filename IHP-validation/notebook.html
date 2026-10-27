@@ -3,7 +3,7 @@
 <html lang="en">
 <head><meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Notebook</title><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
+<title>notebook</title><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
 <style type="text/css">
     pre { line-height: 125%; }
 td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
@@ -8289,13 +8289,16 @@ response above instead.</li>
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="Independent-Palace-reference:-measured-L6n2-versus-GDS2Palace">Independent Palace reference: measured L6n2 versus GDS2Palace<a class="anchor-link" href="#Independent-Palace-reference:-measured-L6n2-versus-GDS2Palace">¶</a></h2><p>L6n2 is a <strong>different IHP inductor</strong> (four turns, nominal 6.2 nH). This section
 uses its public THRU-de-embedded measured two-port <code>.s2p</code> file and three
-GDS2Palace v3 conformal-passivation simulations of <strong>the same L6n2 layout</strong>,
+GDS2Palace v3 conformal-passivation simulations paired with that measurement
 at 5, 2 and 1 µm nominal mesh sizes. The source repository is pinned to
 <a href="https://github.com/VolkerMuehlhaus/gds2palace_ihp_sg13g2/tree/c8abeadc6ef8e4126d82f02a6adfd58c5b893c50/more_examples/measured_vs_simulated/more_accurate_models_L6n2_v3"><code>c8abead</code></a>.
 Files are fetched into the local user cache and checked by SHA-256; they are
 not redistributed in this PR. The <a href="https://github.com/VolkerMuehlhaus/gds2palace_ihp_sg13g2/blob/c8abeadc6ef8e4126d82f02a6adfd58c5b893c50/more_examples/measured_vs_simulated/more_accurate_models_L6n2_v3/README.md">source study</a>
 reports a 400 µm margin, corrected via merging, volume conductors and
-conformal passivation. Its reported 1% L/SRF accuracy is specific to L6n2.</p>
+conformal passivation. Its reported 1% L/SRF accuracy is specific to L6n2.
+The measured filename starts <code>L5_6n2</code>; the source study explicitly identifies
+it as its L6n2 measurement. We rely on that pairing because the fabricated
+mask and probe reference planes are not independently available here.</p>
 <p>All four complex S entries are compared at the simulation frequencies common
 to the measured range (0.1–14 GHz), using 50 Ω reference impedances. The
 magnitude and phase plots are followed by differential impedance diagnostics.</p>
