@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -72,7 +73,16 @@ def data_root() -> Path:
 
 
 def _cache_path(repo: str, commit: str, path: str) -> Path:
-    """Map a repo/commit/path triple to its cache location."""
+    """Map a pinned source to a short, Windows-compatible cache filename."""
+    source = f"{repo}\0{commit}\0{path}"
+    digest = hashlib.sha256(source.encode()).hexdigest()[:24]
+    filename = Path(path).name
+    suffix = Path(filename).suffix
+    stem = filename[: -len(suffix)] if suffix else filename
+    return data_root() / f"{stem[:32]}-{digest}{suffix}"
+
+
+def _legacy_cache_path(repo: str, commit: str, path: str) -> Path:
     owner, name = repo.split("/", 1)
     return data_root() / f"{owner}-{name}@{commit}" / path
 
@@ -111,6 +121,17 @@ def fetch(
         and (sha256 is None or _sha256_file(destination) == sha256)
     ):
         return destination
+
+    if not force:
+        legacy = _legacy_cache_path(repo, commit, path)
+        # Older versions used the full source path, which may exceed MAX_PATH.
+        if (
+            (os.name != "nt" or len(str(legacy)) < 240)
+            and legacy.is_file()
+            and (sha256 is None or _sha256_file(legacy) == sha256)
+        ):
+            shutil.copyfile(legacy, destination)
+            return destination
 
     url = _RAW_URL.format(repo=repo, commit=commit, path=path)
     if os.environ.get("GSIM_PDK_OFFLINE"):

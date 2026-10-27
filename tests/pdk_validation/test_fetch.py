@@ -16,7 +16,7 @@ def test_fetch_reuses_existing_cache(
 ) -> None:
     monkeypatch.setenv("GSIM_PDK_DATA", str(tmp_path))
     destination = _fetch._cache_path("owner/repo", "deadbeef", "dir/file.mat")
-    destination.parent.mkdir(parents=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(b"cached")
 
     assert _fetch.fetch("owner/repo", "deadbeef", "dir/file.mat") == destination
@@ -38,11 +38,37 @@ def test_offline_ignores_stale_checksum(
     monkeypatch.setenv("GSIM_PDK_DATA", str(tmp_path))
     monkeypatch.setenv("GSIM_PDK_OFFLINE", "1")
     destination = _fetch._cache_path("owner/repo", "deadbeef", "dir/file.mat")
-    destination.parent.mkdir(parents=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(b"stale")
 
     with pytest.raises(_fetch.FetchError, match="GSIM_PDK_OFFLINE"):
         _fetch.fetch("owner/repo", "deadbeef", "dir/file.mat", sha256="0" * 64)
+
+
+def test_siepic_cache_path_stays_short_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GSIM_PDK_DATA", str(tmp_path))
+    source = f"{_fetch.SIEPIC_COUPLER_DIR}/{_fetch.coupler_filename()}"
+    cached = _fetch._cache_path(_fetch.SIEPIC_REPO, _fetch.SIEPIC_COMMIT, source)
+    assert cached.parent == tmp_path
+    assert len(cached.name) < 70
+    assert cached.suffix == ".dat"
+    assert cached != _fetch._cache_path(_fetch.SIEPIC_REPO, "other-commit", source)
+
+
+def test_existing_long_cache_migrates_offline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GSIM_PDK_DATA", str(tmp_path))
+    monkeypatch.setenv("GSIM_PDK_OFFLINE", "1")
+    legacy = _fetch._legacy_cache_path("owner/repo", "deadbeef", "dir/file.mat")
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(b"cached")
+
+    destination = _fetch.fetch("owner/repo", "deadbeef", "dir/file.mat")
+    assert destination == _fetch._cache_path("owner/repo", "deadbeef", "dir/file.mat")
+    assert destination.read_bytes() == b"cached"
 
 
 def test_coupler_filename_round_trip() -> None:
