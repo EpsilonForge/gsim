@@ -16,7 +16,6 @@ import shutil
 import sys
 from pathlib import Path
 
-import gdstk
 import matplotlib as mpl
 import numpy as np
 
@@ -91,6 +90,8 @@ def resolve_gds(name: str) -> Path | None:
 
 def render_gds(gds_path: Path, out_png: Path, title: str) -> tuple[float, float]:
     """Render a GDS layout to PNG; return its drawn extent in micrometres."""
+    import gdstk
+
     library = gdstk.read_gds(str(gds_path))
     top = library.top_level()
     polygons = top[0].get_polygons() if top else []  # ty: ignore[unresolved-attribute]
