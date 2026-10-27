@@ -17,20 +17,21 @@ code { font-size:.9em; }
 <p><a href="../">&larr; all variants</a></p>
 <h1>IHP SG13G2 Octagon L2n0 — two-port validation audit</h1>
 <p class="muted">The executed notebook compares all four complex S-parameters with two pinned
-IHP measured dies. The L/Q figure below is a series-extraction diagnostic, not
-a validation result. Layout and measured data are pinned from IHP-Open-PDK
+IHP measured dies. The L/Q figure uses the differential impedance extraction
+from the pinned IHP script. Layout and measured data are pinned from IHP-Open-PDK
 commit <code>9439837</code> (Apache-2.0).</p>
 <div class="card"><img src="l2n0_comparison.png" alt="Measured and Palace extracted inductance and Q"></div>
-<div class="card"><h2>Series-extraction diagnostic</h2>
-<table><thead><tr><th>case</th><th>L @ 1 GHz (nH)</th><th>Q @ 1 GHz</th><th>L @ 30 GHz (nH)</th><th>Q @ 30 GHz</th></tr></thead><tbody>
-<tr><td>Palace</td><td>1.921</td><td>0.21</td><td>0.716</td><td>-0.57</td></tr>
-<tr><td>die_x2y7</td><td>1.912</td><td>6.59</td><td>3.642</td><td>-1.35</td></tr>
-<tr><td>die_x5y8</td><td>1.932</td><td>6.86</td><td>3.744</td><td>-1.23</td></tr>
+<div class="card"><h2>Differential impedance at 1 GHz</h2>
+<table><thead><tr><th>case</th><th>L (nH)</th><th>Q</th></tr></thead><tbody>
+<tr><td>Palace</td><td>0.802</td><td>0.09</td></tr>
+<tr><td>die_x2y7</td><td>1.674</td><td>6.50</td></tr>
+<tr><td>die_x5y8</td><td>1.672</td><td>6.57</td></tr>
 </tbody></table>
-<p class="muted">The measured 1 GHz S21-series value is 1.91-1.93 nH. This formula assumes a
-pure series element; the pinned IHP script instead uses differential Z.
-At 30 GHz the measured device is near/past resonance, so one extracted
-inductance does not characterize agreement.</p></div>
+<p class="muted">The simulated inductance is about half the measured value.
+The older S21-only series formula happened to give 1.921 nH; it assumes an
+isolated series element and is misleading for this two-port. At 30 GHz the
+measured device is near/past resonance, so a single inductance is not an
+agreement metric.</p></div>
 <p><strong>Notebook:</strong> <a href="notebook.html">rendered notebook</a> · <a href="notebook.ipynb">executed .ipynb</a></p>
 <div class="card"><p><strong>Complete two-port result:</strong> L2n0 Palace S21 has
 8.83-8.86 dB RMS magnitude error and 44-45° RMS phase error across the
@@ -38,24 +39,21 @@ recorded 1-50 GHz sweep. S11, S12 and S22 also disagree. The model is not
 validated. The notebook also compares public measured L6n2 data with three
 GDS2Palace simulations of that separate device at 5, 2 and 1 µm meshes.</p></div>
 <div class="card"><h2>Campaign matrix (1 GHz)</h2>
-<table><thead><tr><th>variant</th><th>L nH</th><th>Q</th><th>L diff nH</th></tr></thead><tbody><tr><td>baseline</td><td>1.599</td><td>0.28</td><td>0.749</td></tr><tr><td>shell_conformal</td><td>1.628</td><td>0.26</td><td>0.754</td></tr><tr><td>ground0_pec</td><td>1.921</td><td>0.21</td><td>0.802</td></tr><tr><td>openems_ground</td><td>1.654</td><td>0.24</td><td>0.732</td></tr><tr><td>gap</td><td>0.780</td><td>3.06</td><td>0.780</td></tr></tbody></table>
-<p class="muted">Best series result: ground0_pec 1.921 nH vs measured 1.911/1.932 nH.
-The differential comparison is negative: ground0_pec 0.802 nH and gap 0.780 nH
-vs measured differential 1.674/1.672 nH. The 1.921 nH headline is therefore a
-series-extraction result, not a full validation. `shell_conformal` adds a 0.6 µm
-SiN sidewall shell around TopMetal2 and gives 1.6277 nH.</p>
-<table><thead><tr><th>model</th><th>1 GHz L</th><th>1 GHz Q</th><th>5 GHz L</th><th>5 GHz Q</th><th>9 GHz L</th><th>9 GHz Q</th><th>30 GHz L</th><th>30 GHz Q</th></tr></thead><tbody><tr><td>baseline</td><td>1.599</td><td>0.28</td><td>1.487</td><td>1.57</td><td>1.424</td><td>6.02</td><td>0.686</td><td>-0.62</td></tr><tr><td>best</td><td>1.921</td><td>0.21</td><td>1.775</td><td>1.10</td><td>1.692</td><td>3.12</td><td>0.716</td><td>-0.57</td></tr></tbody></table>
-<p class="muted">30 GHz remains far below measured ~3.61/3.71 nH; Q is also low
-(0.21 best at 1 GHz vs measured ~6.6). The mesh error Norm is ~0.18 against
-AdaptiveTol 0.02, so the model is not converged.</p></div>
+<table><thead><tr><th>variant</th><th>Differential L (nH)</th><th>Differential Q</th></tr></thead><tbody><tr><td>baseline</td><td>0.749</td><td>0.132</td></tr><tr><td>shell_conformal</td><td>0.754</td><td>0.122</td></tr><tr><td>ground0_pec</td><td>0.802</td><td>0.087</td></tr><tr><td>openems_ground</td><td>0.732</td><td>0.107</td></tr></tbody></table>
+<p class="muted">The variants were screened at one frequency. The `gap` case
+has one port and is excluded from this two-port table. The `planar_pec` case
+produced invalid numerical output. The 1/5/9/30 GHz files used an earlier
+passivation model and do not establish frequency convergence. The recorded
+mesh error indicator is about 0.18 against a 0.02 tolerance.</p></div>
 <div class="card"><h2>Model and source</h2>
-<p>Palace sweep: 1-50 GHz, 11 points; authoritative IHP SG13G2 stack with a
+<p>Palace sweep: 1-50 GHz, 11 points; an IHP SG13G2 stack approximation with a
 280 µm substrate, TopMetal2 winding, TopMetal1 feeds/underpass, and a minimal
 ground pad and an unconditioned (Palace-default PMC) outer wall for the
 `ground0_pec` variant. The historical name does not indicate a true PEC wall. The 5 µm refined / 70 µm
 maximum mesh and Palace Conductivity+Thickness surface-impedance BCs
-(sigma=3.77e7 S/m; delta ~2.6 um at 1 GHz) model finite conductors. OpenEMS was not
-available; pinned measured S-parameters are the approved fallback.</p>
+(sigma=3.77e7 S/m; delta ~2.6 um at 1 GHz) model finite conductors. This
+conductivity and the dielectric/passivation geometry differ from the pinned
+OpenEMS script. OpenEMS was unavailable for this campaign.</p>
 <p>The IHP OpenEMS reference uses SG13_L2n0_2port_groundpolygon_mesh1.5um.py
 with TopMetal1 edge ports, a central Metal1->TopMetal1 PEC pillar, Metal1 ground
 box, 1.5 µm refined cells, lambda_air/(sqrt(eps_max)*20) maximum cells, PEC
