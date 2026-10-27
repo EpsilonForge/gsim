@@ -56,10 +56,10 @@ permittivity 8.1081139, SiO2 background and port definitions. Both stopped at ab
 pixels/µm run used a tighter field-energy threshold (1e-6 rather than 1e-4); it used one CPU core, 701,250 grid cells
 and 456 s wall time. Its S41 and S31 RMS against the SAX LUT changed from 4.43/4.83 dB to 4.06/4.68 dB, respectively.
 
-Across the full sampled band, the 30-to-50 complex RMS changes are 0.388 for S41 and 0.443 for S31. Their magnitude
-changes are 0.37 and 0.15 dB RMS, but their wrapped phase changes are 42.2° and 30.6° RMS. This is **mesh sensitivity,
-not complex-S convergence**. The S11 magnitude change is 6.01 dB RMS because reflection is small; its absolute complex
-RMS change is 0.0112.
+Across the full sampled band, the 30-to-50 raw monitor-plane complex RMS changes are 0.388 for S41 and 0.443 for S31.
+After de-embedding to the device port planes, they are 0.379 and 0.429. Their magnitude changes are 0.37 and 0.15 dB
+RMS, but their wrapped phase changes are 42.2° and 30.6° RMS. This is **mesh sensitivity, not complex-S convergence**.
+The S11 magnitude change is 6.01 dB RMS because reflection is small; its absolute complex RMS change is 0.0112.
 
 An initial 50 pixels/µm run used a full-stack slab eigenmode as its 2-D core index. It selected the thick silicon
 substrate mode (core permittivity 12.0744 instead of 8.1081), giving an apparently excellent 0.55 dB S41 match. That
@@ -70,11 +70,12 @@ environment.
 The 70 pixels/µm run in `mesh_sweeps/coupler_r70/` retains the same GDS, 101 wavelengths, materials and ports and uses
 the original 30 pixels/µm stopping settings. It used one CPU core, 1.37 million cells and 834 s wall time. S41/S31 RMS
 against the SAX LUT is 3.97/4.64 dB. Relative to 50 pixels/µm, the S41/S31 magnitude changes fall to 0.091/0.038 dB RMS
-and the complex changes to 0.0698/0.1286 RMS; wrapped phase changes are 7.1°/8.9° RMS. The corresponding 30-to-50
-complex changes were 0.388/0.443, so the trend is encouraging but **does not meet a 0.01 complex-S mesh gate**. S11
-still changes by 0.0070 complex RMS. The 70 pixels/µm run stopped at 200 Meep time units instead of about 250, a
-stopping-time difference that also needs control before any strict mesh-convergence claim. Meep's o1 mode index at 1.55
-µm changes from 2.6000 to 2.6111 to 2.6162 across the three meshes, consistent with substantial phase sensitivity.
+and the raw monitor-plane complex changes to 0.0698/0.1286 RMS; de-embedded device-port changes are 0.065/0.122. Wrapped
+phase changes are 7.1°/8.9° RMS. The corresponding 30-to-50 raw complex changes were 0.388/0.443, so the trend is
+encouraging but **does not meet a 0.01 complex-S mesh gate**. S11 still changes by 0.0070 complex RMS. The 70 pixels/µm
+run stopped at 200 Meep time units instead of about 250, a stopping-time difference that also needs control before any
+strict mesh-convergence claim. Meep's o1 mode index at 1.55 µm changes from 2.6000 to 2.6111 to 2.6162 across the three
+meshes, consistent with substantial phase sensitivity.
 
 Next comparison should use a pinned reference GDS or a documented layout parameter table for each measured device,
 verify the derived core polygons and port orientation, then run a resolution and stopping-time sweep. A better fit
