@@ -153,7 +153,7 @@ def build(
         notebook_section = f"<p><strong>Notebook:</strong> {links}</p>"
     html = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>IHP SG13G2 L2n0 — inductance extraction</title>
+<title>IHP SG13G2 L2n0 — two-port validation audit</title>
 <style>
 :root {{ color-scheme:light dark; --fg:#1f2328; --muted:#656d76; --bg:#fff; --card:#f6f8fa; --line:#d0d7de; --accent:#0969da; }}
 @media (prefers-color-scheme:dark) {{ :root {{ --fg:#e6edf3; --muted:#8b949e; --bg:#0d1117; --card:#161b22; --line:#30363d; --accent:#4493f8; }} }}
@@ -168,22 +168,28 @@ th:first-child,td:first-child {{ text-align:left; }}
 code {{ font-size:.9em; }}
 </style></head><body><main>
 <p><a href="../">&larr; all variants</a></p>
-<h1>IHP SG13G2 Octagon L2n0 — inductance extraction</h1>
-<p class="muted">Palace/gsim versus the two pinned IHP measured dies using the existing
-series extraction Z = 2 Z0 (1-S21)/S21. Nominal 2 nH benchmark. Layout and
-measured data pinned from IHP-Open-PDK commit <code>9439837</code> (Apache-2.0).</p>
+<h1>IHP SG13G2 Octagon L2n0 — two-port validation audit</h1>
+<p class="muted">The executed notebook compares all four complex S-parameters with two pinned
+IHP measured dies. The L/Q figure below is a series-extraction diagnostic, not
+a validation result. Layout and measured data are pinned from IHP-Open-PDK
+commit <code>9439837</code> (Apache-2.0).</p>
 <div class="card"><img src="l2n0_comparison.png" alt="Measured and Palace extracted inductance and Q"></div>
-<div class="card"><h2>Extraction summary</h2>
+<div class="card"><h2>Series-extraction diagnostic</h2>
 <table><thead><tr><th>case</th><th>L @ 1 GHz (nH)</th><th>Q @ 1 GHz</th><th>L @ 30 GHz (nH)</th><th>Q @ 30 GHz</th></tr></thead><tbody>
 <tr><td>Palace</td><td>{rows["palace_l_1ghz_nh"]:.3f}</td><td>{rows["palace_q_1ghz"]:.2f}</td><td>{rows["palace_l_30ghz_nh"]:.3f}</td><td>{rows["palace_q_30ghz"]:.2f}</td></tr>
 <tr><td>die_x2y7</td><td>{rows["die_x2y7_l_1ghz_nh"]:.3f}</td><td>{rows["die_x2y7_q_1ghz"]:.2f}</td><td>{rows["die_x2y7_l_30ghz_nh"]:.3f}</td><td>{rows["die_x2y7_q_30ghz"]:.2f}</td></tr>
 <tr><td>die_x5y8</td><td>{rows["die_x5y8_l_1ghz_nh"]:.3f}</td><td>{rows["die_x5y8_q_1ghz"]:.2f}</td><td>{rows["die_x5y8_l_30ghz_nh"]:.3f}</td><td>{rows["die_x5y8_q_30ghz"]:.2f}</td></tr>
 </tbody></table>
-<p class="muted">The measured 1 GHz inductance is 1.91-1.93 nH, confirming the nominal
-2 nH benchmark. The IHP guide differential 1-port SRF is ~25.5 GHz; the 2-port series extraction
-has a different L zero-crossing (~35.5 GHz). The 30 GHz Palace/measured
-disagreement is reported honestly.</p></div>
+<p class="muted">The measured 1 GHz S21-series value is 1.91-1.93 nH. This formula assumes a
+pure series element; the pinned IHP script instead uses differential Z.
+At 30 GHz the measured device is near/past resonance, so one extracted
+inductance does not characterize agreement.</p></div>
 {notebook_section}
+<div class="card"><p><strong>Complete two-port result:</strong> L2n0 Palace S21 has
+8.83-8.86 dB RMS magnitude error and 44-45° RMS phase error across the
+recorded 1-50 GHz sweep. S11, S12 and S22 also disagree. The model is not
+validated. The notebook also compares public measured L6n2 data with three
+GDS2Palace simulations of that separate device at 5, 2 and 1 µm meshes.</p></div>
 <div class="card"><h2>Campaign matrix (1 GHz)</h2>
 <table><thead><tr><th>variant</th><th>L nH</th><th>Q</th><th>L diff nH</th></tr></thead><tbody>{campaign}</tbody></table>
 <p class="muted">Best series result: ground0_pec 1.921 nH vs measured 1.911/1.932 nH.
@@ -198,7 +204,8 @@ AdaptiveTol 0.02, so the model is not converged.</p></div>
 <div class="card"><h2>Model and source</h2>
 <p>Palace sweep: 1-50 GHz, 11 points; authoritative IHP SG13G2 stack with a
 280 µm substrate, TopMetal2 winding, TopMetal1 feeds/underpass, and a minimal
-ground pad with PEC boundaries for the best variant. The 5 µm refined / 70 µm
+ground pad and an unconditioned (Palace-default PMC) outer wall for the
+`ground0_pec` variant. The historical name does not indicate a true PEC wall. The 5 µm refined / 70 µm
 maximum mesh and Palace Conductivity+Thickness surface-impedance BCs
 (sigma=3.77e7 S/m; delta ~2.6 um at 1 GHz) model finite conductors. OpenEMS was not
 available; pinned measured S-parameters are the approved fallback.</p>
@@ -206,14 +213,16 @@ available; pinned measured S-parameters are the approved fallback.</p>
 with TopMetal1 edge ports, a central Metal1->TopMetal1 PEC pillar, Metal1 ground
 box, 1.5 µm refined cells, lambda_air/(sqrt(eps_max)*20) maximum cells, PEC
 boundaries and 0-30 GHz/401 points. The `openems_ground` variant approximates
-this with a Metal1 rectangle and vertical via ports; it omits the central pillar.</p>
+this with a Metal1 rectangle and vertical via ports; it omits the central pillar.
+The new `openems_edge` setup adds the pillar and gap-port positions, but has not
+been meshed or solved.</p>
 <p><a href="L_2n0_simplified.gds">benchmark GDS</a> ·
 <a href="metrics.json">metrics</a> · <a href="provenance.json">provenance</a></p></div>
 </main></body></html>
 """
     (out / "index.html").write_text(html, encoding="utf8")
     (out / "README.md").write_text(
-        "# IHP SG13G2 L2n0 inductance extraction\n\nPalace vs measured L/Q extraction. See notebook.html and metrics.json.\n"
+        "# IHP SG13G2 L2n0 two-port validation audit\n\nSee notebook.html for full complex S comparisons of L2n0 and an independent measured L6n2 reference.\n"
     )
 
 
