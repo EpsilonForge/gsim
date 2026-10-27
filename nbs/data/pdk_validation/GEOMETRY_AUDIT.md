@@ -20,6 +20,9 @@ PDKs by construction.
 
 <!-- markdownlint-enable MD013 -->
 
+The straight-guide 0.006 dB result checks the S21 extraction pipeline. Both models have nearly flat unit transmission in
+this 2-D setting, so it cannot establish sensitivity to the fabricated cross section or process loss.
+
 All accepted recorded simulations use an XY 2-D effective-index approximation. The committed `sim_config.json` files
 record a reviewed PDK overlay, layer mapping, effective core permittivity, cladding and stack hash. For example, the UBC
 Bragg run uses `epsilon_core_2d = 8.1081` and SiO2 background. This is an explicit model assumption, not proof that the
