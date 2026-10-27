@@ -27,6 +27,11 @@ the 6.8 MB mesh is kept outside the repository. A 2.998 µm conductor feature tr
 warning at 5 µm. The model has **not been solved**. Field/current-density and 1 GHz loss checks, with a finer mesh, are
 required before a full sweep.
 
+The pinned `L_2n0_simplified.gds` also contains a large polygon on GDS layer 75. The current IHP-to-Palace stack does
+not map layer 75, and the recorded `ground0_pec` mesh has no physical group for it. The gray outline in the notebook's
+GDS view is therefore not a simulated ground conductor. The recorded model instead adds a separate SUBGND polygon on
+layer 250; the OpenEMS reference defines its Metal1 ground and central pillar explicitly.
+
 Three historical variants have unresolved absorbing-boundary provenance. In the archived resolved configs,
 `openems_ground` and `planar_pec` assign Absorbing to `si__None` as well as `air__None`; `gap` assigns it to
 `sio2__None` as well as `air__None`. The group names and attributes agree with the archived mesh metadata, but we have

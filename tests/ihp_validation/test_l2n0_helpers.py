@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from hashlib import sha256
+
 import numpy as np
 import pytest
 
@@ -13,6 +16,35 @@ def test_benchmark_source_files_are_pinned() -> None:
     assert set(ihp_l2n0.MEASURED) == {"die_x2y7", "die_x5y8"}
     for path in ihp_l2n0.MEASURED.values():
         assert path.is_file()
+
+
+def test_pinned_ihp_touchstone_inventory_is_complete_and_intact() -> None:
+    import skrf as rf
+
+    source = ihp_l2n0.SOURCE
+    manifest = json.loads((source / "provenance.json").read_text())
+    expected_ports = {
+        "die_x2y7.s2p": 2,
+        "die_x5y8.s2p": 2,
+        "diff_die_x2y7.s1p": 1,
+        "diff_die_x5y8.s1p": 1,
+        "openems_twoport_1p5um.s2p": 2,
+        "openems_oneport_1p5um.s1p": 1,
+        "openems_oneport_1um.s1p": 1,
+        "openems_matlab_oneport_1p5um.s1p": 1,
+        "openems_matlab_oneport_1um.s1p": 1,
+        "openems_matlab_oneport_0p5um.s1p": 1,
+        "openems_matlab_oneport_0p5um_finer_z.s1p": 1,
+    }
+    assert {
+        name for name in manifest["files"] if name.lower().endswith((".s1p", ".s2p"))
+    } == set(expected_ports)
+    for name, count in expected_ports.items():
+        path = source / name
+        assert sha256(path.read_bytes()).hexdigest() == manifest["files"][name]
+        network = rf.Network(str(path))
+        assert network.nports == count
+        assert np.allclose(network.z0, 50.0)
 
 
 @pytest.mark.parametrize("label", ["die_x2y7", "die_x5y8"])
