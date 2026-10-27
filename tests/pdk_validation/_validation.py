@@ -730,9 +730,10 @@ def _measured(
 ) -> Callable[[np.ndarray], Reference]:
     """Return a loader for a recorded UBC measurement.
 
-    ``port`` selects the measured detector column (1 for the ring through and
-    Bragg reflection spectra). ``sim_ports`` names the
-    simulated S-parameters that correspond to that column.
+    ``port`` selects a measured detector column (1 for the inferred ring
+    through and Bragg reflection columns). The files do not label those
+    detectors. ``sim_ports`` names the simulated S-parameters compared with
+    that column; it does not establish matching measurement reference planes.
     """
     from tests.pdk_validation import _fetch
 
@@ -919,8 +920,11 @@ def build_cases() -> list[ValidationCase]:
             ),
             target=ubc,
             notes=(
-                "Matched to Set1 #10: sinusoidal DBR, dw = 120 nm, 200 periods. "
-                "The measurement is reflection (UBC reads port 1); compare |S11|."
+                "Set1 #10: sinusoidal DBR, dw = 120 nm, 200 periods. "
+                "The measurement uses a 2x2 splitter, two grating couplers "
+                "and a terminator. The raw detector-1 power is normalized "
+                "but not fixture-de-embedded; bare-grating |S11| RMS is "
+                "diagnostic only. Detector mapping is inferred."
             ),
         ),
     ]

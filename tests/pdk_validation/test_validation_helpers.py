@@ -416,6 +416,33 @@ def test_dbr_two_port_has_both_ports():
     assert dbr.xsize > 6.0
 
 
+def test_bragg_case_geometry_matches_pinned_set1_design():
+    pytest.importorskip("ubcpdk")
+    component = validation.get_case("bragg").make_component()
+    assert sorted(port.name for port in component.ports) == ["o1", "o2"]
+    assert component.xsize == pytest.approx(200 * 0.318, abs=0.002)
+    assert component.ysize == pytest.approx(0.5 + 0.12 / 2, abs=0.002)
+
+
+def test_published_layouts_are_the_recorded_meep_geometries():
+    from scripts import build_pdk_validation_variant as page
+
+    for name in (
+        "straight",
+        "coupler",
+        "ring_coupling",
+        "ring",
+        "bragg",
+        "cspdk_coupler",
+        "cspdk_ring_coupling",
+        "siepic_coupler",
+    ):
+        recorded = page.RUNS / "runs" / f"2d_{name}" / "layout.gds"
+        published = page.GDS_STORE / f"{name}.gds"
+        assert published.read_bytes() == recorded.read_bytes(), name
+        assert page.resolve_gds(name) == recorded
+
+
 @pytest.mark.parametrize(
     "name", ["straight", "coupler", "ring_coupling", "mzi", "ring", "bragg"]
 )

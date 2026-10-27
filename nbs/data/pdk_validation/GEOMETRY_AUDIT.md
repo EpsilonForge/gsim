@@ -23,7 +23,20 @@ PDKs by construction.
 The straight-guide 0.006 dB result checks the S21 extraction pipeline. Both models have nearly flat unit transmission in
 this 2-D setting, so it cannot establish sensitivity to the fabricated cross section or process loss.
 
-All accepted recorded simulations use an XY 2-D effective-index approximation. The committed `sim_config.json` files
+The
+[pinned UBC Bragg design description](https://github.com/gdsfactory/ubc/blob/23a845acbcb03fccad77f96fdb85a0aa27306601/ubcpdk/data/dbr.md)
+confirms 200 periods and 120 nm sinusoidal modulation for Set 1 design #10; the simulated period count is therefore
+supported by the source. The measured structure, however, uses a reflection fixture with a 2×2 splitter, two grating
+couplers and a terminator. The `.mat` loader returns detector power in dBm, and the validation harness only normalizes
+its level. It does not remove the fixture's wavelength response or prove the chosen detector column maps to bare-grating
+S11. The 23.37 dB RMS value is a fixture-mismatched diagnostic, not a device-validation error.
+
+The previous documentation GDS for Bragg was a 9.38 × 0.60 µm rectangular device, while the recorded Meep layout is
+66.60 × 0.56 µm and sinusoidal. The previous ring documentation GDS also differed in extent and polygon count from the
+recorded run. The eight cases with recorded spectra now publish byte-identical copies of their archived `layout.gds`,
+and the page builder prefers those run layouts. The MZI has no accepted spectrum and is marked runtime-excluded.
+
+All recorded spectra in this audit use an XY 2-D effective-index approximation. The committed `sim_config.json` files
 record a reviewed PDK overlay, layer mapping, effective core permittivity, cladding and stack hash. For example, the UBC
 Bragg run uses `epsilon_core_2d = 8.1081` and SiO2 background. This is an explicit model assumption, not proof that the
 PDK's fabricated cross section or dispersion matches the measurement. The correction that pins the 2-D cut to the core

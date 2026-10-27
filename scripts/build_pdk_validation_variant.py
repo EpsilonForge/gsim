@@ -62,9 +62,9 @@ STATUS = {
     "straight": ("Recorded", "authoritative UBC stack"),
     "coupler": ("Recorded", "authoritative UBC stack"),
     "ring_coupling": ("Recorded", "authoritative UBC stack; 2-D"),
-    "mzi": ("Recorded", "authoritative UBC stack; 2-D"),
+    "mzi": ("Excluded", "runtime-limited smoke run; no accepted spectrum"),
     "ring": ("Recorded", "authoritative UBC stack; 2-D"),
-    "bragg": ("Recorded", "authoritative UBC stack"),
+    "bragg": ("Diagnostic", "measured reflection fixture is not de-embedded"),
     "cspdk_coupler": ("Recorded", "authoritative Cornerstone stack"),
     "cspdk_ring_coupling": ("Recorded", "authoritative Cornerstone stack; 2-D"),
     "siepic_coupler": ("Recorded", "generic photonic PDK; measured data"),
@@ -72,21 +72,20 @@ STATUS = {
 
 
 def resolve_gds(name: str) -> Path | None:
-    """Return the GDS for a case, importing it into the run store if needed."""
+    """Return the recorded Meep GDS before any standalone layout snapshot."""
     stored = GDS_STORE / f"{name}.gds"
-    if stored.is_file():
-        return stored
     run_root = RUNS / "runs"
-    candidates = sorted(run_root.glob(f"*_{name}/layout.gds"))
-    candidates += sorted(run_root.glob(f"{name}/layout.gds"))
+    candidates = [
+        run_root / f"2d_{name}" / "layout.gds",
+        run_root / f"3d_{name}" / "layout.gds",
+        run_root / name / "layout.gds",
+        stored,
+    ]
     fallback = MEEP_FALLBACK / name / "layout.gds"
-    if fallback.is_file():
-        candidates.append(fallback)
+    candidates.append(fallback)
     for candidate in candidates:
         if candidate.is_file():
-            GDS_STORE.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(candidate, stored)
-            return stored
+            return candidate
     return None
 
 
@@ -250,7 +249,7 @@ def build(
             notebook_links += ' · <a href="notebook.ipynb">executed .ipynb</a>'
         notebook_section = f"""
         <div class="notice ok">
-          <strong>Executed notebook is published.</strong> Every available validation case is shown with
+          <strong>Executed notebook is published.</strong> Every available comparison case is shown with
           their recorded runs, reference overlays and the compute/size table.
           {notebook_links}
         </div>"""
@@ -264,6 +263,7 @@ def build(
     notebook_section += """
         <div class="notice">
           <strong>Coupler mesh check:</strong> 30, 50 and 70 pixels/µm show decreasing complex-S changes, but the 50-to-70 change is still 0.070 for S41 and 0.129 for S31. The 70-pixel run stopped earlier, so convergence remains unverified. <a href="https://github.com/EpsilonForge/gsim/blob/pdk-validation/nbs/data/pdk_validation/GEOMETRY_AUDIT.md">Read the geometry and mesh audit</a>.
+          <br><strong>Bragg reference-plane check:</strong> the measured Set 1 design #10 uses a splitter and grating-coupler reflection fixture. The archive contains detector power, with no fixture de-embedding. Its RMS difference from simulated bare-grating S11 is diagnostic only.
         </div>"""
 
     available_cases = {case.name for case in V.build_cases()}
@@ -278,6 +278,14 @@ def build(
         width, height = render_gds(gds_source, png_out, title)
 
         status, detail = STATUS[name]
+        badge_style = "ok" if status == "Recorded" else ""
+        extra_note = (
+            '<p class="small">The measured through detector is inferred from '
+            "column 1; the file has no detector labels. Normalized S21 RMS "
+            "remains 8.00 dB.</p>"
+            if name == "ring"
+            else ""
+        )
         run_links = ""
         for prefix in ("3d_", "2d_"):
             run = f"{prefix}{name}"
@@ -321,11 +329,12 @@ def build(
                   <h2>{title}</h2>
                   <p class="muted small">{subtitle} · {width:.2f} x {height:.2f} µm</p>
                 </div>
-                <span class="badge ok">{status}</span>
+                <span class="badge {badge_style}">{status}</span>
               </header>
               <a href="gds/{name}.gds"><img class="layout" src="gds/{name}.png" alt="{title} layout"></a>
               <p class="small"><a href="gds/{name}.gds">download GDS</a> · {detail}</p>
               {plot_html}
+              {extra_note}
               <p class="small">runs: {run_links}</p>
             </article>
             """
