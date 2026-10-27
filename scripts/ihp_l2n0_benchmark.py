@@ -2,9 +2,9 @@
 
 The benchmark source files are vendored under ``nbs/data/ihp_validation/source``
 from IHP-Open-PDK commit ``943983786b04351feb20e33e8d3d76c0e0d87cce``
-(Apache-2.0).  The helpers build the same 2-port inductor model used by the
-notebook: IHP's TopMetal2 winding/feeder layout, a SUBGND reference plane, the
-authoritative IHP stack, and 30 GHz interlayer ports from SUBGND to TopMetal1.
+(Apache-2.0). These helpers reproduce the exploratory Palace model recorded
+in the notebook. Its ground, conductor model, ports and outer boundary differ
+from the pinned IHP OpenEMS reference; see ``CONVERGENCE_AUDIT.md``.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-REPO = Path(__file__).resolve().parents[4]
+REPO = Path(__file__).resolve().parents[1]
 SOURCE = REPO / "nbs" / "data" / "ihp_validation" / "source"
 RUN_ROOT = REPO / "nbs" / "data" / "ihp_validation" / "runs"
 LAYOUT = SOURCE / "L_2n0_simplified.gds"
@@ -164,7 +164,7 @@ def make_simulation(
     sweep: bool = False,
     shell_variant: bool = False,
     ground_pad_um: float = 50.0,
-    pec_boundary: bool = False,
+    use_default_pmc_wall: bool = False,
     port_variant: str = "two_port",
     frequency_hz: float = TARGET_FREQ_HZ,
     substrate_thickness_um: float = 280.0,
@@ -206,7 +206,7 @@ def make_simulation(
     sim.set_output_dir(output_dir)
     sim.set_geometry(component)
     sim.set_stack(stack)
-    sim.absorbing_boundary = not pec_boundary
+    sim.absorbing_boundary = not use_default_pmc_wall
     sim.set_airbox(margin_x=150.0, margin_y=150.0, z_above=50.0, z_below=10.0)
     if port_variant == "openems_edge":
         sim.add_pec(gds_layer=(65000, 0), from_layer="metal1", to_layer="topmetal1")
@@ -242,10 +242,10 @@ def run_benchmark(
     *,
     sweep: bool = False,
     palace_executable: str | Path | None = None,
-    num_processes: int = 8,
+    num_processes: int = 1,
     shell_variant: bool = False,
     ground_pad_um: float = 50.0,
-    pec_boundary: bool = False,
+    use_default_pmc_wall: bool = False,
     port_variant: str = "two_port",
     frequency_hz: float = TARGET_FREQ_HZ,
     refined_mesh_size: float = 5.0,
@@ -264,7 +264,7 @@ def run_benchmark(
         sweep=sweep,
         shell_variant=shell_variant,
         ground_pad_um=ground_pad_um,
-        pec_boundary=pec_boundary,
+        use_default_pmc_wall=use_default_pmc_wall,
         port_variant=port_variant,
         frequency_hz=frequency_hz,
         substrate_thickness_um=substrate_thickness_um,
@@ -321,8 +321,10 @@ def s_matrix(sparams: Any, index: int = 0) -> np.ndarray:
 
 
 def s_to_z(s: np.ndarray, *, z0: float = Z0_OHM) -> np.ndarray:
-    """Convert a 2x2 S matrix to a Z matrix."""
-    return z0 * (np.eye(2) + s) @ np.linalg.inv(np.eye(2) - s)
+    """Use the shared Palace conversion for one 2x2 S sample."""
+    from gsim.palace.circuit import s_to_z as convert
+
+    return convert(np.asarray(s)[None, :, :], z0=z0)[0]
 
 
 def differential_impedance_from_s(s: np.ndarray, *, z0: float = Z0_OHM) -> complex:

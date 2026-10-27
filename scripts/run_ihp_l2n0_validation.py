@@ -12,7 +12,7 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from gsim.common.benchmarks import ihp_l2n0 as _l2n0
+from scripts import ihp_l2n0_benchmark as _l2n0
 
 
 def main() -> int:
@@ -21,8 +21,10 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=_l2n0.RUN_ROOT / "l2n0_30ghz")
     parser.add_argument("--sweep", action="store_true", help="Run 1-50 GHz, 11 points.")
     parser.add_argument("--palace", type=Path, default=None)
-    parser.add_argument("--processes", type=int, default=8)
+    parser.add_argument("--processes", type=int, default=1)
     args = parser.parse_args()
+    if args.processes < 1:
+        parser.error("--processes must be positive")
 
     run = _l2n0.run_benchmark(
         args.output,
@@ -30,13 +32,18 @@ def main() -> int:
         palace_executable=args.palace,
         num_processes=args.processes,
     )
-    l_nh, q, z = _l2n0.lq_at(run.sparams, 0)
+    f_hz = float(run.frequencies_ghz[0]) * 1e9
+    z_diff = _l2n0.differential_impedance_from_s(_l2n0.s_matrix(run.sparams, 0))
+    l_nh, q = _l2n0.lq_from_impedance(z_diff, f_hz)
+    series_l_nh, series_q, _ = _l2n0.lq_at(run.sparams, 0)
     summary = {
         "case": "ihp_sg13g2_l2n0",
         "frequency_ghz": float(run.frequencies_ghz[0]),
-        "inductance_nh": l_nh,
-        "q": q,
-        "z_series": [z.real, z.imag],
+        "differential_inductance_nh": l_nh,
+        "differential_q": q,
+        "z_diff_ohm": [z_diff.real, z_diff.imag],
+        "s21_series_diagnostic_l_nh": series_l_nh,
+        "s21_series_diagnostic_q": series_q,
         "ports": run.sparams.port_names,
         "output": str(run.directory),
     }

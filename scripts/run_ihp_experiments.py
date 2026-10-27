@@ -8,23 +8,29 @@ produced by ``scripts/run_ihp_verification.py``.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from gsim.common.benchmarks import ihp_l2n0 as b
+from scripts import ihp_l2n0_benchmark as b
 
-PALACE = "/home/martin/.cache/palacetoolkit/runtime/palace-cpu-v0.18.0/bin/palace"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--palace", type=Path, required=True)
+parser.add_argument("--processes", type=int, default=1)
+args = parser.parse_args()
+if args.processes < 1:
+    parser.error("--processes must be positive")
 F = 1e9
 variants = {
     "baseline": {},
     "shell_conformal": {"shell_variant": True, "refined_mesh_size": 1.5},
     "ground0": {"ground_pad_um": 0.0},
     "openems_ground": {"openems_ground": True},
-    "pec": {"pec_boundary": True},
-    "ground0_pec": {"ground_pad_um": 0.0, "pec_boundary": True},
+    "pec": {"use_default_pmc_wall": True},
+    "ground0_pec": {"ground_pad_um": 0.0, "use_default_pmc_wall": True},
     "mesh1.5": {"refined_mesh_size": 1.5},
     "planar_pec": {"planar_conductors": True},
     "substrate180": {"substrate_thickness_um": 180.0},
@@ -38,8 +44,8 @@ for name, kw in variants.items():
     try:
         run = b.run_benchmark(
             out / name,
-            palace_executable=PALACE,
-            num_processes=8,
+            palace_executable=args.palace,
+            num_processes=args.processes,
             frequency_hz=F,
             **kw,  # ty: ignore[invalid-argument-type]
         )

@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from gsim.common.benchmarks import ihp_l2n0
+from scripts import ihp_l2n0_benchmark as ihp_l2n0
 
 
 def _measured(label: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

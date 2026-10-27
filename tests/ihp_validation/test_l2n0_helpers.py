@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from gsim.common.benchmarks import ihp_l2n0
+from scripts import ihp_l2n0_benchmark as ihp_l2n0
 
 
 def test_benchmark_source_files_are_pinned() -> None:
