@@ -61,8 +61,10 @@ with TopMetal1 edge ports, a central Metal1->TopMetal1 PEC pillar, Metal1 ground
 box, 1.5 µm refined cells, lambda_air/(sqrt(eps_max)*20) maximum cells, PEC
 boundaries and 0-30 GHz/401 points. The `openems_ground` variant approximates
 this with a Metal1 rectangle and vertical via ports; it omits the central pillar.
-The new `openems_edge` setup adds the pillar and gap-port positions, but has not
-been meshed or solved.</p>
+The new `openems_edge` setup adds the pillar and gap-port positions. A one-thread
+coarse mesh generated two distinct 50-ohm port sheets (21,977 nodes), but a
+2.998 µm conductor feature is under-resolved at 5 µm. No Palace solve has been run.</p>
 <p><a href="L_2n0_simplified.gds">benchmark GDS</a> ·
-<a href="metrics.json">metrics</a> · <a href="provenance.json">provenance</a></p></div>
+<a href="metrics.json">metrics</a> · <a href="provenance.json">provenance</a> ·
+<a href="https://github.com/EpsilonForge/gsim/blob/docs/ihp-l2n0-validation/nbs/data/ihp_validation/CONVERGENCE_AUDIT.md">geometry audit</a></p></div>
 </main></body></html>
