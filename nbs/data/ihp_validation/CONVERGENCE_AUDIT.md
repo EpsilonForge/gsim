@@ -19,8 +19,13 @@ disagree (the notebook reports all four). The model is not validated.
 
 The new `openems_edge` variant in the benchmark helper places the two gap ports at the pinned coordinates, adds the
 central Metal1-to-TopMetal1 PEC pillar, and uses the reference Metal1 ground rectangle. It is a setup for a controlled
-comparison, **not a validated numerical result**. It retains the PDK material cards and has not been meshed or solved. A
-field/current-density check and a 1 GHz loss check are required before a full sweep.
+comparison, **not a validated numerical result**. It retains the PDK material cards. A one-thread 5 µm coarse mesh
+completed with 21,977 nodes, 126,515 tetrahedra and about 807,000 estimated field DOFs. The generated Palace config has
+two separate 50 Ω port attributes; their sheets span x = -22.2..-10 and 10..22.2 µm at y = 5 µm and z = 6.23..8.23 µm,
+meeting the proposed feed-to-pillar gaps. The lightweight mesh/config evidence is in `experiments/openems_edge_mesh/`;
+the 6.8 MB mesh is kept outside the repository. A 2.998 µm conductor feature triggered the mesher's under-resolution
+warning at 5 µm. The model has **not been solved**. Field/current-density and 1 GHz loss checks, with a finer mesh, are
+required before a full sweep.
 
 The independent
 [gds2palace IHP L6n2 v3 study](https://github.com/VolkerMuehlhaus/gds2palace_ihp_sg13g2/blob/main/more_examples/measured_vs_simulated/more_accurate_models_L6n2_v3/README.md)
