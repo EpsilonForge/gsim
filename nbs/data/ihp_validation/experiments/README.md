@@ -1,6 +1,6 @@
 # IHP L2n0 experiment matrix
 
-All runs at **1 GHz** on the 280 µm-substrate stack. `L` is the mandated series extraction; `L diff` is the port-comparison differential extraction. `pass` means only that L is finite and positive, not that it matches measurement.
+All runs at **1 GHz** on the 280 µm-substrate stack. `L` is the S21-only series-element extraction; `L diff` is the differential-Z extraction used by the pinned IHP two-port script. `pass` means only that L is finite and positive, not that it matches measurement. The complete complex S-parameter comparison is in `nbs/ihp_l2n0_openems_validation.ipynb`.
 
 | variant | L 1GHz nH | Q | L diff nH | pass | notes |
 | --- | ---: | ---: | ---: | --- | --- |
@@ -15,7 +15,7 @@ All runs at **1 GHz** on the 280 µm-substrate stack. `L` is the mandated series
 | substrate180 | 1.599 | 0.28 | 0.749 | True | {'substrate_thickness_um': 180.0} |
 | gap | 0.780 | 3.06 | 0.780 | True | {'port_variant': 'gap'} |
 
-Best series result: `ground0_pec` 1.921 nH vs measured 1.911/1.932 nH. Differential comparison: ground0_pec 0.802 nH and gap 0.780 nH vs measured differential 1.674/1.672 nH — both ~2.1x low. The series match is therefore not a full validation.
+Closest S21-only series result: `ground0_pec` 1.921 nH vs measured 1.911/1.932 nH. Differential comparison: ground0_pec 0.802 nH and gap 0.780 nH vs measured differential 1.674/1.672 nH — both ~2.1x low. The full two-port response disagrees with measurement; this variant is not validated. Its outer wall is unconditioned rather than PEC, despite the historical variant name.
 
 Conformal shell: `shell_conformal` adds a 0.6 µm SiN sidewall ring around TopMetal2 (layer 999/0, same z-range as TopMetal2) plus the existing 1.9 µm top passivation; it gives 1.6277 nH at 1 GHz and does not improve the match.
 

@@ -95,12 +95,28 @@ def test_measured_lq_is_finite_at_1_and_30_ghz() -> None:
             assert np.isfinite(z.imag)
 
 
-def test_best_variant_low_frequency_is_within_10_percent() -> None:
+def test_recorded_best_disagrees_with_full_measured_s_matrices() -> None:
+    import skrf as rf
+
     run = ihp_l2n0.load_recorded_run(ihp_l2n0.RUN_ROOT / "l2n0_best")
-    l_palace, _, _ = ihp_l2n0.lq_at(run.sparams, 0)
-    measured = [1.9115, 1.9319]
-    assert l_palace == pytest.approx(1.921, abs=0.01)
-    assert all(abs(l_palace - m) <= 0.10 * m for m in measured)
+    frequencies = np.asarray(run.sparams.freq, dtype=float)
+    simulated = np.stack(
+        [ihp_l2n0.s_matrix(run.sparams, i) for i in range(len(frequencies))]
+    )
+    assert simulated.shape == (11, 2, 2)
+    for path in ihp_l2n0.MEASURED.values():
+        measured = rf.Network(str(path))
+        assert np.allclose(measured.z0, ihp_l2n0.Z0_OHM)
+        sampled = np.empty_like(simulated)
+        for i in range(2):
+            for j in range(2):
+                values = measured.s[:, i, j]
+                sampled[:, i, j] = np.interp(
+                    frequencies, measured.f / 1e9, values.real
+                ) + 1j * np.interp(frequencies, measured.f / 1e9, values.imag)
+        rms = np.sqrt(np.mean(np.abs(simulated - sampled) ** 2, axis=0))
+        # The old 1 GHz series-inductance match cannot be used as a validation.
+        assert np.all(rms > 0.1), rms
 
 
 def test_experiment_matrix_is_recorded() -> None:
