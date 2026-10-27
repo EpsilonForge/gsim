@@ -261,6 +261,11 @@ def build(
           runs below are the data that exist now.
         </div>"""
 
+    notebook_section += """
+        <div class="notice">
+          <strong>Coupler mesh check:</strong> 30, 50 and 70 pixels/µm show decreasing complex-S changes, but the 50-to-70 change is still 0.070 for S41 and 0.129 for S31. The 70-pixel run stopped earlier, so convergence remains unverified. <a href="https://github.com/EpsilonForge/gsim/blob/pdk-validation/nbs/data/pdk_validation/GEOMETRY_AUDIT.md">Read the geometry and mesh audit</a>.
+        </div>"""
+
     available_cases = {case.name for case in V.build_cases()}
     cards = []
     for name, title, subtitle in CASES:
