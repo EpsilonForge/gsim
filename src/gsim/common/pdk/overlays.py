@@ -58,6 +58,12 @@ def _is_ihp_via_material(material: str) -> bool:
     return token in _IHP_VIA_MATERIALS or token.startswith(_IHP_VIA_MATERIAL_PREFIX)
 
 
+def _is_ihp_via_material(material: str) -> bool:
+    """Return whether *material* is an IHP tungsten interconnect token."""
+    token = material.lower().strip()
+    return token in _IHP_VIA_MATERIALS or token.startswith(_IHP_VIA_MATERIAL_PREFIX)
+
+
 @dataclass(frozen=True)
 class StackOverlay:
     """Explicit additions to a PDK-resolved stack."""
