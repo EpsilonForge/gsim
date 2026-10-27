@@ -760,8 +760,8 @@ def _measured(
 ) -> Callable[[np.ndarray], Reference]:
     """Return a loader for a recorded UBC measurement.
 
-    ``port`` selects the measured detector column (0 for the MZI/ring through
-    spectra, 1 for the Bragg reflection measurement).  ``sim_ports`` names the
+    ``port`` selects the measured detector column (1 for the ring through and
+    Bragg reflection spectra). ``sim_ports`` names the
     simulated S-parameters that correspond to that column.
     """
     from tests.pdk_validation import _fetch
@@ -917,16 +917,19 @@ def build_cases() -> list[ValidationCase]:
             ),
             reference=_measured(
                 _fetch.UBC_RING_MAT,
-                "measured UBC double-bus ring (TE, r=10, g=100 nm), port 0",
-                port=0,
+                "measured UBC double-bus ring (TE, r=10, g=100 nm), "
+                "inferred through detector 1",
+                port=1,
                 sim_ports=("S21",),
             ),
             dimension="2d",
             target=ubc,
             notes=(
-                "Matched to the measured double-bus (add-drop) ring; port 0 is "
-                "the through spectrum (dips). Column 1 is a smooth reference, "
-                "not a drop port."
+                "Nominally matched to the measured double-bus ring; detector "
+                "column 1 is the inferred through spectrum and maps to o1->o2 "
+                "(S21). Column 0 has periodic drop-port peaks. The MAT file "
+                "has no detector labels. The measured mask "
+                "layout is unavailable, so exact geometry matching is unverified."
             ),
         ),
         ValidationCase(

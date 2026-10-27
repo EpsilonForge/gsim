@@ -424,6 +424,23 @@ def test_mzi_case_uses_2d_for_size():
     assert validation.get_case("mzi").dimension == "2d"
 
 
+@pytest.mark.pdk_data
+def test_ring_through_uses_measured_detector_one():
+    pytest.importorskip("ubcpdk")
+    from tests.pdk_validation import _fetch
+
+    case = validation.get_case("ring")
+    reference = case.reference(np.array([1.55]))
+    path = _fetch.fetch_ubc(_fetch.UBC_RING_MAT)
+    wavelength_nm, detector_one = _fetch.load_ubc_spectrum(path, port=1)
+    _, detector_zero = _fetch.load_ubc_spectrum(path, port=0)
+    assert reference.sim_ports == ("S21",)
+    assert reference.transmission_db is not None
+    assert np.array_equal(reference.transmission_db[0], wavelength_nm / 1000)
+    assert np.array_equal(reference.transmission_db[1], detector_one)
+    assert not np.array_equal(detector_zero, detector_one)
+
+
 def test_available_cases_use_their_target_pdk():
     from tests.pdk_validation._pdks import available_targets
 
