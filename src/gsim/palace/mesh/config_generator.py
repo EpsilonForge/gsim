@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import gmsh
 import numpy as np
@@ -21,11 +21,14 @@ from gsim.palace.mesh.metadata import (
     write_metadata,
 )
 from gsim.palace.mesh.quality import tetrahedron_distortion
+from gsim.palace.models.solver import _ESTIMATOR_KEYS
 from gsim.palace.ports.config import PortType
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from gsim.common.stack import LayerStack
     from gsim.palace.models import (
         BoundaryModeConfig,
@@ -186,6 +189,36 @@ def _electrostatic_net_boundaries(
     return boundaries
 
 
+def check_model_name(model_name: str) -> str:
+    """Return ``model_name`` if it is a plain name for files in the sim directory.
+
+    It names ``<model_name>.msh`` and ``output/<model_name>``, the directory a
+    local run clears before Palace writes to it. So it must not be empty, ``.``,
+    ``..``, or contain a path separator, any of which would point that directory
+    at the simulation directory itself or outside it.
+
+    Raises:
+        ValueError: If ``model_name`` is not a plain name.
+    """
+    if model_name in {"", ".", ".."} or any(
+        sep in model_name for sep in ("/", "\\", ":")
+    ):
+        raise ValueError(
+            f"model_name must be a plain file name, not {model_name!r}: no path "
+            "separators, and not empty, '.' or '..'."
+        )
+    return model_name
+
+
+def output_subdir(model_name: str) -> Path:
+    """Where Palace writes its tables, relative to the simulation directory.
+
+    Raises:
+        ValueError: If ``model_name`` is not a plain name.
+    """
+    return Path("output") / check_model_name(model_name)
+
+
 #: Physical axis (0=x, 1=y, 2=z) behind each of the mesh's x, y and z, for a
 #: cross-section whose plane normal is the key. The native 2D mesh puts the
 #: in-plane coordinate on mesh x, the vertical one on mesh y and the
@@ -236,6 +269,35 @@ def _to_section_frame(props: dict[str, Any], axis: str) -> dict[str, Any]:
     return out
 
 
+# Without AMR nothing reads the indicator precisely, so a loose tolerance is
+# enough. With AMR it drives refinement, so Palace's defaults apply.
+_ESTIMATOR_DEFAULTS_AMR_OFF: Mapping[str, float | int | bool] = {"EstimatorTol": 1e-2}
+_ESTIMATOR_DEFAULTS_AMR_ON: Mapping[str, float | int | bool] = {}
+
+
+def _resolve_estimator_settings(
+    linear: dict[str, Any], refinement: RefinementConfig
+) -> None:
+    """Fill unset error estimator keys in ``linear`` by AMR state, in place.
+
+    Explicit values win key by key. All estimator keys are re-appended in
+    Palace's read order so the written bytes do not depend on which were set.
+    """
+    amr_on = refinement.max_its > 0
+    defaults = _ESTIMATOR_DEFAULTS_AMR_ON if amr_on else _ESTIMATOR_DEFAULTS_AMR_OFF
+    for key in _ESTIMATOR_KEYS:
+        value = linear.pop(key, defaults.get(key))
+        if value is not None:
+            linear[key] = value
+    if amr_on and linear.get("EstimatorMaxIts") == 0:
+        logger.warning(
+            "estimator_max_iterations=0 with AMR on (refinement max_its=%d): "
+            "Palace's error indicator is not computed, so refinement follows "
+            "field energy instead of error and will not stop at refinement tol.",
+            refinement.max_its,
+        )
+
+
 def generate_palace_config(
     groups: dict,
     ports: list[PalacePort],
@@ -257,6 +319,7 @@ def generate_palace_config(
     refinement_config: RefinementConfig | None = None,
     periodic_translation: tuple[float, float, float] | None = None,
     resolved_terminals: list[ResolvedTerminal] | None = None,
+    absorbing_order: int = 2,
 ) -> Path:
     """Generate Palace config.json file.
 
@@ -272,7 +335,8 @@ def generate_palace_config(
             When provided, material dispersion is evaluated at the center
             frequency ``(fmin + fmax) / 2`` of the sweep band.
         eigenmode_config: Optional EigenmodeConfig for eigenproblems settings
-        absorbing_boundary: Whether to add absorbing (PML) boundary
+        absorbing_boundary: Whether to add an absorbing boundary on the outer walls
+        absorbing_order: Order (1 or 2) of that absorbing boundary condition
         periodic_axis: Optional periodic axis identifier
         periodic_translation: Actual donor-to-receiver translation in mesh units
         hints: Additional config hints merged into the JSON
@@ -361,6 +425,9 @@ def generate_palace_config(
             else SolverConfig()
         )
         solver_conf = defaults.to_solver_config()
+    _resolve_estimator_settings(
+        cast("dict[str, Any]", solver_conf["Linear"]), refinement_config
+    )
 
     if simulation_type == "driven":
         solver_conf["Driven"] = solver_driven
@@ -390,7 +457,7 @@ def generate_palace_config(
         "Problem": {
             "Type": problem_type_map[simulation_type],
             "Verbose": 3,
-            "Output": f"output/{model_name}",
+            "Output": output_subdir(model_name).as_posix(),
         },
         "Model": {
             "Mesh": f"{model_name}.msh",
@@ -521,6 +588,7 @@ def generate_palace_config(
 
     # Build boundaries section
     conductors: list[dict[str, object]] = []
+    conductor_attrs: list[int] = []
 
     for name, info in groups["conductor_surfaces"].items():
         # Extract layer name from "layer_xy" / "layer_z" (3D) or use
@@ -536,6 +604,7 @@ def generate_palace_config(
                     "Thickness": layer.zmax - layer.zmin,
                 }
             )
+            conductor_attrs.append(info["phys_group"])
 
     # Handle PEC surfaces (planar conductors + PEC blocks)
     pec_attrs: list[int] = [
@@ -633,10 +702,18 @@ def generate_palace_config(
 
     elif simulation_type == "boundarymode":
         boundaries = {}
-        if conductors:
+        # conductor_boundary="pec": the finite-conductivity conductor surfaces
+        # are perfect conductors, as in the 3D wave-port eigenproblem
+        # (WavePortPEC). Exactly those attributes move from Conductivity to
+        # PEC; nothing else in the configuration changes.
+        conductors_as_pec = (hints or {}).get("_conductor_boundary") == "pec"
+        if conductors and not conductors_as_pec:
             boundaries["Conductivity"] = conductors
-        if pec_attrs:
-            boundaries["PEC"] = {"Attributes": sorted(set(pec_attrs))}
+        boundary_pec = set(pec_attrs)
+        if conductors_as_pec:
+            boundary_pec.update(conductor_attrs)
+        if boundary_pec:
+            boundaries["PEC"] = {"Attributes": sorted(boundary_pec)}
         # Postprocessing-only voltage/impedance paths (mode-V.csv / mode-Z.csv).
         # These do not load the 2D eigenproblem.
         mode_postprocessing = (hints or {}).get("_mode_postprocessing")
@@ -762,7 +839,7 @@ def generate_palace_config(
         attrs = absorbing_pg if isinstance(absorbing_pg, list) else [absorbing_pg]
         boundaries["Absorbing"] = {
             "Attributes": attrs,
-            "Order": 2,
+            "Order": absorbing_order,
         }
 
     # Symmetry plane: PMC (even/common mode) or PEC (odd/differential mode).
@@ -1094,6 +1171,7 @@ def write_config(
     terminals: list[TerminalConfig] | None = None,
     refinement_config: RefinementConfig | None = None,
     resolved_terminals: list[ResolvedTerminal] | None = None,
+    absorbing_order: int = 2,
 ) -> Path:
     """Write Palace config.json from a MeshResult.
 
@@ -1107,7 +1185,8 @@ def write_config(
             When provided, material dispersion is evaluated at the center
             frequency of the sweep band.
         eigenmode_config: Optional EigenmodeConfig for eigenproblems settings
-        absorbing_boundary: Whether to add absorbing (PML) boundary
+        absorbing_boundary: Whether to add an absorbing boundary on the outer walls
+        absorbing_order: Order (1 or 2) of that absorbing boundary condition
         hints: Additional config hints merged into the JSON
         resolved_terminals: Electrostatic terminals resolved to nets, for a
             mesh with one physical group per net
@@ -1148,6 +1227,7 @@ def write_config(
         terminals=terminals,
         refinement_config=refinement_config,
         resolved_terminals=resolved_terminals,
+        absorbing_order=absorbing_order,
     )
 
     # Update the mesh_result with the config path
@@ -1162,5 +1242,6 @@ def write_config(
 __all__ = [
     "collect_mesh_stats",
     "generate_palace_config",
+    "output_subdir",
     "write_config",
 ]
