@@ -27,8 +27,35 @@ from typing import Any
 IHP_BACKGROUND_DEPTH_UM = 2.0
 
 #: IHP BEOL interconnects are tungsten; metals are aluminium.
-_IHP_VIA_MATERIAL = "tungsten"
+#:
+#: IHP < 2.0 exposes the bare material names; 2.0 prefixes them with the PDK
+#: name (``tungsten_sg13g2_via1``) and uses dedicated contact/MIM-via tokens.
+_IHP_VIA_MATERIALS = frozenset({"tungsten", "sg13g2_cont", "sg13g2_vmim"})
+_IHP_VIA_MATERIAL_PREFIX = "tungsten_sg13g2_"
 _IHP_ILD_MATERIAL = "sio2"
+
+#: Generic SOI photonic background used by Cornerstone Si220.  The PDK
+#: LayerStack only declares the device levels, so the implicit BOX/cladding is
+#: an explicit, reviewed overlay (with source note) rather than an inference.
+_CSPDK_BOX_THICKNESS_UM = 2.0
+_CSPDK_CLAD_THICKNESS_UM = 2.0
+_CSPDK_BACKGROUND_MATERIAL = "SiO2"
+
+
+def _region_from_layer(layer: Any, name: str) -> Mapping[str, Any]:
+    """Return an explicit dielectric region matching one resolved PDK layer."""
+    return {
+        "name": name,
+        "material": layer.material,
+        "zmin": layer.zmin,
+        "zmax": layer.zmax,
+    }
+
+
+def _is_ihp_via_material(material: str) -> bool:
+    """Return whether *material* is an IHP tungsten interconnect token."""
+    token = material.lower().strip()
+    return token in _IHP_VIA_MATERIALS or token.startswith(_IHP_VIA_MATERIAL_PREFIX)
 
 
 @dataclass(frozen=True)
@@ -73,7 +100,7 @@ def _ihp_overlay(layers: Mapping[str, Any]) -> StackOverlay:
     role_overrides = {
         name: "via"
         for name, layer in layers.items()
-        if layer.material == _IHP_VIA_MATERIAL
+        if _is_ihp_via_material(layer.material)
     }
     return StackOverlay(
         name="IHP",
@@ -87,16 +114,87 @@ def _ihp_overlay(layers: Mapping[str, Any]) -> StackOverlay:
     )
 
 
+def _ubc_overlay(layers: Mapping[str, Any]) -> StackOverlay:
+    """Build the UBC SiEPIC-EBeam overlay from the resolved PDK layers.
+
+    UBC declares ``substrate``/``box``/``clad`` on the same WAFER GDS tuple but
+    does not tag their roles or expose them as bulk regions.  Preserve their
+    authoritative z-extents and make the roles/regions explicit.
+    """
+    dielectrics = tuple(
+        _region_from_layer(layers[name], name)
+        for name in ("substrate", "box", "clad")
+        if name in layers
+    )
+    return StackOverlay(
+        name="UBC",
+        dielectrics=dielectrics,
+        role_overrides={"substrate": "substrate"},
+        note=(
+            "UBC declares substrate/BOX/cladding on the WAFER layer but does "
+            "not tag the substrate role or expose bulk dielectric regions; "
+            "gsim supplies this reviewed overlay (gsim#230)."
+        ),
+    )
+
+
+def _cspdk_overlay(layers: Mapping[str, Any]) -> StackOverlay:
+    """Build the Cornerstone Si220 overlay from the resolved PDK layers.
+
+    The Cornerstone LayerStack only declares the device/heater/metal levels; the
+    implicit SOI BOX and cladding are not in the PDK object.  Add them as
+    explicit regions with a documented source, and mark the interconnect
+    levels as conductors.
+    """
+    dielectrics: list[Mapping[str, Any]] = [
+        {
+            "name": "box",
+            "material": _CSPDK_BACKGROUND_MATERIAL,
+            "zmin": -_CSPDK_BOX_THICKNESS_UM,
+            "zmax": 0.0,
+        },
+        {
+            "name": "clad",
+            "material": _CSPDK_BACKGROUND_MATERIAL,
+            "zmin": 0.0,
+            "zmax": _CSPDK_CLAD_THICKNESS_UM,
+        },
+    ]
+    role_overrides = {
+        name: "conductor" for name in ("heater", "metal") if name in layers
+    }
+    return StackOverlay(
+        name="CSPDK",
+        dielectrics=tuple(dielectrics),
+        role_overrides=role_overrides,
+        note=(
+            "Cornerstone Si220 declares only device levels; the implicit "
+            f"{_CSPDK_BOX_THICKNESS_UM:g} um BOX and "
+            f"{_CSPDK_CLAD_THICKNESS_UM:g} um SiO2 cladding are a reviewed "
+            "gsim overlay (gsim#230), not inferred from layer names."
+        ),
+    )
+
+
 def get_stack_overlay(pdk_name: str, layers: Mapping[str, Any]) -> StackOverlay | None:
     """Return the explicit overlay for *pdk_name*, or ``None``.
 
     Args:
-        pdk_name: Resolved PDK name (e.g. ``"IHP"``).
+        pdk_name: Resolved PDK name (e.g. ``"IHP"`` or ``"cspdk.si220"``).
         layers: Resolved process layers, keyed by layer name.  Each entry must
             expose ``material``, ``zmin`` and ``zmax``.
     """
-    if (pdk_name or "").upper() == "IHP":
+    normalized = (pdk_name or "").strip().lower()
+    if normalized == "ihp":
         return _ihp_overlay(layers)
+    if normalized in {"ubc", "ubcpdk"}:
+        return _ubc_overlay(layers)
+    if (
+        normalized == "cspdk"
+        or normalized.startswith("cspdk.si220")
+        or normalized == "cornerstone"
+    ):
+        return _cspdk_overlay(layers)
     return None
 
 

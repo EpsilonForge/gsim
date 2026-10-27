@@ -1,5 +1,13 @@
 """Canonical PDK resolution for simulation backends."""
 
+from gsim.common.pdk.adapters import build_layer_stack
+from gsim.common.pdk.diagnostics import (
+    FeatureResolution,
+    feature_resolution,
+    geometry_report,
+    material_report,
+    stack_report,
+)
 from gsim.common.pdk.models import (
     ComponentResolutionError,
     LayerResolutionError,
@@ -22,6 +30,7 @@ from gsim.common.pdk.stack import (
 
 __all__ = [
     "ComponentResolutionError",
+    "FeatureResolution",
     "LayerResolutionError",
     "PdkResolutionError",
     "ResolvedDielectric",
@@ -32,9 +41,14 @@ __all__ = [
     "ResolvedStack",
     "StackOverlay",
     "UnsupportedPortError",
+    "build_layer_stack",
     "classify_layer_role",
+    "feature_resolution",
+    "geometry_report",
     "get_stack_overlay",
+    "material_report",
     "resolve_layer_stack",
     "resolve_material_properties",
     "resolve_passive_pcell",
+    "stack_report",
 ]
