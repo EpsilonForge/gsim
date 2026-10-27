@@ -35,12 +35,13 @@
   <p class="muted">Executed notebook plus GDS geometry for each validation case, from branch <code>pdk-validation</code>.</p>
   
         <div class="notice ok">
-          <strong>Executed notebook is published.</strong> Every available validation case is shown with
+          <strong>Executed notebook is published.</strong> Every available comparison case is shown with
           their recorded runs, reference overlays and the compute/size table.
           <a href="notebook.html">rendered HTML</a> · <a href="notebook.ipynb">executed .ipynb</a>
         </div>
         <div class="notice">
           <strong>Coupler mesh check:</strong> 30, 50 and 70 pixels/µm show decreasing complex-S changes, but the 50-to-70 change is still 0.070 for S41 and 0.129 for S31. The 70-pixel run stopped earlier, so convergence remains unverified. <a href="https://github.com/EpsilonForge/gsim/blob/pdk-validation/nbs/data/pdk_validation/GEOMETRY_AUDIT.md">Read the geometry and mesh audit</a>.
+          <br><strong>Bragg reference-plane check:</strong> the measured Set 1 design #10 uses a splitter and grating-coupler reflection fixture. The archive contains detector power, with no fixture de-embedding. Its RMS difference from simulated bare-grating S11 is diagnostic only.
         </div>
 </header>
 <main>
@@ -56,6 +57,7 @@
               <a href="gds/straight.gds"><img class="layout" src="gds/straight.png" alt="Straight waveguide (UBC) layout"></a>
               <p class="small"><a href="gds/straight.gds">download GDS</a> · authoritative UBC stack</p>
               <a href="plots/straight_data.png"><img class="plot" src="plots/straight_data.png" alt="Straight waveguide (UBC) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              
               <p class="small">runs: <a class="chip" href="runs/runs/2d_straight/s_parameters.csv">2d_straight</a></p>
             </article>
             
@@ -70,6 +72,7 @@
               <a href="gds/coupler.gds"><img class="layout" src="gds/coupler.png" alt="Directional coupler (UBC) layout"></a>
               <p class="small"><a href="gds/coupler.gds">download GDS</a> · authoritative UBC stack</p>
               <a href="plots/coupler_data.png"><img class="plot" src="plots/coupler_data.png" alt="Directional coupler (UBC) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              
               <p class="small">runs: <a class="chip" href="runs/runs/2d_coupler/s_parameters.csv">2d_coupler</a></p>
             </article>
             
@@ -84,6 +87,7 @@
               <a href="gds/ring_coupling.gds"><img class="layout" src="gds/ring_coupling.png" alt="Ring coupling area (UBC) layout"></a>
               <p class="small"><a href="gds/ring_coupling.gds">download GDS</a> · authoritative UBC stack; 2-D</p>
               <a href="plots/ring_coupling_data.png"><img class="plot" src="plots/ring_coupling_data.png" alt="Ring coupling area (UBC) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              
               <p class="small">runs: <a class="chip" href="runs/runs/2d_ring_coupling/s_parameters.csv">2d_ring_coupling</a></p>
             </article>
             
@@ -93,11 +97,12 @@
                   <h2>MZI (UBC)</h2>
                   <p class="muted small">dL = 214.215 µm · 112.10 x 53.50 µm</p>
                 </div>
-                <span class="badge ok">Recorded</span>
+                <span class="badge ">Excluded</span>
               </header>
               <a href="gds/mzi.gds"><img class="layout" src="gds/mzi.png" alt="MZI (UBC) layout"></a>
-              <p class="small"><a href="gds/mzi.gds">download GDS</a> · authoritative UBC stack; 2-D</p>
+              <p class="small"><a href="gds/mzi.gds">download GDS</a> · runtime-limited smoke run; no accepted spectrum</p>
               <a href="plots/mzi_data.png"><img class="plot" src="plots/mzi_data.png" alt="MZI (UBC) reference data only — no simulated run recorded"></a><p class="muted small">reference data only — no simulated run recorded</p>
+              
               <p class="small">runs: <span class="chip muted">no recorded run</span></p>
             </article>
             
@@ -105,7 +110,7 @@
               <header class="card-head">
                 <div>
                   <h2>Ring resonator (UBC)</h2>
-                  <p class="muted small">r = 10 µm, gap = 0.1 µm · 28.50 x 21.70 µm</p>
+                  <p class="muted small">r = 10 µm, gap = 0.1 µm · 24.51 x 21.71 µm</p>
                 </div>
                 <span class="badge ok">Recorded</span>
               </header>
@@ -120,13 +125,14 @@
               <header class="card-head">
                 <div>
                   <h2>Bragg grating (UBC)</h2>
-                  <p class="muted small">200 sinusoidal periods · 9.38 x 0.60 µm</p>
+                  <p class="muted small">200 sinusoidal periods · 66.60 x 0.56 µm</p>
                 </div>
-                <span class="badge ok">Recorded</span>
+                <span class="badge ">Diagnostic</span>
               </header>
               <a href="gds/bragg.gds"><img class="layout" src="gds/bragg.png" alt="Bragg grating (UBC) layout"></a>
-              <p class="small"><a href="gds/bragg.gds">download GDS</a> · authoritative UBC stack</p>
+              <p class="small"><a href="gds/bragg.gds">download GDS</a> · measured reflection fixture is not de-embedded</p>
               <a href="plots/bragg_data.png"><img class="plot" src="plots/bragg_data.png" alt="Bragg grating (UBC) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              
               <p class="small">runs: <a class="chip" href="runs/runs/2d_bragg/s_parameters.csv">2d_bragg</a></p>
             </article>
             
@@ -141,6 +147,7 @@
               <a href="gds/cspdk_coupler.gds"><img class="layout" src="gds/cspdk_coupler.png" alt="Directional coupler (Cornerstone) layout"></a>
               <p class="small"><a href="gds/cspdk_coupler.gds">download GDS</a> · authoritative Cornerstone stack</p>
               <a href="plots/cspdk_coupler_data.png"><img class="plot" src="plots/cspdk_coupler_data.png" alt="Directional coupler (Cornerstone) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              
               <p class="small">runs: <a class="chip" href="runs/runs/2d_cspdk_coupler/s_parameters.csv">2d_cspdk_coupler</a></p>
             </article>
             
@@ -155,6 +162,7 @@
               <a href="gds/cspdk_ring_coupling.gds"><img class="layout" src="gds/cspdk_ring_coupling.png" alt="Ring coupling area (Cornerstone) layout"></a>
               <p class="small"><a href="gds/cspdk_ring_coupling.gds">download GDS</a> · authoritative Cornerstone stack; 2-D</p>
               <a href="plots/cspdk_ring_coupling_data.png"><img class="plot" src="plots/cspdk_ring_coupling_data.png" alt="Ring coupling area (Cornerstone) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              
               <p class="small">runs: <a class="chip" href="runs/runs/2d_cspdk_ring_coupling/s_parameters.csv">2d_cspdk_ring_coupling</a></p>
             </article>
             
@@ -169,6 +177,7 @@
               <a href="gds/siepic_coupler.gds"><img class="layout" src="gds/siepic_coupler.png" alt="SiEPIC measured coupler (generic PDK) layout"></a>
               <p class="small"><a href="gds/siepic_coupler.gds">download GDS</a> · generic photonic PDK; measured data</p>
               <a href="plots/siepic_coupler_data.png"><img class="plot" src="plots/siepic_coupler_data.png" alt="SiEPIC measured coupler (generic PDK) Meep vs reference"></a><p class="muted small">Meep vs reference</p>
+              
               <p class="small">runs: <a class="chip" href="runs/runs/2d_siepic_coupler/s_parameters.csv">2d_siepic_coupler</a></p>
             </article>
             
