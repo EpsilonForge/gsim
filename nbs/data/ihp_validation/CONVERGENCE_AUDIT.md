@@ -27,6 +27,12 @@ the 6.8 MB mesh is kept outside the repository. A 2.998 µm conductor feature tr
 warning at 5 µm. The model has **not been solved**. Field/current-density and 1 GHz loss checks, with a finer mesh, are
 required before a full sweep.
 
+Three historical variants have unresolved absorbing-boundary provenance. In the archived resolved configs,
+`openems_ground` and `planar_pec` assign Absorbing to `si__None` as well as `air__None`; `gap` assigns it to
+`sio2__None` as well as `air__None`. The group names and attributes agree with the archived mesh metadata, but we have
+not inspected whether these are genuinely exterior faces. These variants remain exploratory or invalid and should be
+remeshed with the corrected boundary classifier before use in any accuracy or convergence argument.
+
 The independent
 [gds2palace IHP L6n2 v3 study](https://github.com/VolkerMuehlhaus/gds2palace_ihp_sg13g2/blob/main/more_examples/measured_vs_simulated/more_accurate_models_L6n2_v3/README.md)
 uses a **different inductor**. It documents a false agreement caused by a lossy Metal1 common ground compensating for
