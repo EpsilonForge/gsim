@@ -49,7 +49,16 @@ An initial 50 pixels/µm run used a full-stack slab eigenmode as its 2-D core in
 substrate mode (core permittivity 12.0744 instead of 8.1081), giving an apparently excellent 0.55 dB S41 match. That
 result changes the physical model as well as the mesh and is excluded from the convergence comparison. The harness now
 computes the local asymmetric core slab index deterministically, independent of whether Meep is installed in the driver
-environment. The 70 pixels/µm check is still pending.
+environment.
+
+The 70 pixels/µm run in `mesh_sweeps/coupler_r70/` retains the same GDS, 101 wavelengths, materials and ports and uses
+the original 30 pixels/µm stopping settings. It used one CPU core, 1.37 million cells and 834 s wall time. S41/S31 RMS
+against the SAX LUT is 3.97/4.64 dB. Relative to 50 pixels/µm, the S41/S31 magnitude changes fall to 0.091/0.038 dB RMS
+and the complex changes to 0.0698/0.1286 RMS; wrapped phase changes are 7.1°/8.9° RMS. The corresponding 30-to-50
+complex changes were 0.388/0.443, so the trend is encouraging but **does not meet a 0.01 complex-S mesh gate**. S11
+still changes by 0.0070 complex RMS. The 70 pixels/µm run stopped at 200 Meep time units instead of about 250, a
+stopping-time difference that also needs control before any strict mesh-convergence claim. Meep's o1 mode index at 1.55
+µm changes from 2.6000 to 2.6111 to 2.6162 across the three meshes, consistent with substantial phase sensitivity.
 
 Next comparison should use a pinned reference GDS or a documented layout parameter table for each measured device,
 verify the derived core polygons and port orientation, then run a resolution and stopping-time sweep. A better fit
