@@ -374,6 +374,14 @@ def test_2d_effective_index_overrides_only_the_core():
     assert sim.geometry.stack.layers["box"].material == "sio2"
     assert core.material in sim.materials
     assert "si" not in sim.materials
+    # The thick silicon substrate also supports a mode. A full-stack solve
+    # can select it and silently replace the core slab index with bulk Si.
+    core_index = sim.materials[core.material].refractive_index
+    assert core_index == pytest.approx(2.847475, abs=1e-4)
+    finer = validation.build_validation_simulation(
+        component, dimension="2d", resolution=50, pdk=target.pdk
+    )
+    assert finer.materials[core.material].refractive_index == pytest.approx(core_index)
 
 
 def test_build_validation_simulation_2d_plane():

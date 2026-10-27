@@ -33,6 +33,24 @@ whereas 101 simulated samples across the 1.50–1.60 µm window are roughly 1 nm
 its 300 s wall cap and the Bragg run reached its 1000 Meep-time cap; their spectral features should not be called
 converged.
 
+## UBC coupler mesh sensitivity
+
+The archived 30 pixels/µm run and `mesh_sweeps/coupler_r50/` use identical GDS, 101 wavelengths, Si core slab
+permittivity 8.1081139, SiO2 background and port definitions. Both stopped at about 250 Meep time units. The 50
+pixels/µm run used a tighter field-energy threshold (1e-6 rather than 1e-4); it used one CPU core, 701,250 grid cells
+and 456 s wall time. Its S41 and S31 RMS against the SAX LUT changed from 4.43/4.83 dB to 4.06/4.68 dB, respectively.
+
+Across the full sampled band, the 30-to-50 complex RMS changes are 0.388 for S41 and 0.443 for S31. Their magnitude
+changes are 0.37 and 0.15 dB RMS, but their wrapped phase changes are 42.2° and 30.6° RMS. This is **mesh sensitivity,
+not complex-S convergence**. The S11 magnitude change is 6.01 dB RMS because reflection is small; its absolute complex
+RMS change is 0.0112.
+
+An initial 50 pixels/µm run used a full-stack slab eigenmode as its 2-D core index. It selected the thick silicon
+substrate mode (core permittivity 12.0744 instead of 8.1081), giving an apparently excellent 0.55 dB S41 match. That
+result changes the physical model as well as the mesh and is excluded from the convergence comparison. The harness now
+computes the local asymmetric core slab index deterministically, independent of whether Meep is installed in the driver
+environment. The 70 pixels/µm check is still pending.
+
 Next comparison should use a pinned reference GDS or a documented layout parameter table for each measured device,
 verify the derived core polygons and port orientation, then run a resolution and stopping-time sweep. A better fit
 obtained by changing nominal geometry without reference-mask evidence would be a fit to measurement, not an independent

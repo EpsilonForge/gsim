@@ -261,6 +261,7 @@ def build(
           runs below are the data that exist now.
         </div>"""
 
+    available_cases = {case.name for case in V.build_cases()}
     cards = []
     for name, title, subtitle in CASES:
         gds_source = resolve_gds(name)
@@ -288,17 +289,25 @@ def build(
             )
         else:
             generated = out / "plots" / f"{name}_data.png"
-            mode = render_data_plot(name, title, generated)
-            caption = (
-                "Meep vs reference"
-                if mode == "comparison"
-                else "reference data only — no simulated run recorded"
-            )
-            plot_html = (
-                f'<a href="plots/{generated.name}"><img class="plot" '
-                f'src="plots/{generated.name}" alt="{title} {caption}"></a>'
-                f'<p class="muted small">{caption}</p>'
-            )
+            if name not in available_cases:
+                # Optional PDK packages may be absent even when their archived
+                # GDS and Meep runs are present in the variant.
+                plot_html = (
+                    '<p class="muted small">Reference plot unavailable in this '
+                    "environment; archived run files are linked below.</p>"
+                )
+            else:
+                mode = render_data_plot(name, title, generated)
+                caption = (
+                    "Meep vs reference"
+                    if mode == "comparison"
+                    else "reference data only — no simulated run recorded"
+                )
+                plot_html = (
+                    f'<a href="plots/{generated.name}"><img class="plot" '
+                    f'src="plots/{generated.name}" alt="{title} {caption}"></a>'
+                    f'<p class="muted small">{caption}</p>'
+                )
         cards.append(
             f"""
             <article class="card">

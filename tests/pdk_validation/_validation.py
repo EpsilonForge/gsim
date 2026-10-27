@@ -187,87 +187,57 @@ def build_validation_simulation(
                 "Cannot configure 2-D effective-index mode: stack has no 'core' layer"
             )
         if core is not None:
+            # Solve the *core* slab. The full PDK stack also contains a thick
+            # silicon substrate; its lowest mode can be selected by a generic
+            # stack eigenmode solve and incorrectly used as the 2-D core index.
+            # This local asymmetric-slab estimate is independent of whether
+            # the notebook kernel happens to have Meep installed.
+            from scipy.optimize import brentq
+
             from gsim.meep.materials import resolve_materials
             from gsim.meep.models.api import Material
             from gsim.meep.models.config import MaterialData
 
-            try:
-                from gsim.meep import solve_slab_mode
+            dielectric = [
+                layer
+                for layer in stack.layers.values()
+                if layer.material != core.material and layer.layer_type == "dielectric"
+            ]
+            below = [layer for layer in dielectric if layer.zmax <= core.zmin]
+            above = [
+                layer
+                for layer in dielectric
+                if layer.zmax >= core.zmax and layer.zmin <= core.zmin
+            ]
+            bottom_material = (
+                max(below, key=lambda layer: layer.zmax).material if below else "air"
+            )
+            top_material = (
+                min(above, key=lambda layer: layer.zmax).material if above else "air"
+            )
+            resolved = resolve_materials(
+                {core.material, bottom_material, top_material},
+                wavelength_um=wavelength,
+            )
 
-                n_eff = solve_slab_mode(
-                    stack=stack,
-                    wavelength=wavelength,
-                    resolution=max(32, resolution),
-                ).n_eff
-            except ImportError:
-                # Notebook kernels may not contain Meep even when the FDTD
-                # subprocess does. Fall back to an asymmetric slab estimate
-                # using dielectric neighbors; conductors such as TiN heaters
-                # are not the cladding of the optical core.
-                from scipy.optimize import brentq
+            def refractive_index(material_data: MaterialData) -> float:
+                epsilon_diag = material_data.epsilon_diag
+                if epsilon_diag is None:
+                    raise ValueError("Resolved slab material has no permittivity")
+                return math.sqrt(float(epsilon_diag[0]))
 
-                dielectric = [
-                    layer
-                    for layer in stack.layers.values()
-                    if layer.material != core.material
-                    and layer.layer_type == "dielectric"
-                ]
-                below = [layer for layer in dielectric if layer.zmax <= core.zmin]
-                above = [
-                    layer
-                    for layer in dielectric
-                    if layer.zmax >= core.zmax and layer.zmin <= core.zmin
-                ]
-                n_core_data = resolve_materials(
-                    {core.material}, wavelength_um=wavelength
-                )[core.material]
+            n_core = refractive_index(resolved[core.material])
+            n_bottom = refractive_index(resolved[bottom_material])
+            n_top = refractive_index(resolved[top_material])
+            k0 = 2 * math.pi / wavelength
 
-                def refractive_index(material_data: MaterialData) -> float:
-                    epsilon_diag = material_data.epsilon_diag
-                    if epsilon_diag is None:
-                        raise ValueError(
-                            "Resolved slab material has no diagonal permittivity"
-                        )
-                    return math.sqrt(float(epsilon_diag[0]))
+            def slab_residual(n_eff: float) -> float:
+                h = k0 * math.sqrt(max(n_core**2 - n_eff**2, 0.0))
+                a0 = k0 * math.sqrt(max(n_eff**2 - n_bottom**2, 0.0))
+                a1 = k0 * math.sqrt(max(n_eff**2 - n_top**2, 0.0))
+                return h * core.thickness - math.atan(a0 / h) - math.atan(a1 / h)
 
-                n_core = refractive_index(n_core_data)
-                adjacent_materials = {
-                    (
-                        max(below, key=lambda layer: layer.zmax).material
-                        if below
-                        else "air"
-                    ),
-                    (
-                        min(above, key=lambda layer: layer.zmax).material
-                        if above
-                        else "air"
-                    ),
-                }
-                resolved = resolve_materials(
-                    adjacent_materials, wavelength_um=wavelength
-                )
-                n_bottom, n_top = [
-                    refractive_index(resolved[material])
-                    for material in (
-                        max(below, key=lambda layer: layer.zmax).material
-                        if below
-                        else "air",
-                        min(above, key=lambda layer: layer.zmax).material
-                        if above
-                        else "air",
-                    )
-                ]
-                k0 = 2 * math.pi / wavelength
-
-                def slab_residual(n_eff: float) -> float:
-                    h = k0 * math.sqrt(max(n_core**2 - n_eff**2, 0.0))
-                    a0 = k0 * math.sqrt(max(n_eff**2 - n_bottom**2, 0.0))
-                    a1 = k0 * math.sqrt(max(n_eff**2 - n_top**2, 0.0))
-                    return h * core.thickness - math.atan(a0 / h) - math.atan(a1 / h)
-
-                n_eff = brentq(
-                    slab_residual, max(n_bottom, n_top) + 1e-9, n_core - 1e-9
-                )
+            n_eff = brentq(slab_residual, max(n_bottom, n_top) + 1e-9, n_core - 1e-9)
             # A material-name override would also change every other layer
             # using the same token (UBC uses "si" for substrate/core).  Rename
             # only the core level and override that private token.
