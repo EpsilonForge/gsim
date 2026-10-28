@@ -545,42 +545,6 @@ def power_conservation(s_params: Mapping[str, Any]) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def dbr_two_port(
-    w1: float = 0.5,
-    w2: float = 0.6,
-    n: int = 20,
-    *,
-    cross_section: str = "strip",
-    straight_length: float = 10e-3,
-    period: float = 318e-3,
-) -> Any:
-    """Build a two-port DBR.
-
-    ``gdsfactory.components.dbr`` exposes only ``o1`` (it never adds the output
-    port), so the Bragg validation case cannot measure transmission with it.
-    This rebuilds the same grating but terminates both ends with a short
-    straight and exposes ``o1`` and ``o2``.
-    """
-    import gdsfactory as gf
-    from gdsfactory.component import Component
-    from gdsfactory.components.filters.dbr import dbr_cell
-
-    l1 = l2 = period / 2
-    c = Component()
-    xs = gf.get_cross_section(cross_section)
-    s1 = c << gf.c.straight(cross_section=xs, length=straight_length)
-    s2 = c << gf.c.straight(cross_section=xs, length=straight_length)
-    cell = dbr_cell(w1=w1, w2=w2, l1=l1, l2=l2, cross_section=cross_section)
-    ref = c.add_ref(cell, columns=n, rows=1, column_pitch=l1 + l2)
-    s1.connect(port="o1", other=cell.ports["o1"], allow_width_mismatch=True)
-    s2.connect(port="o1", other=cell.ports["o2"], allow_width_mismatch=True)
-    s2.xmin = ref.xmax
-    c.add_port("o1", port=s1.ports["o2"])
-    c.add_port("o2", port=s2.ports["o2"])
-    c.flatten()
-    return c
-
-
 def sinusoidal_dbr(
     n_periods: int = 200,
     *,
@@ -594,7 +558,7 @@ def sinusoidal_dbr(
 
     The measured UBC Set 1 design #10 is a sinusoidal DBR with
     ``delta_width = 120 nm`` and ~200 periods, so the rectangular
-    :func:`dbr_two_port` is not the same device.  Here the width varies as
+    A rectangular DBR is not the same device. Here the width varies as
     ``width + delta_width/2 * sin(2*pi*z/period)`` along the guide.
 
     Args:
@@ -634,7 +598,6 @@ RING_RADIUS_UM = 10.0
 RING_LENGTH_X_UM = 4.0
 MZI_DELTA_LENGTH_UM = 214.215
 DBR_W1 = 0.5
-DBR_W2 = 0.6
 DBR_PERIODS = 200
 DBR_PERIOD_UM = 0.318
 DBR_DELTA_WIDTH_UM = 0.12
@@ -1156,7 +1119,8 @@ def format_summary(
     """
     header = (
         "| Example | Dim | res | freqs | cell x/y/z (lambda) | area "
-        "(lambda^2) | cells | compute time (s) | MEEP time | steps | best RMS (dB) |"
+        "(lambda^2) | cells | compute time (s) | MEEP time | steps | "
+        "first available port RMS (dB) |"
         "\n"
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
     )
@@ -1169,7 +1133,10 @@ def format_summary(
         cells = row["cells"]
         cells_text = f"{cells / 1e6:.2f}M" if cells >= 1e6 else f"{cells:,}"
         rms = row["rms_db"]
-        rms_text = f"{rms:.2f}" if isinstance(rms, (int, float)) else "-"
+        if isinstance(rms, (int, float)):
+            rms_text = f"{rms:.3f}" if abs(rms) < 0.1 else f"{rms:.2f}"
+        else:
+            rms_text = "-"
         rows.append(
             "| {case} | {dimension} | {resolution} | {num_freqs} | "
             "{cell_x_lambda:.1f} x {cell_y_lambda:.1f} x {cell_z_lambda:.1f} | "
@@ -1534,7 +1501,6 @@ __all__ = [
     "DBR_PERIODS",
     "DBR_PERIOD_UM",
     "DBR_W1",
-    "DBR_W2",
     "FALLBACK_N_EFF",
     "HIGH_RESOLUTION_DECAY_BY",
     "HIGH_RESOLUTION_MAX_TIME",
@@ -1561,7 +1527,6 @@ __all__ = [
     "build_validation_simulation",
     "case_feature_report",
     "compare",
-    "dbr_two_port",
     "deembed_s_params",
     "fast_overrides",
     "find_recorded_run",

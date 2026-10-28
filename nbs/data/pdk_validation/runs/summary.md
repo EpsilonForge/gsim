@@ -1,8 +1,8 @@
 ### MEEP PDK validation — compute budget
 
-| Example | Dim | res | freqs | cell x/y/z (lambda) | area (lambda^2) | cells | compute time (s) | MEEP time | steps | best RMS (dB) |
+| Example | Dim | res | freqs | cell x/y/z (lambda) | area (lambda^2) | cells | compute time (s) | MEEP time | steps | first available port RMS (dB) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| straight | 2d | 30 | 101 | 14.8 x 2.9 x 0.0 | 43.1 | 93,150 | 3.4 | 150.0 | 9002 | 0.01 |
+| straight | 2d | 30 | 101 | 14.8 x 2.9 x 0.0 | 43.1 | 93,150 | 3.4 | 150.0 | 9002 | 0.006 |
 | coupler | 2d | 30 | 101 | 21.3 x 5.5 x 0.0 | 116.8 | 252,450 | 6.9 | 250.1 | 15004 | 4.43 |
 | ring_coupling | 2d | 40 | 101 | 18.4 x 9.3 x 0.0 | 170.2 | 654,360 | 36.8 | 250.1 | 20005 | 9.47 |
 | ring | 2d | 40 | 101 | 15.8 x 16.6 x 0.0 | 262.3 | 1.01M | 300.0 | 391.1 | 31291 | 8.00 |

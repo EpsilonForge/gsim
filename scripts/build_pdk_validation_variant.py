@@ -12,8 +12,10 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import matplotlib as mpl
@@ -32,8 +34,12 @@ from tests.pdk_validation import _validation as V  # noqa: N812
 
 RUNS = REPO / "nbs" / "data" / "pdk_validation"
 GDS_STORE = RUNS / "gds"
-MEEP_FALLBACK = Path("/tmp/opencode/pdk_meep_results")  # noqa: S108
-DEFAULT_OUT = Path("/tmp/opencode/pdk-validation-variant")  # noqa: S108
+DEFAULT_OUT = Path(
+    os.environ.get(
+        "GSIM_PDK_VARIANT_DIR",
+        str(Path(tempfile.gettempdir()) / "gsim-pdk-validation-variant"),
+    )
+)
 
 CASES = [
     ("straight", "Straight waveguide (UBC)", "L = 20 µm"),
@@ -80,8 +86,6 @@ def resolve_gds(name: str) -> Path | None:
         run_root / name / "layout.gds",
         stored,
     ]
-    fallback = MEEP_FALLBACK / name / "layout.gds"
-    candidates.append(fallback)
     for candidate in candidates:
         if candidate.is_file():
             return candidate

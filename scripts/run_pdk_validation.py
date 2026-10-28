@@ -17,15 +17,17 @@ S-parameters are written per case for later plotting.
 Example::
 
     GSIM_MEEP_PYTHON=/path/to/meep/python \
-        python scripts/run_pdk_validation.py --high-res --jobs 6 \
-        --output /tmp/opencode/pdk_meep_results
+        uv run python scripts/run_pdk_validation.py --high-res --jobs 6 \
+        --output ./pdk_meep_results
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -169,7 +171,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=str,
-        default="/tmp/opencode/pdk_meep_results",  # noqa: S108
+        default=os.environ.get(
+            "GSIM_PDK_OUTPUT", str(Path(tempfile.gettempdir()) / "gsim-pdk-results")
+        ),
     )
     parser.add_argument(
         "--python",

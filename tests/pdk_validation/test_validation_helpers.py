@@ -399,23 +399,6 @@ def test_build_validation_simulation_2d_plane():
 # ---------------------------------------------------------------------------
 
 
-def test_dbr_two_port_has_both_ports():
-    pytest.importorskip("gdsfactory")
-    import gdsfactory as gf
-
-    try:
-        gf.gpdk.PDK.activate()
-    except Exception:
-        pytest.skip("no generic PDK available")
-
-    dbr = validation.dbr_two_port(w1=0.5, w2=0.6, n=20)
-    names = [port.name for port in dbr.ports]
-    assert sorted(names) == ["o1", "o2"]
-    o1, o2 = dbr.ports["o1"], dbr.ports["o2"]
-    assert o1.center[0] < o2.center[0]
-    assert dbr.xsize > 6.0
-
-
 def test_bragg_case_geometry_matches_pinned_set1_design():
     pytest.importorskip("ubcpdk")
     component = validation.get_case("bragg").make_component()
@@ -441,6 +424,14 @@ def test_published_layouts_are_the_recorded_meep_geometries():
         published = page.GDS_STORE / f"{name}.gds"
         assert published.read_bytes() == recorded.read_bytes(), name
         assert page.resolve_gds(name) == recorded
+
+
+def test_layout_lookup_stays_within_repository_data(tmp_path, monkeypatch):
+    from scripts import build_pdk_validation_variant as page
+
+    monkeypatch.setattr(page, "RUNS", tmp_path / "runs")
+    monkeypatch.setattr(page, "GDS_STORE", tmp_path / "gds")
+    assert page.resolve_gds("missing") is None
 
 
 @pytest.mark.parametrize(
