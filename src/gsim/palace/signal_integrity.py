@@ -164,7 +164,11 @@ def complete_network(
         raise ValueError(
             "Solver reference differs from the declared reference impedance"
         )
-    return mixed_mode(net, z_se=z_se)[0]
+    if len(ports) != 4:
+        raise ValueError("Supply exactly four ordered port names")
+    return mixed_mode(
+        net, pairs=((ports[0], ports[1]), (ports[2], ports[3])), z_se=z_se
+    )[0]
 
 
 def line_network(
@@ -354,6 +358,10 @@ def interpolate_complex(
         Array with shape ``(len(frequencies), n_ports, n_ports)``.
     """
     frequencies = np.asarray(frequencies, float)
+    if not np.all(np.isfinite(frequencies)):
+        raise ValueError("Target frequencies must be finite")
+    if np.any(frequencies < net.f[0]) or np.any(frequencies > net.f[-1]):
+        raise ValueError("Target frequencies must lie within the source band")
     n_ports = net.s.shape[1]
     values = [
         np.interp(frequencies, net.f, net.s[:, i, j].real)

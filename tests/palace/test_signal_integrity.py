@@ -123,6 +123,40 @@ def test_complete_network_preserves_order_and_reference() -> None:
     np.testing.assert_allclose(ordered.z0, Z_SE)
 
 
+def test_complete_network_reorders_shuffled_solver_ports() -> None:
+    s = np.zeros((3, 4, 4), complex)
+    s[:, 0, 1] = 0.12
+    s[:, 1, 0] = 0.34
+    original = _network(s, np.arange(3) * 1e9)
+    original.port_names = list(PORTS)
+    shuffled = [2, 0, 3, 1]
+    net = _network(s[:, shuffled][:, :, shuffled], original.f)
+    net.port_names = [PORTS[i] for i in shuffled]
+
+    ordered = complete_network(_Parameters(net), ports=PORTS)
+    assert ordered.port_names == list(PORTS)
+    np.testing.assert_allclose(ordered.s, original.s)
+
+
+def test_terminal_order_feeds_mixed_mode_pairs() -> None:
+    from gsim.palace.terminal import modal_to_terminal_s
+
+    s_modal = np.zeros((3, 4, 4), complex)
+    for near, far in ((0, 2), (1, 3)):
+        s_modal[:, near, far] = s_modal[:, far, near] = 0.7
+    basis = np.eye(2)
+    s_terminal = modal_to_terminal_s(
+        s_modal, [basis, basis], [basis / Z_SE, basis / Z_SE], z_ref=Z_SE
+    )
+    net = _network(s_terminal, np.arange(3) * 1e9)
+    net.port_names = list(PORTS)  # A1, B1, A2, B2
+
+    ordered, mixed = mixed_mode(net)
+    np.testing.assert_allclose(ordered.s, s_terminal, atol=1e-12)
+    np.testing.assert_allclose(mixed.s[:, 1, 0], 0.7, atol=1e-12)
+    np.testing.assert_allclose(mixed.s[:, 2, 0], 0, atol=1e-12)
+
+
 def test_line_network_tdr_recovers_impedance_delay_and_dc() -> None:
     zc, delay, zref = 130.0, 80e-12, 100.0
     uniform = line_network(F, zc, delay, zref)
@@ -187,6 +221,9 @@ def test_interpolate_complex_preserves_shape_and_values() -> None:
     assert out.shape == (2, 2, 2)
     np.testing.assert_allclose(out[:, 0, 1], [1.5, 2.5])
     np.testing.assert_allclose(out[:, 1, 0], [1.5j, 2.5j])
+    for target in ([0.9e9], [3.1e9], [float("nan")]):
+        with pytest.raises(ValueError, match="frequencies"):
+            interpolate_complex(net, target)
 
 
 def test_network_validation_rejects_wrong_count_and_duplicate_names() -> None:
