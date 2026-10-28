@@ -203,6 +203,15 @@ def test_explicit_dielectric_materials_reach_the_stack_materials() -> None:
     assert resolved.materials["silicon"] == substrate.material_properties
 
 
+def test_explicit_bulk_overrides_overlapping_overlay_region() -> None:
+    resolved = resolve_layer_stack(
+        pdk=_make_ihp2_pdk(),
+        dielectrics=[{"name": "bulk", "material": "sin", "zmin": -2.0, "zmax": 14.03}],
+    )
+    assert any(d.name == "bulk" and d.material == "sin" for d in resolved.dielectrics)
+    assert not any(d.name == "ild" for d in resolved.dielectrics)
+
+
 # ---------------------------------------------------------------------------
 # IHP integration
 # ---------------------------------------------------------------------------
