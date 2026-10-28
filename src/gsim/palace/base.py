@@ -477,6 +477,7 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
         pdk_authoritative: bool = False,
         dielectrics: list[dict[str, Any]] | None = None,
         role_overrides: dict[str, str] | None = None,
+        use_pdk_overlay: bool = True,
         **kwargs,
     ) -> None:
         """Configure the layer stack.
@@ -519,6 +520,8 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
                 (``"conductor"``/``"via"``/``"dielectric"``/``"substrate"``).
                 Only used with ``pdk_authoritative=True``; needed to mark
                 interconnect layers (e.g. IHP ``via*``/``cont``) as vias.
+            use_pdk_overlay: Apply the reviewed per-PDK overlay. Only valid
+                with ``pdk_authoritative=True``.
             **kwargs: Additional args passed to extract_layer_stack (legacy path).
 
         Example:
@@ -552,6 +555,8 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
                 add_oxide_dielectric=add_oxide_dielectric,
                 extra_kwargs=kwargs,
             )
+        elif not use_pdk_overlay:
+            raise ValueError("use_pdk_overlay=False requires pdk_authoritative=True")
 
         self._stack_kwargs = {
             "yaml_path": yaml_path,
@@ -561,6 +566,7 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             "pdk_authoritative": pdk_authoritative,
             "dielectrics": dielectrics,
             "role_overrides": role_overrides,
+            "use_pdk_overlay": use_pdk_overlay,
             **kwargs,
         }
         # Stack will be resolved lazily during mesh() or simulate()
@@ -1027,11 +1033,19 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
                 self.component,
                 dielectrics=dielectrics,
                 role_overrides=role_overrides,
+                use_pdk_overlay=bool(self._stack_kwargs.get("use_pdk_overlay", True)),
             )
             canonical = build_palace_layer_stack(resolved)
 
-            # Apply material overrides
+            # Apply material overrides to both canonical names and PDK tokens
+            # that resolve to them. Layers retain their original material token.
+            from gsim.common.stack.materials import MATERIAL_ALIASES
+
             for name, props in self.materials.items():
+                target = MATERIAL_ALIASES.get(name.lower(), name.lower())
+                for token in canonical.materials:
+                    if MATERIAL_ALIASES.get(token.lower(), token.lower()) == target:
+                        canonical.materials[token] = props.to_dict()
                 canonical.materials[name] = props.to_dict()
 
             # Keep stack free of synthetic air regions; Palace airboxes are
@@ -1060,6 +1074,9 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             self._stack_kwargs["pdk_authoritative"] = True
             self._stack_kwargs["dielectrics"] = dielectrics
             self._stack_kwargs["role_overrides"] = role_overrides
+            self._stack_kwargs["use_pdk_overlay"] = bool(
+                self._stack_kwargs.get("use_pdk_overlay", True)
+            )
             self.stack = canonical
             return canonical
 
@@ -1068,6 +1085,7 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
         dielectrics = self._stack_kwargs.pop("dielectrics", None)
         role_overrides = self._stack_kwargs.pop("role_overrides", None)
         self._stack_kwargs.pop("pdk_authoritative", None)
+        self._stack_kwargs.pop("use_pdk_overlay", None)
         if dielectrics or role_overrides:
             logger.warning(
                 "set_stack(dielectrics=/role_overrides=) only applies with "
