@@ -39,14 +39,6 @@ Three historical variants have unresolved absorbing-boundary provenance. In the 
 not inspected whether these are genuinely exterior faces. These variants remain exploratory or invalid and should be
 remeshed with the corrected boundary classifier before use in any accuracy or convergence argument.
 
-The independent
-[gds2palace IHP L6n2 v3 study](https://github.com/VolkerMuehlhaus/gds2palace_ihp_sg13g2/blob/main/more_examples/measured_vs_simulated/more_accurate_models_L6n2_v3/README.md)
-uses a **different inductor**. It documents a false agreement caused by a lossy Metal1 common ground compensating for
-underestimated via resistance, then tests ideal SUBGND, via fill-factor correction, conductor-volume loss, conformal
-passivation, and 100–800 µm boundary margins. Its own margin check needed 400 µm for the larger unshielded L6n2 coil.
-These are useful sensitivity tests for L2n0, not transferable accuracy numbers. Its reported 16-core runs used up to 109
-GB RAM, so they are not appropriate to launch unconstrained on this shared workstation.
-
 Next controlled sequence: (1) verify that the new port sheets meet the TM1 feed and central PEC pillar and that R at 1
 GHz is near the measured order of 1–2 Ω; (2) compare all four complex S entries with identical reference planes; (3)
 vary conductor model, material cards, boundary margin and mesh one at a time, recording DOF, wall time, peak RAM, Palace
