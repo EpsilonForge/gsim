@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import replace
 
 import gdsfactory as gf
 import pytest
@@ -123,6 +124,25 @@ def test_geometry_report_uses_derived_layer_expression() -> None:
     assert report["bbox"] == [0.0, 0.0, 10.0, 1.0]
     assert report["ports"][0]["name"] == "o1"
     assert report["ports"][0]["center"] == [0.0, 0.5]
+
+
+@pytest.mark.usefixtures("_active_pdk")
+def test_material_report_uses_resolved_cards_including_custom_names():
+    resolved = resolve_layer_stack(pdk=_make_pdk())
+    resolved = replace(
+        resolved,
+        materials={
+            "SiO2": {"permittivity": 9.0, "conductivity": 2.0, "loss_tangent": 0.02},
+            "custom_process_dielectric": {"permittivity": 6.25, "conductivity": 0.0},
+        },
+    )
+    report = material_report(resolved, wavelength_um=1.55)
+    assert report["SiO2"]["permittivity"] == 9
+    assert report["SiO2"]["refractive_index"] == 3
+    assert report["SiO2"]["conductivity"] == 2
+    assert report["SiO2"]["loss_tangent"] == 0.02
+    assert report["custom_process_dielectric"]["found"]
+    assert report["custom_process_dielectric"]["refractive_index"] == 2.5
 
 
 def test_feature_resolution_flags_under_resolved_features() -> None:

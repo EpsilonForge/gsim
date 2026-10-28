@@ -14,7 +14,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from gsim.common.pdk.stack import ResolvedStack
-from gsim.common.stack.materials import resolve_material_at_wavelength
+from gsim.common.stack.materials import (
+    MaterialProperties,
+    resolve_material_at_wavelength,
+)
 
 
 def stack_report(resolved: ResolvedStack) -> list[dict[str, Any]]:
@@ -43,10 +46,20 @@ def material_report(
     *,
     wavelength_um: float = 1.55,
 ) -> dict[str, dict[str, Any]]:
-    """Return resolved optical/RF properties for every material in the stack."""
+    """Evaluate optical/RF properties from the stack's resolved material cards.
+
+    Stack-specific overrides and custom names take precedence over the global
+    registry. Dispersion models are evaluated at ``wavelength_um``.
+    """
     report: dict[str, dict[str, Any]] = {}
+    overrides = {
+        name: MaterialProperties.model_validate(properties)
+        for name, properties in resolved.materials.items()
+    }
     for name in sorted(resolved.materials):
-        material = resolve_material_at_wavelength(name, wavelength_um)
+        material = resolve_material_at_wavelength(
+            name, wavelength_um, overrides=overrides
+        )
         if material is None:
             report[name] = {
                 "found": False,
