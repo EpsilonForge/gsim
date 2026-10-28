@@ -22,10 +22,11 @@ central Metal1-to-TopMetal1 PEC pillar, and uses the reference Metal1 ground rec
 comparison, **not a validated numerical result**. It retains the PDK material cards. A one-thread 5 µm coarse mesh
 completed with 21,977 nodes, 126,515 tetrahedra and about 807,000 estimated field DOFs. The generated Palace config has
 two separate 50 Ω port attributes; their sheets span x = -22.2..-10 and 10..22.2 µm at y = 5 µm and z = 6.23..8.23 µm,
-meeting the proposed feed-to-pillar gaps. The lightweight mesh/config evidence is in `experiments/openems_edge_mesh/`;
-the 6.8 MB mesh is kept outside the repository. A 2.998 µm conductor feature triggered the mesher's under-resolution
-warning at 5 µm. The model has **not been solved**. Field/current-density and 1 GHz loss checks, with a finer mesh, are
-required before a full sweep.
+meeting the proposed feed-to-pillar gaps. The sheets lie at y = 5 µm, rather than spanning y = 0..10 µm. The lightweight
+mesh/config evidence is in `experiments/openems_edge_mesh/`; the 6.8 MB mesh is kept outside the repository. In the
+recorded two-port setup, half of each port (y < 0) touches no metal; that setup has not passed a port-current or
+DC-resistance check. A 2.998 µm conductor feature triggered the mesher's under-resolution warning at 5 µm. The model has
+**not been solved**. Field/current-density and 1 GHz loss checks, with a finer mesh, are required before a full sweep.
 
 The pinned `L_2n0_simplified.gds` also contains a large polygon on GDS layer 75. The current IHP-to-Palace stack does
 not map layer 75, and the recorded `ground0_pec` mesh has no physical group for it. The gray outline in the notebook's

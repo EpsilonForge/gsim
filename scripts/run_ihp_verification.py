@@ -37,8 +37,7 @@ for name, kwargs in VARIANTS.items():
         )
         sp = run.sparams
         l_nh, q, _ = b.lq_at(sp, 0)
-        z = b.s_to_z(b.s_matrix(sp, 0))
-        z_diff = z[0, 0] - z[0, 1] - z[1, 0] + z[1, 1]
+        z_diff = b.differential_impedance_from_s(b.s_matrix(sp, 0))
         l_diff, q_diff = b.lq_from_impedance(z_diff, f_ghz * 1e9)
         rows[name][str(f_ghz)] = {
             "L_nH": float(l_nh),

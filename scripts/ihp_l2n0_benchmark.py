@@ -186,7 +186,8 @@ def make_simulation(
     if port_variant == "openems_edge":
         # The pinned OpenEMS model has a central PEC pillar connecting the
         # Metal1 ground plane to TopMetal1. Its ports span the 12.2 um gaps
-        # from the two feed ends to that pillar, at y=0..10 um.
+        # from the two feed ends to that pillar. The generated port sheets
+        # lie at y=5 um and span x=-22.2..-10 / 10..22.2 um.
         component.add_polygon(
             [(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)],
             layer=(65000, 0),
@@ -329,8 +330,10 @@ def s_to_z(s: np.ndarray, *, z0: float = Z0_OHM) -> np.ndarray:
 
 def differential_impedance_from_s(s: np.ndarray, *, z0: float = Z0_OHM) -> complex:
     """Return differential impedance from a 2x2 S matrix."""
+    from gsim.palace.circuit import differential_impedance
+
     z = s_to_z(s, z0=z0)
-    return complex(z[0, 0] - z[0, 1] - z[1, 0] + z[1, 1])
+    return complex(differential_impedance(z[None, :, :])[0])
 
 
 def one_port_impedance_from_s(s11: complex, *, z0: float = Z0_OHM) -> complex:
