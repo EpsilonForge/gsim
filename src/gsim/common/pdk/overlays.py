@@ -23,7 +23,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-#: Depth (um) of the implicit substrate/background below the lowest layer.
+#: Legacy gsim modelling depth (um) below z=0; not a value declared by IHP.
 IHP_BACKGROUND_DEPTH_UM = 2.0
 
 #: IHP BEOL interconnects are tungsten; metals are aluminium.
@@ -32,6 +32,7 @@ IHP_BACKGROUND_DEPTH_UM = 2.0
 #: name (``tungsten_sg13g2_via1``) and uses dedicated contact/MIM-via tokens.
 _IHP_VIA_MATERIALS = frozenset({"tungsten", "sg13g2_cont", "sg13g2_vmim"})
 _IHP_VIA_MATERIAL_PREFIX = "tungsten_sg13g2_"
+# gsim's legacy BEOL approximation; this token is not an IHP stack declaration.
 _IHP_ILD_MATERIAL = "sio2"
 
 #: Generic SOI photonic background used by Cornerstone Si220.  The PDK
@@ -108,8 +109,8 @@ def _ihp_overlay(layers: Mapping[str, Any]) -> StackOverlay:
         role_overrides=role_overrides,
         note=(
             "IHP SG13G2 does not declare bulk BEOL or interconnect roles; "
-            "gsim supplies this reviewed overlay (gsim#230). Upstream it into "
-            "the PDK when available."
+            "gsim supplies a legacy-equivalent -2 um/sio2 modelling overlay, "
+            "not PDK-declared geometry or material (gsim#230)."
         ),
     )
 

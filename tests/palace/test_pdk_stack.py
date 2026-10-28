@@ -81,6 +81,29 @@ def test_ihp_overlay_is_applied_by_default() -> None:
 
 
 @pytest.mark.usefixtures("_ihp_active")
+def test_palace_can_disable_pdk_overlay() -> None:
+    sim = DrivenSim()
+    sim.set_stack(pdk_authoritative=True, use_pdk_overlay=False)
+    sim.set_airbox(margin_x=1, margin_y=1, z_above=1, z_below=1)
+    stack = sim._resolve_stack()
+    assert stack.simulation.get("pdk_overlay") is None
+    assert stack.dielectrics == []
+
+    with pytest.raises(ValueError, match="requires pdk_authoritative"):
+        sim.set_stack(use_pdk_overlay=False)
+
+
+@pytest.mark.usefixtures("_ihp_active")
+def test_canonical_material_override_reaches_alias_tokens() -> None:
+    sim = DrivenSim()
+    sim.set_stack(pdk_authoritative=True)
+    sim.set_material("aluminum", conductivity=2.5e7)
+    stack = sim._resolve_stack()
+    metal_token = stack.layers["metal1"].material
+    assert stack.materials[metal_token]["conductivity"] == 2.5e7
+
+
+@pytest.mark.usefixtures("_ihp_active")
 def test_overlay_alone_produces_mesh_volumes(tmp_path) -> None:
     """Notebooks only need the flag: the overlay supplies the BEOL/passivation."""
     sim = DrivenSim()
