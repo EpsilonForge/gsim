@@ -1,3 +1,3 @@
-# IHP SG13G2 L2n0 two-port validation audit
+# IHP SG13G2 L2n0 WIP validation audit
 
-See notebook.html for full complex S comparisons of L2n0 and an independent measured L6n2 reference.
+See notebook.html for complete complex S-parameter and differential L/Q comparisons against the measured L2n0 data. The recorded Palace model remains unvalidated.
