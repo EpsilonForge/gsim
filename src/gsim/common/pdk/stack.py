@@ -388,11 +388,36 @@ def resolve_layer_stack(
                 layers[key] = replace(layers[key], layer_type=overlay_role)
         notes.append(f"Applied PDK stack overlay {overlay.name!r}: {overlay.note}")
 
-    merged_dielectrics: dict[str, Mapping[str, Any]] = {
-        d["name"]: d for d in (overlay.dielectrics if overlay else ())
-    }
-    for dielectric in dielectrics or ():
-        merged_dielectrics[dielectric["name"]] = dielectric
+    explicit_dielectrics = list(dielectrics or ())
+    # Caller regions take precedence by z-extent as well as by name. A caller
+    # may name a replacement "bulk" while the overlay calls it "ild".
+    remaining_overlay: list[Mapping[str, Any]] = []
+    for region in overlay.dielectrics if overlay else ():
+        if any(
+            str(explicit["name"]) == str(region["name"])
+            for explicit in explicit_dielectrics
+        ):
+            continue
+        fragments = [(float(region["zmin"]), float(region["zmax"]))]
+        for explicit in explicit_dielectrics:
+            lo, hi = float(explicit["zmin"]), float(explicit["zmax"])
+            fragments = [
+                segment
+                for a, b in fragments
+                for segment in ((a, min(b, lo)), (max(a, hi), b))
+                if segment[1] - segment[0] > 1e-9
+            ]
+        for index, (lo, hi) in enumerate(fragments):
+            name = str(region["name"])
+            remaining_overlay.append(
+                {
+                    **region,
+                    "name": f"{name}_overlay_{index}" if len(fragments) > 1 else name,
+                    "zmin": lo,
+                    "zmax": hi,
+                }
+            )
+    merged_dielectrics = [*remaining_overlay, *explicit_dielectrics]
 
     drawn_layers = [layer for layer in layers.values() if layer.drawn]
     undrawn_layers = [layer for layer in layers.values() if not layer.drawn]
@@ -404,7 +429,7 @@ def resolve_layer_stack(
         )
 
     resolved_dielectrics = _resolve_dielectrics(
-        list(merged_dielectrics.values()), material_cards=material_cards
+        merged_dielectrics, material_cards=material_cards
     )
     # Palace (and other backends) look material properties up by the material
     # token written on each dielectric region.  A caller can legitimately use a
