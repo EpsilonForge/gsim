@@ -362,8 +362,9 @@ class LayerStackEntry(BaseModel):
     mesh_order: int | None = Field(
         default=None,
         description=(
-            "PDK-authoritative mesh order. Used to document/order overlapping "
-            "physical layers; None for legacy stacks."
+            "PDK overlap priority: lower values win. Equal values retain input "
+            "order; Meep's last object wins ties. None preserves legacy relative "
+            "order and precedes explicitly ranked layers."
         ),
     )
 
