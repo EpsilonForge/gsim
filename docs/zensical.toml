@@ -55,6 +55,11 @@ site_url = "https://gdsfactory.com/gsim"
 repo_url = "https://gdsfactory.com/"
 repo_name = "gdsfactory.com"
 copyright = "Copyright &copy; 2025 GDSFactory"
+# Render the \(...\) / \[...\] spans that pymdownx.arithmatex emits.
+extra_javascript = [
+  "javascripts/mathjax.js",
+  "https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"
+]
 
 [project.plugins.search]
 
