@@ -15,6 +15,7 @@ from scripts.list_docs_notebooks import (
 
 EXPECTED_NOTEBOOKS = [
     "nbs/fdtd_mmi_gpdk.ipynb",
+    "nbs/fdtd_focusing_grating_coupler_gpdk.ipynb",
     "nbs/fdtd_directional_coupler.ipynb",
     "nbs/fdtd_waveguide_crossing.ipynb",
     "nbs/fdtd_broadband_directional_coupler.ipynb",
@@ -35,7 +36,10 @@ EXPECTED_NOTEBOOKS = [
     "nbs/palace_cpw_via.ipynb",
     "nbs/palace_cpw_fields.ipynb",
     "nbs/palace_cpw_deembedding.ipynb",
+    "nbs/palace_terminal_waveport.ipynb",
+    "nbs/palace_terminal_waveport_gssg.ipynb",
     "nbs/tcad_pn_junction.ipynb",
+    "nbs/tcad_twmzm.ipynb",
 ]
 
 

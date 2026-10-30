@@ -53,7 +53,8 @@ if TYPE_CHECKING:
 __all__ = ["BoundaryModeSim", "ModePath"]
 
 #: Where a local Palace run writes its tables, under the simulation's
-#: output directory.
+#: output directory, for the default model name; :attr:`BoundaryModeSim.run_dir`
+#: follows the name ``mesh()`` was given.
 RUN_SUBDIR = Path("output") / "palace"
 
 
@@ -151,6 +152,15 @@ class BoundaryModeSim(_PalaceSimBase):
     #: domain, making the mode solve a shielded one. Off, Palace's own
     #: default for an unconditioned outer boundary applies, which is PMC.
     metallic_boundaries: bool = False
+    #: What the finite-conductivity conductor surfaces of the 2D mesh are in
+    #: the eigenproblem. ``"conductivity"`` (default) keeps them as Palace's
+    #: Robin surface-impedance condition, so the modes are lossy and their
+    #: ``n_eff`` is complex and frequency dependent. ``"pec"`` writes the same
+    #: attributes under ``Boundaries.PEC`` instead, which is what the 3D wave-port
+    #: eigenproblem does with them (``waveport_boundary="pec"``): use it for the
+    #: modes that are to be compared with, or put into the gauge of, Palace's port
+    #: modes. Nothing else of the configuration changes.
+    conductor_boundary: Literal["conductivity", "pec"] = "conductivity"
 
     @property
     def boundary_mode(self) -> BoundaryModeConfig:
@@ -374,6 +384,10 @@ class BoundaryModeSim(_PalaceSimBase):
         """A wave port is a 3D excitation; refused here."""
         raise self._no_ports("wave ports")
 
+    def add_multimode_wave_port(self, *_args: Any, **_kwargs: Any) -> None:
+        """A multimode wave port is a 3D excitation; refused here."""
+        raise self._no_ports("wave ports")
+
     def add_terminal(self, *_args: Any, **_kwargs: Any) -> None:
         """A terminal belongs to an electrostatic solve; refused here."""
         raise self._no_ports("terminals")
@@ -412,9 +426,7 @@ class BoundaryModeSim(_PalaceSimBase):
         Raises:
             ValueError: When no output directory is set.
         """
-        if self._output_dir is None:
-            raise ValueError("Output directory not set. Call set_output_dir() first.")
-        return Path(self._output_dir) / RUN_SUBDIR
+        return self._postpro_dir()
 
     @property
     def last_run_files(self) -> dict[str, Path]:

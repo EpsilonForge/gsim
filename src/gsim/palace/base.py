@@ -45,6 +45,8 @@ from gsim.palace.models.results import (
 from gsim.palace.solver_settings import SolverSettingsMixin
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from gdsfactory.component import Component
 
     from gsim.palace.results import PalaceTextResults, SParams
@@ -159,14 +161,13 @@ def _recommend_parallel(
     return max(1, recommended), num_threads
 
 
-def _wrote_solver_output(output_dir: Path) -> bool:
-    """Whether a local run left any solver output under its output dir.
+def _wrote_solver_output(postpro_dir: Path) -> bool:
+    """Whether a local run left any solver output in Palace's output dir.
 
     What separates a dead Palace runtime from a dead solve: a runtime
     that cannot start kills the binary before the solver writes
     anything.
     """
-    postpro_dir = output_dir / "output/palace/"
     if not postpro_dir.is_dir():
         return False
     return any(
@@ -328,6 +329,7 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
         mesh_config: MeshConfig
         simulation_type: Literal["driven", "eigenmode", "electrostatic", "boundarymode"]
         absorbing_boundary: bool
+        absorbing_order: Literal[1, 2]
         _output_dir: Path | None
         _stack_kwargs: dict[str, Any]
         _airbox_config: dict[str, Any]
@@ -383,6 +385,23 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
     def has_mesh(self) -> bool:
         """Whether ``mesh()`` has run and left a mesh to read."""
         return self._last_mesh_result is not None
+
+    def _model_name(self) -> str:
+        """The base name mesh() gave the mesh file and Palace's output dir."""
+        result = self._last_mesh_result
+        return result.model_name if result is not None else "palace"
+
+    def _postpro_dir(self) -> Path:
+        """Where a local run's Palace tables land.
+
+        Raises:
+            ValueError: When no output directory is set.
+        """
+        from gsim.palace.mesh.config_generator import output_subdir
+
+        if self._output_dir is None:
+            raise ValueError("Output directory not set. Call set_output_dir() first.")
+        return Path(self._output_dir) / output_subdir(self._model_name())
 
     def _run_context(self) -> str:
         """What was being run, named in the first line of an abort report."""
@@ -454,9 +473,13 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
         yaml_path: str | Path | None = None,
         air_above: float | None = None,
         air_below: float | None = None,
-        substrate_thickness: float = 2.0,
+        substrate_thickness: float | None = None,
         include_substrate: bool = False,
         add_oxide_dielectric: bool = True,
+        pdk_authoritative: bool = False,
+        dielectrics: list[dict[str, Any]] | None = None,
+        role_overrides: dict[str, str] | None = None,
+        use_pdk_overlay: bool = True,
         **kwargs,
     ) -> None:
         """Configure the layer stack.
@@ -480,13 +503,62 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             yaml_path: Path to custom YAML stack file.
             air_above: Deprecated and ignored. Use set_airbox().
             air_below: Deprecated and ignored. Use set_airbox().
-            substrate_thickness: Thickness below z=0 in um.
-            include_substrate: Include lossy silicon substrate.
-            add_oxide_dielectric: Add synthetic oxide background dielectric.
+            substrate_thickness: Depth below ``z=0`` in um (2.0 when omitted).
+                It only matters where something is built from it: the
+                synthetic oxide fill (``include_substrate=False`` with
+                ``add_oxide_dielectric=True``) or the silicon substrate
+                (``include_substrate=True``; a stack with shaped (photonic)
+                dielectrics keeps the PDK's own substrate depth if that is
+                deeper). With ``include_substrate=False`` and
+                ``add_oxide_dielectric=False`` nothing is built from it, it is
+                ignored, and a warning is logged if it was given.
+            include_substrate: Include lossy silicon substrate (default
+                ``False``). With ``False`` the PDK's substrate layer is left
+                out of the simulation, so changing its thickness in the PDK
+                stack changes neither the mesh nor the config. A warning is
+                logged when the PDK substrate and these settings disagree.
+            add_oxide_dielectric: Add the synthetic oxide background
+                dielectric (default ``True``). When the substrate is omitted
+                this is the region whose bottom is ``-substrate_thickness``.
+                With ``False`` the stack bottom comes from the PDK's own
+                dielectric regions, or from the lowest layer when there are
+                none, not from ``substrate_thickness``.
+            pdk_authoritative: Build directly from the PDK LayerStack without
+                synthetic oxide or substrate; unknown materials raise. Defaults
+                to ``False`` to preserve legacy behavior.
+            dielectrics: Explicit bulk regions with
+                ``name``/``material``/``zmin``/``zmax`` in authoritative mode.
+            role_overrides: Explicit ``{layer_key: role}`` declarations in
+                authoritative mode.
+            use_pdk_overlay: Apply the reviewed per-PDK overlay in authoritative
+                mode. Defaults to ``True``.
             **kwargs: Additional args passed to extract_layer_stack.
+
+        The bottom of the Palace domain is the lowest non-air dielectric
+        region of the resolved stack (the lowest layer when there is no such
+        region) minus ``set_airbox(z_below=...)``. What sets that region:
+
+        * ``include_substrate=True``: the silicon, whose bottom is
+          ``-substrate_thickness`` (or the PDK substrate bottom, if deeper, for
+          stacks with shaped dielectrics).
+        * ``include_substrate=False`` and ``add_oxide_dielectric=True`` (the
+          default): the oxide fill, whose bottom is ``-substrate_thickness``.
+        * ``include_substrate=False`` and ``add_oxide_dielectric=False``: not
+          ``substrate_thickness``; the PDK's dielectric layers and layer
+          extents. Move the bottom with ``z_below`` or the PDK layers.
+
+        With a custom ``LayerStack`` the bottom is whatever its dielectrics
+        say.
 
         Example:
             >>> sim.set_stack(substrate_thickness=2.0)
+            >>> sim.set_stack(
+            ...     pdk_authoritative=True,
+            ...     dielectrics=[
+            ...         {"name": "ild", "material": "sio2", "zmin": -2.0, "zmax": 14.03}
+            ...     ],
+            ...     role_overrides={"via1": "via"},
+            ... )  # PDK-authoritative stack with explicit background/roles
         """
         if stack is not None:
             # Directly use a pre-built LayerStack — skip lazy resolution
@@ -501,15 +573,71 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
                 "z_above=..., z_below=...)."
             )
 
+        if pdk_authoritative:
+            self._warn_on_ignored_legacy_stack_kwargs(
+                yaml_path=yaml_path,
+                substrate_thickness=substrate_thickness,
+                include_substrate=include_substrate,
+                add_oxide_dielectric=add_oxide_dielectric,
+                extra_kwargs=kwargs,
+            )
+        elif not use_pdk_overlay:
+            raise ValueError("use_pdk_overlay=False requires pdk_authoritative=True")
+
         self._stack_kwargs = {
             "yaml_path": yaml_path,
-            "substrate_thickness": substrate_thickness,
             "include_substrate": include_substrate,
             "add_oxide_dielectric": add_oxide_dielectric,
+            "pdk_authoritative": pdk_authoritative,
+            "dielectrics": dielectrics,
+            "role_overrides": role_overrides,
+            "use_pdk_overlay": use_pdk_overlay,
             **kwargs,
         }
+        # Left out when unset so the stack builder can tell the 2.0 um default
+        # from a value the user chose, and warn only about the former.
+        if substrate_thickness is not None:
+            self._stack_kwargs["substrate_thickness"] = substrate_thickness
         # Stack will be resolved lazily during mesh() or simulate()
         self.stack = None
+
+    def _warn_on_ignored_legacy_stack_kwargs(
+        self,
+        *,
+        yaml_path: str | Path | None,
+        substrate_thickness: float | None,
+        include_substrate: bool,
+        add_oxide_dielectric: bool,
+        extra_kwargs: dict[str, Any],
+    ) -> None:
+        """Raise/warn when legacy (inferred-stack) kwargs cannot apply.
+
+        With ``pdk_authoritative=True`` the PDK LayerStack is used verbatim, so
+        the legacy extractor tuning is meaningless.  Passing it silently would
+        be a trap (gsim#230 review), so reject the mutually-exclusive options
+        and warn about the rest.
+        """
+        if yaml_path is not None:
+            raise ValueError(
+                "set_stack(pdk_authoritative=True) resolves the active PDK "
+                "LayerStack directly and cannot be combined with yaml_path."
+            )
+
+        ignored: list[str] = []
+        if substrate_thickness is not None:
+            ignored.append(f"substrate_thickness={substrate_thickness!r}")
+        if include_substrate:
+            ignored.append("include_substrate=True")
+        if not add_oxide_dielectric:
+            ignored.append("add_oxide_dielectric=False")
+        ignored.extend(f"{key}={value!r}" for key, value in extra_kwargs.items())
+        if ignored:
+            raise ValueError(
+                "set_stack(pdk_authoritative=True) ignores legacy stack "
+                f"options ({', '.join(sorted(ignored))}); they only apply to "
+                "the inferred legacy extractor. Remove them or use explicit "
+                "dielectrics=[...]/role_overrides={...} instead."
+            )
 
     def set_airbox(
         self,
@@ -546,7 +674,14 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             z_above: Airbox extension above the stack top (um).
                 Defaults to ``0.0`` when omitted.
             z_below: Airbox extension below the stack bottom (um).
-                Defaults to ``0.0`` when omitted.
+                Defaults to ``0.0`` when omitted. The stack bottom is the
+                lowest dielectric region: the silicon substrate with
+                ``set_stack(include_substrate=True)``, otherwise the oxide
+                bottom at ``-substrate_thickness``. With
+                ``add_oxide_dielectric=False`` there is no such oxide, and the
+                bottom comes from the PDK's remaining dielectric regions or
+                layer extents (``substrate_thickness`` is ignored). A
+                substrate layer left out of the stack does not move it.
             material: Background material name for the padded region
                 (default ``"air"``).
         """
@@ -577,6 +712,47 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             "z_below": zb,
             "material": material,
         }
+
+    def _warn_if_substrate_omitted(self, stack: LayerStack) -> None:
+        """Warn when a substrate layer of the stack cannot move the domain bottom.
+
+        With ``include_substrate=False`` (the default) the PDK's substrate layer
+        is left out of the stack, so a different silicon thickness there gives
+        the same mesh and config. This matters once ``set_airbox(z_below=...)``
+        is used to place the bottom boundary: it is measured from the stack
+        bottom, not from the silicon. That is the oxide bottom
+        (``-substrate_thickness``), or, with ``add_oxide_dielectric=False``,
+        the lowest PDK dielectric region or layer extent.
+        """
+        omitted = getattr(stack, "omitted_substrate_layers", None)
+        z_below = (self._airbox_config or {}).get("z_below") or 0.0
+        if not omitted or z_below <= 0:
+            return
+        from gsim.palace.mesh.geometry import _resolve_stack_z_extent
+
+        z_bottom, _ = _resolve_stack_z_extent(stack, True)
+        if (stack.simulation or {}).get("add_oxide_dielectric", True):
+            move_hint = "substrate_thickness / z_below"
+        else:
+            move_hint = (
+                "z_below or the PDK dielectric layers (substrate_thickness "
+                "has no effect with add_oxide_dielectric=False)"
+            )
+        layers = ", ".join(
+            f"'{d['name']}' ({d['thickness']:g} um, z={d['zmin']:g} to {d['zmax']:g})"
+            for d in omitted
+        )
+        logger.warning(
+            "The stack's substrate layer %s is not part of the domain because "
+            "include_substrate=False, so its thickness does not move the domain "
+            "bottom. The bottom is z=%g um (stack bottom) minus "
+            "set_airbox(z_below=%g). Use set_stack(include_substrate=True) to "
+            "mesh the substrate, or set %s to move the bottom.",
+            layers,
+            z_bottom,
+            z_below,
+            move_hint,
+        )
 
     def _resolve_domain_margins(self, mesh_config) -> tuple[float, float]:
         """Lateral margins for the mesh domain, excluding the airbox expansion.
@@ -918,6 +1094,81 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
                 self.stack.materials[name] = props.to_dict()
             return self.stack
 
+        # PDK-authoritative path (gsim#230): build directly from the PDK
+        # LayerStack, with no synthetic geometry or silent material fallbacks.
+        # Read (do not pop) these options: if resolution raises, a caller that
+        # follows the error's advice (e.g. calls set_airbox() and retries) must
+        # still resolve through the authoritative path.
+        dielectrics = self._stack_kwargs.get("dielectrics")
+        role_overrides = self._stack_kwargs.get("role_overrides")
+        pdk_authoritative = bool(self._stack_kwargs.get("pdk_authoritative", False))
+        if pdk_authoritative:
+            from gsim.common.pdk import resolve_layer_stack
+            from gsim.palace.stack import build_palace_layer_stack
+
+            resolved = resolve_layer_stack(
+                self.component,
+                dielectrics=dielectrics,
+                role_overrides=role_overrides,
+                use_pdk_overlay=bool(self._stack_kwargs.get("use_pdk_overlay", True)),
+            )
+            canonical = build_palace_layer_stack(resolved)
+
+            # Apply material overrides to both canonical names and PDK tokens
+            # that resolve to them. Layers retain their original material token.
+            from gsim.common.stack.materials import MATERIAL_ALIASES
+
+            for name, props in self.materials.items():
+                target = MATERIAL_ALIASES.get(name.lower(), name.lower())
+                for token in canonical.materials:
+                    if MATERIAL_ALIASES.get(token.lower(), token.lower()) == target:
+                        canonical.materials[token] = props.to_dict()
+                canonical.materials[name] = props.to_dict()
+
+            # Keep stack free of synthetic air regions; Palace airboxes are
+            # generated explicitly from set_airbox().
+            canonical.dielectrics = [
+                d
+                for d in canonical.dielectrics
+                if str(d.get("material", "")).lower() != "air"
+            ]
+
+            has_airbox = bool(getattr(self, "_airbox_config", None))
+            if not canonical.dielectrics and not has_airbox:
+                raise ValueError(
+                    "PDK-authoritative stack has no bulk dielectric region and "
+                    "no airbox is configured, so Palace would fail with "
+                    "'No dielectric volumes in mesh'. Pass "
+                    "dielectrics=[...] to set_stack() or call set_airbox()."
+                )
+            if not canonical.dielectrics:
+                logger.warning(
+                    "PDK-authoritative stack has no bulk dielectric region; the "
+                    "domain background will be air only. Pass dielectrics=[...] "
+                    "to set_stack() to model the BEOL/cladding."
+                )
+
+            self._stack_kwargs["pdk_authoritative"] = True
+            self._stack_kwargs["dielectrics"] = dielectrics
+            self._stack_kwargs["role_overrides"] = role_overrides
+            self._stack_kwargs["use_pdk_overlay"] = bool(
+                self._stack_kwargs.get("use_pdk_overlay", True)
+            )
+            self.stack = canonical
+            return canonical
+
+        # Legacy path: the authoritative-only options must not reach the
+        # inferred extractor.
+        dielectrics = self._stack_kwargs.pop("dielectrics", None)
+        role_overrides = self._stack_kwargs.pop("role_overrides", None)
+        self._stack_kwargs.pop("pdk_authoritative", None)
+        self._stack_kwargs.pop("use_pdk_overlay", None)
+        if dielectrics or role_overrides:
+            logger.warning(
+                "set_stack(dielectrics=/role_overrides=) only applies with "
+                "pdk_authoritative=True; ignoring them."
+            )
+
         from gsim.common.stack import get_stack
 
         yaml_path = self._stack_kwargs.pop("yaml_path", None)
@@ -1073,6 +1324,7 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
         mesh_config.algorithm_3d = existing_config.algorithm_3d
         mesh_config.threads = existing_config.threads
         mesh_config.surface_threads = existing_config.surface_threads
+        mesh_config.clip_merged_vias = existing_config.clip_merged_vias
 
         # Preserve planar_conductors from sim.mesh_config if not
         # explicitly provided via sim.mesh(planar_conductors=...)
@@ -1232,7 +1484,7 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
         if self._output_dir is None:
             raise ValueError("Output directory not set. Call set_output_dir() first.")
 
-        mesh_path = self._output_dir / "palace.msh"
+        mesh_path = self._output_dir / f"{self._model_name()}.msh"
         if not mesh_path.exists():
             raise ValueError(f"Mesh file not found: {mesh_path}. Call mesh() first.")
 
@@ -1345,6 +1597,8 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
                 for wp in wave_ports
                 if not wp.layer
             )
+            errors.extend(self._multimode_wave_port_errors(wave_ports))
+            errors.extend(self._wave_port_face_errors(wave_ports))
 
         eigenmode = self._get_problem_settings("eigenmode")
         if eigenmode is not None and eigenmode.target is None:
@@ -1421,6 +1675,115 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
     # -------------------------------------------------------------------------
     # Internal helpers
     # -------------------------------------------------------------------------
+
+    def _multimode_wave_port_errors(self, wave_ports: list[Any]) -> list[str]:
+        """Errors that only multimode wave ports can have.
+
+        Two ports on one face would be two surfaces in one place, and Palace
+        refuses two active ports on one attribute; a multimode port puts all
+        its modes on one surface instead, so the second port is refused here.
+        """
+        from gsim.palace.ports.modes import same_face_pairs
+
+        if not any(wp.modes for wp in wave_ports):
+            return []
+        errors: list[str] = []
+        if self.simulation_type != "driven":
+            errors.append(
+                "Multimode wave ports are only supported for driven simulations, "
+                f"not {self.simulation_type!r}."
+            )
+        component = self.geometry.component if self.geometry else None
+        if component is None:
+            return errors
+        by_name = {port.name: port for port in component.ports}
+        faces = [
+            (
+                wp.name,
+                (float(by_name[wp.name].center[0]), float(by_name[wp.name].center[1])),
+                float(by_name[wp.name].orientation or 0.0),
+            )
+            for wp in wave_ports
+            if wp.name in by_name
+        ]
+        errors.extend(
+            f"Wave ports {first!r} and {second!r} are on the same face; give a "
+            "face one wave port and list its modes with modes=..."
+            for first, second in same_face_pairs(faces)
+        )
+        return errors
+
+    def _wave_port_face_errors(self, wave_ports: list[Any]) -> list[str]:
+        """Errors for wave ports whose generated faces overlap.
+
+        The mesher builds one rectangle per wave port: a ``max_size`` port
+        spans the whole side of the domain whatever its centre, margins widen
+        a face. Where two rectangles overlap the boolean pass merges them, one
+        port keeps no surface and ``write_config()`` emits no ``WavePort``
+        entry for it. The rectangles are built here with the mesher's own
+        function. The domain margins are only known at ``mesh()``, so the
+        domain is left unbounded, which does not change which faces overlap.
+        The mesher repeats the check with the real domain.
+        """
+        component = self.geometry.component if self.geometry else None
+        if component is None or len(wave_ports) < 2:
+            return []
+        from gsim.palace.mesh.geometry import (
+            UNBOUNDED_DOMAIN,
+            overlapping_wave_ports,
+            wave_port_overlap_message,
+        )
+        from gsim.palace.ports.config import PalacePort, PortType
+        from gsim.palace.ports.modes import same_face_pairs
+
+        by_name = {port.name: port for port in component.ports}
+        ports = [
+            PalacePort(
+                name=wp.name,
+                port_type=PortType.WAVEPORT,
+                center=(
+                    float(by_name[wp.name].center[0]),
+                    float(by_name[wp.name].center[1]),
+                ),
+                width=float(by_name[wp.name].width),
+                orientation=float(by_name[wp.name].orientation or 0.0),
+                layer=wp.layer,
+                z_margin=wp.z_margin,
+                lateral_margin=wp.lateral_margin,
+                max_size=wp.max_size,
+            )
+            for wp in wave_ports
+            if wp.layer and wp.name in by_name
+        ]
+        if len(ports) < 2:
+            return []
+        # Resolving the stack must not leave a stack behind: set_stack() may
+        # still follow, and mesh() resolves it again.
+        previous = self.stack
+        try:
+            stack = self._resolve_stack()
+        except Exception:
+            return []  # the mesher reports a stack that does not resolve
+        finally:
+            self.stack = previous
+        # A pair on the same face is already reported by the multimode check
+        reported = (
+            {
+                frozenset(pair)
+                for pair in same_face_pairs(
+                    (p.name, p.center, p.orientation) for p in ports
+                )
+            }
+            if any(wp.modes for wp in wave_ports)
+            else set()
+        )
+        return [
+            wave_port_overlap_message(first, second)
+            for first, second in overlapping_wave_ports(
+                ports, stack, domain_bounds=UNBOUNDED_DOMAIN
+            )
+            if frozenset((first, second)) not in reported
+        ]
 
     def _find_gf_port(self, port_name: str):
         """Find a gdsfactory port by name."""
@@ -1560,6 +1923,9 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
                     eigensolver_ksp_tol=port_config.eigensolver_ksp_tol,
                     eigensolver_max_size=port_config.eigensolver_max_size,
                     eigensolver_verbose=port_config.eigensolver_verbose,
+                    modes=port_config.modes,
+                    excite_modes=port_config.excite_modes,
+                    pilot_paths=port_config.pilot_paths,
                 )
 
         # Configure two-terminal ports
@@ -1602,6 +1968,7 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
 
         # Resolve stack
         stack = self._resolve_stack()
+        self._warn_if_substrate_omitted(stack)
         airbox_cfg = self._airbox_config or {}
         domain_margin_x, domain_margin_y = self._resolve_domain_margins(mesh_config)
 
@@ -1638,9 +2005,11 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             planar_conductors=mesh_config.planar_conductors,
             pec_blocks=self._pec_blocks or None,
             absorbing_boundary=self.absorbing_boundary,
+            absorbing_order=self.absorbing_order,
             periodic_axis=periodic_axis,
             symmetry_plane=self._symmetry_planes[0] if self._symmetry_planes else None,
             merge_via_distance=mesh_config.merge_via_distance,
+            clip_merged_vias=mesh_config.clip_merged_vias,
             curve_fit_mode=mesh_config.curve_fit_mode,
             curve_fit_layers=mesh_config.curve_fit_layers,
             curve_fit_tolerance_um=mesh_config.curve_fit_tolerance_um,
@@ -1867,6 +2236,7 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
 
         # Resolve stack
         stack = self._resolve_stack()
+        self._warn_if_substrate_omitted(stack)
 
         # Get ports
         ports = self._get_ports_for_preview(stack)
@@ -1901,10 +2271,12 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
                 planar_conductors=mesh_config.planar_conductors,
                 pec_blocks=self._pec_blocks or None,
                 absorbing_boundary=self.absorbing_boundary,
+                absorbing_order=self.absorbing_order,
                 symmetry_plane=(
                     self._symmetry_planes[0] if self._symmetry_planes else None
                 ),
                 merge_via_distance=mesh_config.merge_via_distance,
+                clip_merged_vias=mesh_config.clip_merged_vias,
                 curve_fit_mode=mesh_config.curve_fit_mode,
                 curve_fit_layers=mesh_config.curve_fit_layers,
                 curve_fit_tolerance_um=mesh_config.curve_fit_tolerance_um,
@@ -1947,6 +2319,7 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
         periodic_axis: str | None = None,
         decimate_tolerance: float | None = None,
         merge_via_distance: float | None = None,
+        clip_merged_vias: bool | None = None,
         curve_fit_mode: Literal["line", "spline", "bspline"] | None = None,
         curve_fit_layers: list[str] | None = None,
         curve_fit_tolerance_um: float | None = None,
@@ -1982,7 +2355,8 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             fmax: Max frequency for mesh sizing (Hz), overrides preset
             planar_conductors: Treat conductors as 2D PEC surfaces
             show_gui: Show gmsh GUI during meshing
-            model_name: Base name for output files
+            model_name: Base name for output files: ``<model_name>.msh`` and
+                ``output/<model_name>``. A plain name, without path separators
             verbose: Print progress messages
             verbosity: Gmsh OCC verbosity level (0=silent, 1-99=increasing)
             auto_size: If True, scale refined_mesh_size down to the smallest
@@ -1999,7 +2373,17 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             merge_via_distance: Max gap (um) between nearby via polygons to
                 merge before extrusion. Pass 0 to disable merging (keep
                 each via as a separate volume). Defaults to the preset's
-                value (typically 2.0 um).
+                value (typically 2.0 um). Merging fills the gaps between
+                the vias, so a dense via array can grow to several times
+                its drawn area; a warning is logged when the area grows
+                by more than 5%.
+            clip_merged_vias: Clip each merged via polygon to the overlap of
+                the conductor layers directly below and above its layer, so
+                merging adds no via area outside the metal. The drawn cuts are
+                always kept, and contacts on substrate or dielectric stay as
+                drawn. Defaults to the value in ``sim.mesh_config`` (False). A
+                slab that lies entirely between two continuous metals is left
+                unchanged; ``merge_via_distance=0`` keeps every cut there.
             curve_fit_mode: Patterned dielectric boundary mode (line/spline/bspline).
             curve_fit_layers: Layer names where spline fitting is applied.
             curve_fit_tolerance_um: Point merge tolerance before fitting.
@@ -2022,17 +2406,20 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             SimulationResult with mesh path
 
         Raises:
-            ValueError: If output_dir not set or configuration is invalid
+            ValueError: If output_dir not set, configuration is invalid, or
+                ``model_name`` is not a plain file name
 
         Example:
             >>> sim.set_output_dir("./sim")
             >>> result = sim.mesh(preset="fine", planar_conductors=True)
             >>> print(f"Mesh saved to: {result.mesh_path}")
         """
+        from gsim.palace.mesh.config_generator import check_model_name
         from gsim.palace.ports import extract_ports
 
         if self._output_dir is None:
             raise ValueError("Output directory not set. Call set_output_dir() first.")
+        check_model_name(model_name)
 
         component = self.geometry.component if self.geometry else None
 
@@ -2073,6 +2460,8 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
 
         if merge_via_distance is not None:
             mesh_config.merge_via_distance = merge_via_distance
+        if clip_merged_vias is not None:
+            mesh_config.clip_merged_vias = clip_merged_vias
 
         # Validate configuration
         validation = self.validate_config()
@@ -2202,6 +2591,8 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             hints["_impedance_boundaries"] = self._impedance_boundaries
         if getattr(self, "metallic_boundaries", False):
             hints["_metallic_boundaries"] = True
+        if getattr(self, "conductor_boundary", "conductivity") == "pec":
+            hints["_conductor_boundary"] = "pec"
 
         # BoundaryMode voltage/impedance postprocessing paths. They do not
         # affect the 2D eigenproblem; the boundary-mode sim declares them.
@@ -2210,6 +2601,12 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             postprocessing = mode_postprocessing()
             if postprocessing:
                 hints["_mode_postprocessing"] = postprocessing
+
+        # The 2D mesh of a cross-section has its own axes; the config
+        # generator writes material tensors in them (_to_section_frame).
+        cross_section = getattr(self, "cross_section", None)
+        if self.simulation_type == "boundarymode" and cross_section is not None:
+            hints["_cross_section_axis"] = cross_section.axis
 
         config_path = gen_write_config(
             mesh_result=self._last_mesh_result,
@@ -2222,6 +2619,7 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             refinement_config=self.refinement,
             boundary_mode_config=self._get_problem_settings("boundary_mode"),
             absorbing_boundary=self.absorbing_boundary,
+            absorbing_order=self.absorbing_order,
             hints=hints,
             electrostatic_config=electrostatic_config,
             terminals=terminals or [],
@@ -2350,19 +2748,17 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             >>> # For DrivenSim: `results` is SParams -> results.s21.db
             >>> # For eigen / electrostatic: `results` is dict[str, Path]
         """
-        import os
-        import shutil
         import subprocess
 
-        # Will hold the bundled library directory when using palace-toolkit-cpu
-        _bundled_lib_dir: Path | None = None
+        from gsim.palace.runtime import local_abort_report, resolve_launch, run_palace
 
         if self._output_dir is None:
             raise ValueError("Output directory not set. Call set_output_dir() first.")
 
         output_dir = Path(self._output_dir)
         config_path = output_dir / "config.json"
-        mesh_path = output_dir / "palace.msh"
+        mesh_path = output_dir / f"{self._model_name()}.msh"
+        postpro_dir = self._postpro_dir()
 
         # Choose safe parallel defaults. SuperLU_DIST's 2D processor grid does
         # not scale on small problems (2D mode analysis at 8-16 ranks hangs),
@@ -2418,310 +2814,36 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
                 f"Mesh file not found: {mesh_path}. Call mesh() first."
             )
 
-        # Auto-discovery when arguments are omitted.
-        search_roots = [Path.cwd(), output_dir, output_dir.parent]
-        dedup_roots: list[Path] = []
-        for root in search_roots:
-            resolved = root.expanduser().resolve()
-            if resolved not in dedup_roots:
-                dedup_roots.append(resolved)
+        launch = resolve_launch(
+            executable=palace_executable,
+            sif=palace_sif_path,
+            use_apptainer=use_apptainer,
+            search_roots=[Path.cwd(), output_dir, output_dir.parent],
+            verbose=verbose,
+        )
 
-        if palace_sif_path is None:
-            palace_sif_path = os.environ.get("PALACE_SIF")
-            if palace_sif_path is None:
-                sif_rel_candidates = [
-                    Path("Palace.sif"),
-                    Path("palace.sif"),
-                    Path("bin/Palace.sif"),
-                    Path("bin/palace.sif"),
-                ]
-                for root in dedup_roots:
-                    for rel in sif_rel_candidates:
-                        candidate = (root / rel).resolve()
-                        if candidate.exists():
-                            palace_sif_path = str(candidate)
-                            if verbose:
-                                logger.info(
-                                    "Auto-discovered Palace SIF: %s", palace_sif_path
-                                )
-                            break
-                    if palace_sif_path is not None:
-                        break
-
-        if palace_executable is None:
-            palace_executable = os.environ.get("PALACE_EXECUTABLE")
-
-        # Prefer a local Palace executable when available, even when a SIF is
-        # configured via PALACE_SIF. This keeps local developer workflows on
-        # native binaries by default.
-        if palace_executable is None:
-            for root in dedup_roots:
-                candidate = (root / "bin" / "palace").resolve()
-                if candidate.exists() and os.access(candidate, os.X_OK):
-                    palace_executable = str(candidate)
-                    if verbose:
-                        logger.info(
-                            "Auto-discovered Palace executable: %s", palace_executable
-                        )
-                    break
-
-        # Track whether ``palace_executable`` is only a last-resort PATH
-        # fallback (rather than a user-supplied path). The bundled/cached
-        # resolver must run first in that case.
-        _path_fallback = False
-        if palace_executable is None and palace_sif_path is None:
-            palace_executable = "palace"
-            _path_fallback = True
-
-        # palace_executable takes precedence for a simpler API.
-        run_with_apptainer = use_apptainer and palace_executable is None
-
-        if palace_executable is not None and use_apptainer and verbose:
-            logger.info(
-                "Using Palace executable (%s); ignoring use_apptainer=True.",
-                palace_executable,
-            )
-
-        # Determine Palace command based on effective execution mode.
-        if run_with_apptainer:
-            # Determine Palace SIF path from environment variable or parameter
-            if palace_sif_path is None:
-                raise ValueError(
-                    "Palace SIF path not specified. Either set PALACE_SIF, pass "
-                    "palace_sif_path, or provide a Palace executable."
-                )
-
-            sif_path = Path(palace_sif_path).expanduser().resolve()
-
-            if not sif_path.exists():
-                raise FileNotFoundError(
-                    f"Palace SIF file not found: {sif_path}. "
-                    "Install Palace via Apptainer or provide correct path."
-                )
-
-            # Check that apptainer is available
-            if shutil.which("apptainer") is None:
-                raise RuntimeError(
-                    "Apptainer not found. Install Apptainer to run local simulations "
-                    "with use_apptainer=True."
-                )
-
-            # Build Apptainer command
-            cmd = [
-                "apptainer",
-                "run",
-                str(sif_path),
-                "-np",
-                str(num_processes),
-            ]
-
-        else:
-            # Direct Palace execution
-            resolved_exe: str | Path | None = None
-            lib_dir: Path | None = None
-
-            if palace_executable is not None and not _path_fallback:
-                # Explicit parameter — resolve to absolute path
-                resolved_exe = Path(palace_executable).expanduser().resolve()
-            else:
-                # Check PALACE_EXECUTABLE env var
-                env_exe = os.environ.get("PALACE_EXECUTABLE", "").strip()
-                if env_exe:
-                    resolved_exe = env_exe
-                    lib_dir = None
-                else:
-                    # Try bundled resolver (palace-toolkit-cpu, PALACE_BIN, PATH)
-                    from gsim.palace.runtime import (
-                        resolve_palace_binary,
-                        resolve_palace_library_dir,
-                    )
-
-                    bundled = resolve_palace_binary()
-                    if bundled is not None:
-                        resolved_exe = bundled
-                        lib_dir = resolve_palace_library_dir()
-                        if verbose:
-                            from gsim.palace.runtime import (
-                                _cached_binary as _cached,
-                            )
-                            from gsim.palace.runtime import (
-                                _palace_cpu_available as _cpu_avail,
-                            )
-                            from gsim.palace.runtime import (
-                                _palace_toolkit_available as _toolkit_avail,
-                            )
-
-                            source = (
-                                "palace-toolkit-cpu"
-                                if _cpu_avail()
-                                else "gsim cached runtime"
-                                if _cached() is not None
-                                else "palace-toolkit"
-                                if _toolkit_avail()
-                                else "PALACE_BIN / PATH"
-                            )
-                            logger.info(
-                                "Palace binary: %s  (source: %s)",
-                                bundled,
-                                source,
-                            )
-                            try:
-                                import subprocess as _sp
-
-                                ver = _sp.run(  # noqa: S603
-                                    [str(bundled), "--version"],
-                                    capture_output=True,
-                                    text=True,
-                                    timeout=10,
-                                    check=False,
-                                )
-                                if ver.returncode == 0:
-                                    logger.info(ver.stdout.strip())
-                            except Exception:
-                                pass
-                    else:
-                        # Last resort: "palace" in PATH
-                        resolved_exe = "palace"
-
-            if resolved_exe is None:
-                raise FileNotFoundError(
-                    "Palace executable not found. Set PALACE_BIN or "
-                    "PALACE_EXECUTABLE, install a Palace binary, or let gsim "
-                    "auto-download the prebuilt CPU runtime (Linux x86_64)."
-                )
-
-            exe_path = Path(resolved_exe)
-
-            # Check if executable exists (resolve PATH if needed)
-            if not exe_path.exists():
-                resolved = shutil.which(str(exe_path))
-                if resolved is None:
-                    raise FileNotFoundError(
-                        f"Palace executable not found: {exe_path}. "
-                        "Install Palace directly or provide correct path via "
-                        "palace_executable, or let gsim auto-download the "
-                        "prebuilt CPU runtime (Linux x86_64)."
-                    )
-                exe_path = Path(resolved)
-
-            if not os.access(exe_path, os.X_OK):
-                raise FileNotFoundError(
-                    f"Palace executable is not executable: {exe_path}. "
-                    "Update file permissions or provide a valid executable path."
-                )
-
-            cmd = [
-                str(exe_path),
-                "-np",
-                str(num_processes),
-            ]
-            # Propagate bundled lib dir out of the else scope for env setup
-            # (lib_dir is defined only inside this else branch)
-            _bundled_lib_dir = lib_dir
-
-        # Prepare environment with LD_LIBRARY_PATH for bundled Palace binary
-        _run_env = os.environ.copy()
-        if not use_apptainer and _bundled_lib_dir is not None:
-            prior = _run_env.get("LD_LIBRARY_PATH", "")
-            _run_env["LD_LIBRARY_PATH"] = (
-                f"{_bundled_lib_dir}:{prior}" if prior else str(_bundled_lib_dir)
-            )
-            logger.debug(
-                "Injected LD_LIBRARY_PATH for bundled Palace: %s",
-                _run_env["LD_LIBRARY_PATH"],
-            )
-
-        if num_threads is not None:
-            cmd.extend(["-nt", str(num_threads)])
-        cmd.extend(["config.json"])
-
-        def _emit_info(msg: str, *args: object) -> None:
+        def _emit_info(msg: str) -> None:
             if logger.isEnabledFor(logging.INFO):
-                logger.info(msg, *args)
+                logger.info("%s", msg)
             else:
-                logger.warning(msg, *args)
+                logger.warning("%s", msg)
 
-        def _emit_warning(msg: str, *args: object) -> None:
-            logger.warning(msg, *args)
-
-        if verbose:
-            if run_with_apptainer:
-                _emit_info("Running Palace simulation in %s via Apptainer", output_dir)
-            else:
-                _emit_info("Running Palace simulation in %s directly", output_dir)
-            _emit_info("Command: %s", " ".join(cmd))
-            _emit_info("Processes: %d", num_processes)
-
-        # Run simulation. Both paths report a failure the same way, so
-        # the one that streams records it rather than raising inside the
-        # block whose handler would catch it.
-        failure: subprocess.CalledProcessError | None = None
         try:
-            if verbose:
-                streamed_lines: list[str] = []
-                with subprocess.Popen(  # noqa: S603
-                    cmd,
-                    cwd=output_dir,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    env=_run_env,
-                ) as process:
-                    if process.stdout is not None:
-                        for line in process.stdout:
-                            line = line.rstrip("\n")
-                            streamed_lines.append(line)
-                            if line:
-                                _emit_info(line)
-                    returncode = process.wait()
-
-                if returncode != 0:
-                    # The output was streamed as it arrived, so a report
-                    # quoting the decisive line loses nothing a user has
-                    # not already seen.
-                    failure = subprocess.CalledProcessError(
-                        returncode,
-                        cmd,
-                        output="",
-                        stderr="\n".join(streamed_lines[-200:]),
-                    )
-            else:
-                result = subprocess.run(  # noqa: S603
-                    cmd,
-                    cwd=output_dir,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    env=_run_env,
-                )
-                if result.stdout:
-                    logger.debug(result.stdout)
-                if result.stderr:
-                    _emit_warning(result.stderr)
-        except FileNotFoundError as e:
-            if run_with_apptainer:
-                raise RuntimeError(
-                    "Apptainer not found. Install Apptainer to run local simulations "
-                    "with use_apptainer=True."
-                ) from e
-            raise RuntimeError(
-                "Palace executable not found. Install Palace directly or provide "
-                "correct path via palace_executable parameter, "
-                "or set PALACE_EXECUTABLE environment variable."
-            ) from e
-        except subprocess.CalledProcessError as err:
-            failure = err
-
-        if failure is not None:
-            from gsim.palace.runtime import binary_that_ran, local_abort_report
-
+            run_palace(
+                launch,
+                cwd=output_dir,
+                num_processes=num_processes,
+                num_threads=num_threads,
+                verbose=verbose,
+                emit=_emit_info,
+            )
+        except subprocess.CalledProcessError as failure:
             raise RuntimeError(
                 local_abort_report(
                     failure,
-                    binary=binary_that_ran(failure, palace_executable),
+                    binary=launch.binary,
                     output_dir=output_dir,
-                    wrote_output=_wrote_solver_output(output_dir),
+                    wrote_output=_wrote_solver_output(postpro_dir),
                     during=self._run_context(),
                     remedy=remedy,
                 )
@@ -2729,11 +2851,7 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
 
         if verbose:
             _emit_info("Simulation completed successfully")
-
-        postpro_dir = output_dir / "output/palace/"
-
-        if verbose:
-            _emit_info("Results saved to %s", postpro_dir)
+            _emit_info(f"Results saved to {postpro_dir}")
 
         files = {
             file.name: file
@@ -2995,6 +3113,120 @@ class PalaceSimMixin(CloudJobMixin, SolverSettingsMixin):
             )
         )
 
+    def add_multimode_wave_port(
+        self,
+        name: str,
+        *,
+        modes: Sequence[int],
+        layer: str | None = None,
+        active_mode: int = 1,
+        excite: Literal["active", "all"] = "active",
+        pilot_paths: Mapping[int, Sequence[Sequence[float]]] | None = None,
+        z_margin: float = 0.0,
+        lateral_margin: float = 0.0,
+        max_size: bool = False,
+        excited: bool = True,
+        offset: float = 0.0,
+        eigensolver_type: Literal["Default", "SLEPc", "ARPACK"] | None = None,
+        eigensolver_tol: float | None = None,
+        eigensolver_ksp_tol: float | None = None,
+        eigensolver_max_size: int | None = None,
+        eigensolver_verbose: int | None = None,
+    ) -> None:
+        """Add a wave port that follows several modes on one port face.
+
+        The port keeps one boundary surface. Palace gets one ``WavePort``
+        entry per mode on that surface: the entry of ``active_mode`` keeps the
+        port's own index and terminates the face, and every other mode is an
+        observation-only entry (``"Active": false``) with an index after all
+        the ports, so the active entry always has the lowest index of its
+        face, which Palace requires. Every entry solves its own 2D port
+        mode, and every entry is measured, so ``port-S.csv`` gets a column per
+        entry and excitation. The map from Palace index to (port, mode,
+        active) is written next to ``config.json`` as ``port_modes.json``.
+
+        Only the active entry loads the face. A wave that arrives in another
+        mode is not matched there, so the S-parameters of the observed modes
+        carry a reflection error of the order of the relative difference of
+        the wave numbers. The error is zero for the active mode. To get every
+        mode with the active-mode accuracy, run once per mode with that mode
+        as ``active_mode`` and use only the columns of the active entries.
+
+        Args:
+            name: Port name (must match a component port at the signal center).
+            modes: The Palace mode numbers (1-based) to follow on this face,
+                for example ``(1, 2, 3)``. Must contain ``active_mode``.
+            layer: Target conductor layer.
+            active_mode: The mode that terminates the face.
+            excite: ``"active"`` excites only the active entry (one excitation
+                per port); ``"all"`` excites every entry, which gives a column
+                per mode but excites the unmatched modes with an amplitude
+                that is off by the same mismatch.
+            pilot_paths: Optional ``{mode: points}``. Each path is an open
+                polyline of ``(x, y, z)`` points in um across the face, from
+                the signal (high-potential) conductor to the reference, and
+                becomes that entry's ``VoltagePath``: Palace flips the mode so
+                the line integral of ``E`` along it is positive, which pins the
+                sign of the mode, and writes the voltage to ``port-V.csv``.
+            z_margin: Margin in z direction.
+            lateral_margin: Margin in x/y directions.
+            max_size: Fill the full simulation domain boundary on that side.
+            excited: Whether the port is excited at all.
+            offset: Offset distance used for scattering parameter de-embedding.
+            eigensolver_type: Palace SolverType of the 2D mode eigenproblem.
+            eigensolver_tol: Palace EigenTol of the mode solve.
+            eigensolver_ksp_tol: Palace KSPTol of the mode solve.
+            eigensolver_max_size: Palace MaxSize of the mode solve.
+            eigensolver_verbose: Palace Verbose level of the mode solve.
+
+        Raises:
+            ValueError: If this is not a driven simulation, or the modes,
+                active mode or pilot paths are inconsistent.
+
+        Example:
+            >>> sim.add_multimode_wave_port(
+            ...     "o1",
+            ...     layer="metal3",
+            ...     modes=(1, 2, 3),
+            ...     active_mode=1,
+            ...     max_size=True,
+            ... )
+        """
+        if self.simulation_type != "driven":
+            raise ValueError(
+                "A multimode wave port is a driven-simulation feature, not "
+                f"{self.simulation_type!r}."
+            )
+        paths = (
+            {
+                int(mode): [[float(c) for c in point] for point in path]
+                for mode, path in pilot_paths.items()
+            }
+            if pilot_paths
+            else None
+        )
+        config = WavePortConfig(
+            name=name,
+            layer=layer,
+            z_margin=z_margin,
+            lateral_margin=lateral_margin,
+            max_size=max_size,
+            mode=active_mode,
+            modes=tuple(int(m) for m in modes),
+            active_mode=active_mode,
+            excite_modes=excite,
+            pilot_paths=paths,
+            excited=excited,
+            offset=offset,
+            eigensolver_type=eigensolver_type,
+            eigensolver_tol=eigensolver_tol,
+            eigensolver_ksp_tol=eigensolver_ksp_tol,
+            eigensolver_max_size=eigensolver_max_size,
+            eigensolver_verbose=eigensolver_verbose,
+        )
+        self.wave_ports = [p for p in self.wave_ports if p.name != name]
+        self.wave_ports.append(config)
+
 
 class _PalaceSimBase(PalaceSimMixin, BaseModel):
     """The state every Palace simulation holds, declared once.
@@ -3017,6 +3249,17 @@ class _PalaceSimBase(PalaceSimMixin, BaseModel):
     # Defaults set by each problem class
     simulation_type: Literal["driven", "eigenmode", "electrostatic", "boundarymode"]
     absorbing_boundary: bool
+    absorbing_order: Literal[1, 2] = Field(
+        default=2,
+        description=(
+            "Order of the absorbing boundary condition on the outer walls "
+            "(Palace ``Boundaries.Absorbing.Order``). Palace releases without "
+            "awslabs/palace#1070 apply the second-order term with the wrong "
+            "sign, which makes it reflect more than first order for oblique "
+            "outgoing waves. Prefer 1 for radiating structures until the "
+            "Palace in use includes that fix."
+        ),
+    )
     mesh_config: MeshConfig = Field(default_factory=MeshConfig.default)
 
     # Stack configuration (stored as kwargs until resolved)
